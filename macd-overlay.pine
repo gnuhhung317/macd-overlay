@@ -1,0 +1,12 @@
+//@version=2
+study("MACD Overlay", overlay=true, precision=2)
+fa=input(12, title="FAST")
+sa=input(26, title="SLOW")
+macd=ema(close, sa-fa)
+sig=input(9, title="SIGNAL")
+signal=sma(macd, sig)
+p1=plot(macd, color=iff(macd>macd[1],green, iff(macd<macd[1], red, black)), linewidth=2, title="MACD", style=line, editable=true)
+p2=plot(signal, color=iff(signal>signal[1],green, iff(signal<signal[1],red,black)), style=line, linewidth=2, title="SIGNAL")
+fill(p1, p2, color= macd > signal ? green : red, title="FILL", transp=50)
+sma=sma(close, input(89, title="SMA"))
+plot(sma, color=iff(sma>sma[1], green, iff(sma<sma[1], red, black)), style=line, linewidth=2, title="SMA")

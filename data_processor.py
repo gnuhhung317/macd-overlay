@@ -1,0 +1,328 @@
+import pandas as pd
+import numpy as np
+from binance.client import Client
+from datetime import datetime, timedelta
+import time
+
+
+class BinanceDataProcessor:
+    """
+    Module xử lý dữ liệu từ Binance và tính toán MACD
+    """
+    
+    def __init__(self, api_key="", api_secret="", fast_period=12, slow_period=26, signal_period=9):
+        """
+        Khởi tạo data processor
+        
+        Args:
+            api_key (str): Binance API key (để trống cho public data)
+            api_secret (str): Binance API secret (để trống cho public data)
+            fast_period (int): Fast EMA period
+            slow_period (int): Slow EMA period
+            signal_period (int): Signal SMA period
+        """
+        self.client = Client(api_key, api_secret)
+        self.fast_period = fast_period
+        self.slow_period = slow_period
+        self.signal_period = signal_period
+        
+    def _get_interval_ms(self, interval):
+        """
+        Chuyển interval string sang milliseconds
+        
+        Args:
+            interval (str): Interval (1m, 5m, 15m, 30m, 1h, 4h, 1d, etc.)
+            
+        Returns:
+            int: Milliseconds
+        """
+        interval_map = {
+            '1m': 60 * 1000,
+            '3m': 3 * 60 * 1000,
+            '5m': 5 * 60 * 1000,
+            '15m': 15 * 60 * 1000,
+            '30m': 30 * 60 * 1000,
+            '1h': 60 * 60 * 1000,
+            '2h': 2 * 60 * 60 * 1000,
+            '4h': 4 * 60 * 60 * 1000,
+            '6h': 6 * 60 * 60 * 1000,
+            '8h': 8 * 60 * 60 * 1000,
+            '12h': 12 * 60 * 60 * 1000,
+            '1d': 24 * 60 * 60 * 1000,
+            '3d': 3 * 24 * 60 * 60 * 1000,
+            '1w': 7 * 24 * 60 * 60 * 1000,
+            '1M': 30 * 24 * 60 * 60 * 1000,
+        }
+        return interval_map.get(interval, 60 * 60 * 1000)  # default 1h
+    
+    def get_historical_data(self, symbol='BTCUSDT', interval='1h', start_date=None, end_date=None):
+        """
+        Lấy dữ liệu lịch sử từ Binance với batch processing
+        Tự động fetch nhiều lần nếu vượt quá giới hạn 1500 nến/request
+        
+        Args:
+            symbol (str): Trading pair (e.g., BTCUSDT)
+            interval (str): Kline interval (1m, 5m, 15m, 30m, 1h, 4h, 1d)
+            start_date (str): Start date (e.g., '2024-01-01', '1 year ago UTC')
+            end_date (str): End date (e.g., '2024-12-31', 'now UTC') - None = now
+            
+        Returns:
+            pd.DataFrame: DataFrame chứa dữ liệu OHLCV
+        """
+        # Mặc định: 30 ngày gần nhất nếu không có tham số
+        if start_date is None:
+            start_date = '30 days ago UTC'
+        if end_date is None:
+            end_date = 'now UTC'
+            
+        print(f"Đang lấy dữ liệu {symbol} với khung thời gian {interval}...")
+        print(f"Từ: {start_date} → Đến: {end_date}")
+        
+        all_klines = []
+        batch_count = 0
+        limit = 1000  # Binance actual limit
+        
+        # Fetch data in batches
+        current_start = start_date
+        
+        while True:
+            batch_count += 1
+            print(f"  Batch {batch_count}: Đang tải...", end='', flush=True)
+            
+            try:
+                klines = self.client.get_historical_klines(
+                    symbol, 
+                    interval, 
+                    current_start,
+                    end_date,
+                    limit=limit
+                )
+            except Exception as e:
+                print(f" Lỗi: {e}")
+                break
+            
+            if not klines:
+                print(" Không có dữ liệu")
+                break
+            
+            print(f" {len(klines)} nến")
+            all_klines.extend(klines)
+            
+            # Nếu số nến < limit, đã hết dữ liệu trong khoảng thời gian
+            if len(klines) < limit:
+                print(f"      (Đã lấy hết dữ liệu - nhận được {len(klines)} < {limit} nến)")
+                break
+            
+            # Cập nhật start_date cho batch tiếp theo
+            # Lấy timestamp của nến cuối cùng + 1ms (để tránh duplicate)
+            last_timestamp = klines[-1][0]  # timestamp của nến cuối (ms)
+            
+            # Convert sang datetime để kiểm tra
+            last_dt = pd.to_datetime(last_timestamp, unit='ms')
+            print(f"      (Timestamp cuối: {last_dt})")
+            
+            # Start của batch tiếp theo = timestamp cuối + 1ms
+            current_start = last_timestamp + 1
+            
+            
+        
+        if not all_klines:
+            print("✗ Không lấy được dữ liệu")
+            return pd.DataFrame()
+        
+        # Remove duplicates (có thể có overlap giữa các batch)
+        unique_klines = []
+        seen_timestamps = set()
+        
+        for kline in all_klines:
+            ts = kline[0]
+            if ts not in seen_timestamps:
+                seen_timestamps.add(ts)
+                unique_klines.append(kline)
+        
+        print(f"\n  Tổng dữ liệu gốc: {len(all_klines)} nến")
+        print(f"  Sau khi loại bỏ duplicate: {len(unique_klines)} nến")
+        
+        # Chuyển đổi sang DataFrame
+        df = pd.DataFrame(unique_klines, columns=[
+            'timestamp', 'open', 'high', 'low', 'close', 'volume',
+            'close_time', 'quote_volume', 'trades', 'taker_buy_base',
+            'taker_buy_quote', 'ignore'
+        ])
+        
+        # Chuyển đổi kiểu dữ liệu
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            df[col] = df[col].astype(float)
+        
+        # Sort by timestamp
+        df = df.sort_values('timestamp').reset_index(drop=True)
+        
+        print(f"\n✓ Đã lấy tổng cộng {len(df)} nến ({batch_count} batch)")
+        print(f"  Từ: {df['timestamp'].iloc[0]}")
+        print(f"  Đến: {df['timestamp'].iloc[-1]}")
+        
+        return df
+    
+    def calculate_ema(self, data, period):
+        """
+        Tính EMA (Exponential Moving Average)
+        
+        Args:
+            data (pd.Series): Dữ liệu input
+            period (int): EMA period
+            
+        Returns:
+            pd.Series: EMA values
+        """
+        return data.ewm(span=period, adjust=False).mean()
+    
+    def calculate_sma(self, data, period):
+        """
+        Tính SMA (Simple Moving Average)
+        
+        Args:
+            data (pd.Series): Dữ liệu input
+            period (int): SMA period
+            
+        Returns:
+            pd.Series: SMA values
+        """
+        return data.rolling(window=period).mean()
+    
+    def calculate_macd(self, df):
+        """
+        Tính MACD và Signal line theo Pine Script logic
+        
+        Pine Script code:
+            macd = ema(close, sa-fa)  // ema(close, 14) với fast=12, slow=26
+            signal = sma(macd, sig)
+        
+        Args:
+            df (pd.DataFrame): DataFrame chứa dữ liệu giá
+            
+        Returns:
+            pd.DataFrame: DataFrame với MACD indicators
+        """
+        # MACD theo Pine Script: ema(close, slow-fast)
+        # Khác với MACD chuẩn (ema_fast - ema_slow)
+        macd_period = self.slow_period - self.fast_period  # 26 - 12 = 14
+        df['macd'] = self.calculate_ema(df['close'], macd_period)
+        
+        # Signal line = SMA(MACD)
+        df['signal'] = self.calculate_sma(df['macd'], self.signal_period)
+        
+        # Histogram = MACD - Signal
+        df['histogram'] = df['macd'] - df['signal']
+        
+        return df
+    
+    def detect_crossovers(self, df):
+        """
+        Xác định các điểm giao cắt MACD
+        
+        Args:
+            df (pd.DataFrame): DataFrame với MACD data
+            
+        Returns:
+            list: Danh sách các crossover points
+        """
+        crossovers = []
+        
+        for i in range(1, len(df)):
+            prev_macd = df['macd'].iloc[i-1]
+            prev_signal = df['signal'].iloc[i-1]
+            curr_macd = df['macd'].iloc[i]
+            curr_signal = df['signal'].iloc[i]
+            
+            # Kiểm tra NaN
+            if pd.isna(prev_macd) or pd.isna(prev_signal) or pd.isna(curr_macd) or pd.isna(curr_signal):
+                continue
+            
+            # Bullish crossover: MACD cắt lên trên Signal
+            if prev_macd <= prev_signal and curr_macd > curr_signal:
+                crossovers.append({
+                    'timestamp': df['timestamp'].iloc[i],
+                    'type': 'BULLISH',
+                    'price': df['close'].iloc[i],
+                    'macd': curr_macd,
+                    'signal': curr_signal,
+                    'histogram': curr_macd - curr_signal,
+                    'index': i
+                })
+            
+            # Bearish crossover: MACD cắt xuống dưới Signal
+            elif prev_macd >= prev_signal and curr_macd < curr_signal:
+                crossovers.append({
+                    'timestamp': df['timestamp'].iloc[i],
+                    'type': 'BEARISH',
+                    'price': df['close'].iloc[i],
+                    'macd': curr_macd,
+                    'signal': curr_signal,
+                    'histogram': curr_macd - curr_signal,
+                    'index': i
+                })
+        
+        return crossovers
+    
+    def save_to_csv(self, df, filename):
+        """
+        Lưu DataFrame ra file CSV
+        
+        Args:
+            df (pd.DataFrame): DataFrame cần lưu
+            filename (str): Tên file
+        """
+        df.to_csv(filename, index=False)
+        print(f"✓ Đã lưu dữ liệu vào {filename}")
+    
+    def get_latest_crossover(self, df):
+        """
+        Lấy crossover mới nhất
+        
+        Args:
+            df (pd.DataFrame): DataFrame với MACD data
+            
+        Returns:
+            dict or None: Crossover mới nhất hoặc None
+        """
+        crossovers = self.detect_crossovers(df)
+        return crossovers[-1] if crossovers else None
+    
+    def analyze_crossovers(self, crossovers):
+        """
+        Phân tích thống kê các crossovers
+        
+        Args:
+            crossovers (list): Danh sách crossovers
+            
+        Returns:
+            dict: Thống kê
+        """
+        if not crossovers:
+            return {
+                'total': 0,
+                'bullish': 0,
+                'bearish': 0,
+                'avg_interval_hours': 0
+            }
+        
+        bullish_count = sum(1 for c in crossovers if c['type'] == 'BULLISH')
+        bearish_count = sum(1 for c in crossovers if c['type'] == 'BEARISH')
+        
+        # Tính khoảng cách trung bình giữa các crossovers
+        if len(crossovers) > 1:
+            intervals = []
+            for i in range(1, len(crossovers)):
+                delta = crossovers[i]['timestamp'] - crossovers[i-1]['timestamp']
+                intervals.append(delta.total_seconds() / 3600)  # Convert to hours
+            avg_interval = sum(intervals) / len(intervals)
+        else:
+            avg_interval = 0
+        
+        return {
+            'total': len(crossovers),
+            'bullish': bullish_count,
+            'bearish': bearish_count,
+            'avg_interval_hours': round(avg_interval, 2)
+        }
