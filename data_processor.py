@@ -75,8 +75,8 @@ class BinanceDataProcessor:
         if end_date is None:
             end_date = 'now UTC'
             
-        print(f"Đang lấy dữ liệu {symbol} với khung thời gian {interval}...")
-        print(f"Từ: {start_date} → Đến: {end_date}")
+        # print(f"Đang lấy dữ liệu {symbol} với khung thời gian {interval}...")
+        # print(f"Từ: {start_date} → Đến: {end_date}")
         
         all_klines = []
         batch_count = 0
@@ -140,8 +140,8 @@ class BinanceDataProcessor:
                 seen_timestamps.add(ts)
                 unique_klines.append(kline)
         
-        print(f"\n  Tổng dữ liệu gốc: {len(all_klines)} nến")
-        print(f"  Sau khi loại bỏ duplicate: {len(unique_klines)} nến")
+        # print(f"\n  Tổng dữ liệu gốc: {len(all_klines)} nến")
+        # print(f"  Sau khi loại bỏ duplicate: {len(unique_klines)} nến")
         
         # Chuyển đổi sang DataFrame
         df = pd.DataFrame(unique_klines, columns=[
@@ -158,9 +158,9 @@ class BinanceDataProcessor:
         # Sort by timestamp
         df = df.sort_values('timestamp').reset_index(drop=True)
         
-        print(f"\n✓ Đã lấy tổng cộng {len(df)} nến ({batch_count} batch)")
-        print(f"  Từ: {df['timestamp'].iloc[0]}")
-        print(f"  Đến: {df['timestamp'].iloc[-1]}")
+        # print(f"\n✓ Đã lấy tổng cộng {len(df)} nến ({batch_count} batch)")
+        # print(f"  Từ: {df['timestamp'].iloc[0]}")
+        # print(f"  Đến: {df['timestamp'].iloc[-1]}")
         
         return df
     
@@ -214,6 +214,101 @@ class BinanceDataProcessor:
         
         # Histogram = MACD - Signal
         df['histogram'] = df['macd'] - df['signal']
+        
+        return df
+    
+    def calculate_rsi(self, data, period=14):
+        """
+        Tính RSI (Relative Strength Index)
+        
+        Args:
+            data (pd.Series): Price data
+            period (int): RSI period
+            
+        Returns:
+            pd.Series: RSI values
+        """
+        delta = data.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+        
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        return rsi
+    
+    def calculate_bollinger_bands(self, data, period=20, std_dev=2):
+        """
+        Tính Bollinger Bands
+        
+        Args:
+            data (pd.Series): Price data
+            period (int): BB period
+            std_dev (float): Standard deviation multiplier
+            
+        Returns:
+            tuple: (upper, middle, lower, width)
+        """
+        middle = self.calculate_sma(data, period)
+        std = data.rolling(window=period).std()
+        upper = middle + (std * std_dev)
+        lower = middle - (std * std_dev)
+        width = (upper - lower) / middle  # Normalized width
+        
+        return upper, middle, lower, width
+    
+    def calculate_atr(self, df, period=14):
+        """
+        Tính ATR (Average True Range)
+        
+        Args:
+            df (pd.DataFrame): DataFrame with OHLC data
+            period (int): ATR period
+            
+        Returns:
+            pd.Series: ATR values
+        """
+        high = df['high']
+        low = df['low']
+        close = df['close']
+        
+        # True Range
+        tr1 = high - low
+        tr2 = abs(high - close.shift())
+        tr3 = abs(low - close.shift())
+        
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        
+        # ATR = EMA of TR
+        atr = tr.ewm(span=period, adjust=False).mean()
+        
+        return atr
+    
+    def add_indicators(self, df, ema_period=200, rsi_period=14, bb_period=20, atr_period=14):
+        """
+        Thêm tất cả các indicators cần thiết
+        
+        Args:
+            df (pd.DataFrame): DataFrame với MACD data
+            ema_period (int): EMA period for trend filter
+            rsi_period (int): RSI period
+            bb_period (int): Bollinger Bands period
+            atr_period (int): ATR period
+            
+        Returns:
+            pd.DataFrame: DataFrame with all indicators
+        """
+        # EMA 200 for trend
+        df['ema_200'] = self.calculate_ema(df['close'], ema_period)
+        
+        # RSI
+        df['rsi'] = self.calculate_rsi(df['close'], rsi_period)
+        
+        # Bollinger Bands
+        df['bb_upper'], df['bb_middle'], df['bb_lower'], df['bb_width'] = \
+            self.calculate_bollinger_bands(df['close'], bb_period)
+        
+        # ATR
+        df['atr'] = self.calculate_atr(df, atr_period)
         
         return df
     

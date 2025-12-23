@@ -4,15 +4,15 @@ File cấu hình - Chỉnh sửa các thông số tại đây
 
 # ==================== BINANCE API ====================
 # Để trống nếu chỉ sử dụng public data
-BINANCE_API_KEY = ""
-BINANCE_API_SECRET = ""
+BINANCE_API_KEY = "PolvgaP1tWf4nxT4x7Nr41uopKLS5Hc4MHZmmRFDRwpmW3ZTI3uuYJpZYf1zmQjp"
+BINANCE_API_SECRET = "secret FUn7xluIXkMYKs4hLSDSg5M05TWgmme0wiuP5q5jsm2T8m6QR09SpkJmvRt3LHJA"
 
 # ==================== TELEGRAM ====================
 # Lấy từ @BotFather
-TELEGRAM_BOT_TOKEN = ""
+TELEGRAM_BOT_TOKEN = "8484997609:AAHb_L8wO0WjtKRioas0USfhqHOXW_zlFQ0"
 
 # Lấy từ https://api.telegram.org/bot<TOKEN>/getUpdates
-TELEGRAM_CHAT_ID = ""
+TELEGRAM_CHAT_ID = "6465176588"
 
 # ==================== TRADING PARAMETERS ====================
 # Symbol để theo dõi

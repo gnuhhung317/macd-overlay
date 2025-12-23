@@ -117,8 +117,8 @@ class MACDCrossoverDetector:
             print("\n\n✓ Đã dừng monitor.")
 
 
-def main():- Menu chính
-    """
+def main(): 
+ 
     print("\n" + "="*70)
     print(" "*20 + "MACD CROSSOVER DETECTOR")
     print("="*70)
@@ -174,9 +174,7 @@ def main():- Menu chính
         else:
             print("\n✓ Hoàn thành!")
     else:
-        print("\n✗ Lựa chọn không hợp lệtime(SYMBOL, INTERVAL, check_interval=60)
-    else:
-        print("\n✓ Hoàn thành!")
+        print("\n✗ Lựa chọn không hợp lệ")
 
 
 if __name__ == "__main__":

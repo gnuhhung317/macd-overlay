@@ -2,3 +2,4 @@ python-binance
 pandas
 numpy
 requests
+streamlit

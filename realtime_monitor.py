@@ -8,6 +8,7 @@ from datetime import datetime
 from data_processor import BinanceDataProcessor
 from telegram_notifier import TelegramNotifier
 import sys
+from zoneinfo import ZoneInfo
 
 
 def print_separator(char='=', length=70):
@@ -16,7 +17,7 @@ def print_separator(char='=', length=70):
 
 
 def monitor_realtime(symbol='BTCUSDT', interval='1h', check_interval=60, 
-                     telegram_token=None, telegram_chat_id=None):
+                     telegram_token=None, telegram_chat_id=None, quiet=False):
     """
     Monitor real-time và gửi thông báo khi có crossover
     
@@ -26,17 +27,19 @@ def monitor_realtime(symbol='BTCUSDT', interval='1h', check_interval=60,
         check_interval (int): Số giây giữa mỗi lần check
         telegram_token (str): Telegram bot token
         telegram_chat_id (str): Telegram chat ID
+        quiet (bool): Chỉ hiển thị crossover alerts, ẩn status updates
     """
-    print_separator()
-    print("BẮT ĐẦU MONITOR REAL-TIME")
-    print_separator()
-    print(f"Symbol:          {symbol}")
-    print(f"Interval:        {interval}")
-    print(f"Check every:     {check_interval} seconds")
-    print(f"Telegram:        {'Enabled ✓' if telegram_token else 'Disabled ✗'}")
-    print("Nhấn Ctrl+C để dừng...")
-    print_separator()
-    print()
+    if not quiet:
+        print_separator()
+        print("BẮT ĐẦU MONITOR REAL-TIME")
+        print_separator()
+        print(f"Symbol:          {symbol}")
+        print(f"Interval:        {interval}")
+        print(f"Check every:     {check_interval} seconds")
+        print(f"Telegram:        {'Enabled ✓' if telegram_token else 'Disabled ✗'}")
+        print("Nhấn Ctrl+C để dừng...")
+        print_separator()
+        print()
     
     # Khởi tạo processor
     processor = BinanceDataProcessor()
@@ -45,13 +48,17 @@ def monitor_realtime(symbol='BTCUSDT', interval='1h', check_interval=60,
     telegram = None
     if telegram_token and telegram_chat_id:
         telegram = TelegramNotifier(telegram_token, telegram_chat_id)
-        print("🔔 Test Telegram...")
+        if not quiet:
+            print("🔔 Test Telegram...")
         if telegram.test_connection():
-            print("✓ Telegram sẵn sàng!")
+            if not quiet:
+                print("✓ Telegram sẵn sàng!")
         else:
-            print("⚠️  Telegram không hoạt động, chỉ hiển thị console")
+            if not quiet:
+                print("⚠️  Telegram không hoạt động, chỉ hiển thị console")
             telegram = None
-        print()
+        if not quiet:
+            print()
     
     last_crossover_time = None
     check_count = 0
@@ -76,6 +83,13 @@ def monitor_realtime(symbol='BTCUSDT', interval='1h', check_interval=60,
                     if last_crossover_time != latest_cross['timestamp']:
                         emoji = "🟢" if latest_cross['type'] == 'BULLISH' else "🔴"
                         
+                        # Handle timestamp - could be string or datetime object
+                        timestamp = latest_cross['timestamp']
+                        if isinstance(timestamp, str):
+                            timestamp = datetime.fromisoformat(timestamp)
+                        if timestamp.tzinfo is None:
+                            timestamp = timestamp.replace(tzinfo=ZoneInfo("UTC"))
+                        latest_cross['timestamp'] = timestamp.astimezone(ZoneInfo("Asia/Ho_Chi_Minh"))
                         print()
                         print_separator('-')
                         print(f"{emoji} PHÁT HIỆN {latest_cross['type']} CROSSOVER!")
@@ -95,17 +109,18 @@ def monitor_realtime(symbol='BTCUSDT', interval='1h', check_interval=60,
                         print()
                 
                 # Hiển thị trạng thái
-                current_price = df['close'].iloc[-1]
-                current_macd = df['macd'].iloc[-1]
-                current_signal = df['signal'].iloc[-1]
-                
-                trend = "↑" if current_macd > current_signal else "↓"
-                distance = abs(current_macd - current_signal)
-                
-                print(f"[{current_time}] Check #{check_count} | "
-                      f"Giá: ${current_price:.2f} | "
-                      f"MACD {trend} Signal | "
-                      f"Distance: {distance:.4f}")
+                if not quiet:
+                    current_price = df['close'].iloc[-1]
+                    current_macd = df['macd'].iloc[-1]
+                    current_signal = df['signal'].iloc[-1]
+                    
+                    trend = "↑" if current_macd > current_signal else "↓"
+                    distance = abs(current_macd - current_signal)
+                    
+                    print(f"[{current_time}] Check #{check_count} | "
+                          f"Giá: ${current_price:.2f} | "
+                          f"MACD {trend} Signal | "
+                          f"Distance: {distance:.4f}")
                 
             except Exception as e:
                 print(f"[{current_time}] ✗ Lỗi: {e}")
@@ -114,15 +129,16 @@ def monitor_realtime(symbol='BTCUSDT', interval='1h', check_interval=60,
             time.sleep(check_interval)
             
     except KeyboardInterrupt:
-        print()
-        print()
-        print_separator()
-        print("✓ ĐÃ DỪNG MONITOR")
-        print_separator()
-        print(f"Tổng số lần check: {check_count}")
-        if last_crossover_time:
-            print(f"Crossover cuối:    {last_crossover_time}")
-        print()
+        if not quiet:
+            print()
+            print()
+            print_separator()
+            print("✓ ĐÃ DỪNG MONITOR")
+            print_separator()
+            print(f"Tổng số lần check: {check_count}")
+            if last_crossover_time:
+                print(f"Crossover cuối:    {last_crossover_time}")
+            print()
 
 
 def main():
@@ -131,18 +147,21 @@ def main():
     
     # Cấu hình
     SYMBOL = 'BTCUSDT'
-    INTERVAL = '1h'
+    INTERVAL = '30m'
     CHECK_INTERVAL = 60  # giây
     
     # Telegram credentials
-    TELEGRAM_BOT_TOKEN = ""  # Thay bằng token của bạn
-    TELEGRAM_CHAT_ID = ""    # Thay bằng chat ID của bạn
+    TELEGRAM_BOT_TOKEN = "8484997609:AAHb_L8wO0WjtKRioas0USfhqHOXW_zlFQ0"  # Thay bằng token của bạn
+    TELEGRAM_CHAT_ID = "6465176588"    # Thay bằng chat ID của bạn
     
     # Cho phép override từ command line
-    if len(sys.argv) > 1:
-        SYMBOL = sys.argv[1]
-    if len(sys.argv) > 2:
-        INTERVAL = sys.argv[2]
+    quiet_mode = '--quiet' in sys.argv or '-q' in sys.argv
+    args = [arg for arg in sys.argv[1:] if arg not in ['--quiet', '-q']]
+    
+    if len(args) > 0:
+        SYMBOL = args[0]
+    if len(args) > 1:
+        INTERVAL = args[1]
     
     # Kiểm tra Telegram config
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
@@ -164,7 +183,8 @@ def main():
         interval=INTERVAL,
         check_interval=CHECK_INTERVAL,
         telegram_token=TELEGRAM_BOT_TOKEN,
-        telegram_chat_id=TELEGRAM_CHAT_ID
+        telegram_chat_id=TELEGRAM_CHAT_ID,
+        quiet=quiet_mode
     )
 
 

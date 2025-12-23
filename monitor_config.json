@@ -1,0 +1,38 @@
+{
+  "coins": [
+    {
+      "symbol": "BTCUSDT",
+      "interval": "30m",
+      "enabled": true
+    },
+    {
+      "symbol": "ETHUSDT",
+      "interval": "30m",
+      "enabled": true
+    },
+    {
+      "symbol": "BTCUSDT",
+      "interval": "1h",
+      "enabled": true
+    },
+    {
+      "symbol": "ETHUSDT",
+      "interval": "1h",
+      "enabled": true
+    },
+    {
+      "symbol": "SOLUSDT",
+      "interval": "30m",
+      "enabled": true
+    },
+    {
+      "symbol": "SOLUSDT",
+      "interval": "1h",
+      "enabled": true
+    }
+  ],
+  "scan_interval": 300,
+  "telegram_enabled": true,
+  "telegram_token": "8484997609:AAHb_L8wO0WjtKRioas0USfhqHOXW_zlFQ0",
+  "telegram_chat_id": "6465176588"
+}
