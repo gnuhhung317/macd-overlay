@@ -1,38 +1,2118 @@
 {
   "coins": [
     {
+      "symbol": "1000000BOBUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "1000000MOGUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "1000BONKUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "1000CATUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "1000CHEEMSUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "1000FLOKIUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "1000LUNCUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "1000PEPEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "1000RATSUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "1000SATSUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "1000SHIBUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "1000WHYUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "1000XECUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "1INCHUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "1MBABYDOGEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "AAVEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ACEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ACHUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ACTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ACXUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ADAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "AERGOUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "AEROUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "AEVOUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "AGLDUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "AGTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "AINUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "AIOTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "AIUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "AIXBTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "AKTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ALCHUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ALGOUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ALICEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ALPINEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ALTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ANIMEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ANKRUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "APEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "API3USDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "APTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ARBUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ARCUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ARKMUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ARKUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ARPAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ARUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ASRUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ASTRUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ATAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ATHUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ATOMUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "AUCTIONUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "AUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "AVAAIUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "AVAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "AVAXUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "AWEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "AXLUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "AXSUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "B2USDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "B3USDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BABYUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BANANAS31USDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BANANAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BANDUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BANKUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BANUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BATUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BBUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BCHUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BDXNUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BEAMXUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BELUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BERAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BICOUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BIGTIMEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BIOUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BLURUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BMTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BNBUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BNTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BOMEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BRETTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BROCCOLI714USDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BROCCOLIF3BUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BRUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BSVUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BTCDOMUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
       "symbol": "BTCUSDT",
-      "interval": "30m",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BULLAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "BUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "C98USDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "CAKEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "CATIUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "CELOUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "CELRUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "CETUSUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "CFXUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "CGPTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "CHESSUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "CHILLGUYUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "CHRUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "CHZUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "CKBUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "COMPUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "COOKIEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "COSUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "COTIUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "COWUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "CROSSUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "CRVUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "CTKUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "CTSIUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "CUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "CVCUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "CVXUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "CYBERUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "DASHUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "DEEPUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "DEGENUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "DEGOUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "DENTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "DEXEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "DFUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "DIAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "DODOXUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "DOGEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "DOGSUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "DOLOUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "DOODUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "DOTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "DRIFTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "DUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "DUSKUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "DYDXUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "DYMUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "EDUUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "EGLDUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "EIGENUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ENAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ENJUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ENSUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "EPICUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "EPTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ERAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ETCUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ETHFIUSDT",
+      "interval": "1d",
       "enabled": true
     },
     {
       "symbol": "ETHUSDT",
-      "interval": "30m",
+      "interval": "1d",
       "enabled": true
     },
     {
-      "symbol": "BTCUSDT",
-      "interval": "1h",
+      "symbol": "ETHWUSDT",
+      "interval": "1d",
       "enabled": true
     },
     {
-      "symbol": "ETHUSDT",
-      "interval": "1h",
+      "symbol": "FARTCOINUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "FETUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "FHEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "FIDAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "FILUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "FIOUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "FLOWUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "FLUXUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "FORMUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "FORTHUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "FUNUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "FUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "GALAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "GASUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "GHSTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "GLMUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "GMTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "GMXUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "GOATUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "GPSUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "GRASSUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "GRIFFAINUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "GRTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "GTCUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "GUNUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "GUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "HAEDALUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "HBARUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "HEIUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "HFTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "HIGHUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "HIPPOUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "HIVEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "HMSTRUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "HOMEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "HOOKUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "HOTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "HUMAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "HUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "HYPERUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "HYPEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ICNTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ICPUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ICXUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "IDOLUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "IDUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ILVUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "IMXUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "INITUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "INJUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "IOSTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "IOTAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "IOTXUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "IOUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "IPUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "JASMYUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "JELLYJELLYUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "JOEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "JSTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "JTOUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "JUPUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "KAIAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "KAITOUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "KASUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "KAVAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "KERNELUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "KMNOUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "KNCUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "KOMAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "KSMUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "LAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "LAYERUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "LDOUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "LINKUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "LISTAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "LPTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "LQTYUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "LRCUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "LSKUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "LTCUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "LUMIAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "LUNA2USDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "MAGICUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "MANAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "MANTAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "MASKUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "MAVIAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "MAVUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "MBOXUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "MELANIAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "MEMEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "MERLUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "METISUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "MEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "MEWUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "MINAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "MLNUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "MOCAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "MOODENGUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "MORPHOUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "MOVEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "MOVRUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "MTLUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "MUBARAKUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "MUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "MYXUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "NEARUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "NEIROUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "NEOUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "NEWTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "NFPUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "NILUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "NKNUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "NMRUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "NOTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "NTRNUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "NXPCUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "OGNUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "OGUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "OLUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "OMUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ONDOUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ONEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ONGUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ONTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "OPUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ORCAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ORDIUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "OXTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "PARTIUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "PAXGUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "PENDLEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "PENGUUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "PEOPLEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "PHAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "PHBUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "PIPPINUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "PIXELUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "PLUMEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "PNUTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "POLUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "POLYXUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "POPCATUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "PORTALUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "POWRUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "PROMPTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "PROMUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "PUFFERUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "PUMPBTCUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "PUMPUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "PUNDIXUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "PYTHUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "QNTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "QTUMUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "RAREUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "RAYSOLUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "RDNTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "REDUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "RENDERUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "RESOLVUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "REZUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "RIFUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "RLCUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "RONINUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ROSEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "RPLUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "RSRUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "RUNEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "RVNUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SAFEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SAGAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SAHARAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SANDUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SANTOSUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SCRTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SCRUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SEIUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SFPUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SHELLUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SIGNUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SIRENUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SKLUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SKYAIUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SLPUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SNXUSDT",
+      "interval": "1d",
       "enabled": true
     },
     {
       "symbol": "SOLUSDT",
-      "interval": "30m",
+      "interval": "1d",
       "enabled": true
     },
     {
-      "symbol": "SOLUSDT",
-      "interval": "1h",
+      "symbol": "SOLVUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SONICUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SOONUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SOPHUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SPELLUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SPKUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SPXUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SQDUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SSVUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "STEEMUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "STGUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "STORJUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "STOUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "STRKUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "STXUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SUIUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SUNUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SUPERUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SUSHIUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SWARMSUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SXTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SYNUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SYRUPUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "SYSUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "TACUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "TAGUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "TAIKOUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "TAOUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "TAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "THETAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "THEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "TIAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "TLMUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "TNSRUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "TONUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "TRBUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "TRUMPUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "TRUUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "TRXUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "TSTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "TURBOUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "TUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "TUTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "TWTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "UMAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "UNIUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "USDCUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "USTCUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "USUALUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "VANAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "VANRYUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "VELODROMEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "VELVETUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "VETUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "VICUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "VINEUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "VIRTUALUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "VTHOUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "VVVUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "WALUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "WAXPUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "WCTUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "WIFUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "WLDUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "WOOUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "WUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "XAIUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "XLMUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "XMRUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "XRPUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "XTZUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "XVGUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "XVSUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "YFIUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "YGGUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ZECUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ZENUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ZEREBROUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ZETAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ZILUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ZKJUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ZKUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ZORAUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ZROUSDT",
+      "interval": "1d",
+      "enabled": true
+    },
+    {
+      "symbol": "ZRXUSDT",
+      "interval": "1d",
       "enabled": true
     }
   ],
-  "scan_interval": 300,
+  "scan_interval": 3000,
   "telegram_enabled": true,
-  "telegram_token": "8484997609:AAHb_L8wO0WjtKRioas0USfhqHOXW_zlFQ0",
-  "telegram_chat_id": "6465176588"
+  "telegram_token": "8499917898:AAHNDje9dSpxcIPyaG2-bY1VxePtKFD6UiY",
+  "telegram_chat_id": "-5113373606"
 }

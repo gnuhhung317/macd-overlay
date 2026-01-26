@@ -10,7 +10,7 @@ class BinanceDataProcessor:
     Module xử lý dữ liệu từ Binance và tính toán MACD
     """
     
-    def __init__(self, api_key="", api_secret="", fast_period=12, slow_period=26, signal_period=9):
+    def __init__(self, api_key="", api_secret="", fast_period=12, slow_period=26, signal_period=9, use_futures=True):
         """
         Khởi tạo data processor
         
@@ -20,11 +20,13 @@ class BinanceDataProcessor:
             fast_period (int): Fast EMA period
             slow_period (int): Slow EMA period
             signal_period (int): Signal SMA period
+            use_futures (bool): Sử dụng Futures API (True) hoặc Spot API (False)
         """
         self.client = Client(api_key, api_secret)
         self.fast_period = fast_period
         self.slow_period = slow_period
         self.signal_period = signal_period
+        self.use_futures = use_futures
         
     def _get_interval_ms(self, interval):
         """
@@ -84,19 +86,29 @@ class BinanceDataProcessor:
         
         # Fetch data in batches
         current_start = start_date
-        
+        print(start_date)
         while True:
             batch_count += 1
             print(f"  Batch {batch_count}: Đang tải...", end='', flush=True)
             
             try:
-                klines = self.client.get_historical_klines(
-                    symbol, 
-                    interval, 
-                    current_start,
-                    end_date,
-                    limit=limit
-                )
+                # Sử dụng Futures hoặc Spot API
+                if self.use_futures:
+                    klines = self.client.futures_historical_klines(
+                        symbol, 
+                        interval, 
+                        current_start,
+                        end_date,
+                        limit=limit
+                    )
+                else:
+                    klines = self.client.get_historical_klines(
+                        symbol, 
+                        interval, 
+                        current_start,
+                        end_date,
+                        limit=limit
+                    )
             except Exception as e:
                 print(f" Lỗi: {e}")
                 break

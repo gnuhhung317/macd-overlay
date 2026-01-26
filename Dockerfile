@@ -4,26 +4,33 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy requirements first (for better caching)
 COPY requirements.txt .
 
-# Install dependencies
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application files
-COPY data_processor.py .
-COPY telegram_notifier.py .
-COPY streamlit_monitor.py .
-COPY config.py .
+COPY *.py .
+COPY monitor_config.json* ./
 
-# Create directory for Streamlit config
-RUN mkdir -p ~/.streamlit
+# Create static directory and copy files
+COPY static/ ./static/
 
-# Expose Streamlit port
-EXPOSE 8501
+# Create directory for data persistence
+RUN mkdir -p /app/data
 
-# Health check
-HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health || exit 1
+# Expose API server port
+EXPOSE 8000
 
-# Run Streamlit app
-CMD ["streamlit", "run", "streamlit_monitor.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true", "--browser.gatherUsageStats=false"]
+# Health check for API server
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl --fail http://localhost:8000/api/status || exit 1
+
+# Run API server with uvicorn
+CMD ["uvicorn", "api_server:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

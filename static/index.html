@@ -1,0 +1,777 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MACD Monitor</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg: #f8fafc;
+      --bg-secondary: #ffffff;
+      --muted: #64748b;
+      --accent: #0f172a;
+      --ok: #10b981;
+      --warn: #f59e0b;
+      --err: #ef4444;
+      --card: #ffffff;
+      --table-border: #e2e8f0;
+      --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--accent);
+      line-height: 1.6;
+      padding: 0;
+      margin: 0;
+      transition: background-color 0.3s ease, color 0.3s ease;
+    }
+
+    header {
+      background: var(--bg-secondary);
+      padding: 1.5rem 2rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      box-shadow: var(--shadow-sm);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      border-bottom: 1px solid var(--table-border);
+    }
+
+    header h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    button {
+      padding: 0.625rem 1.25rem;
+      border-radius: var(--radius-sm);
+      border: none;
+      font-weight: 600;
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: var(--shadow-sm);
+      outline: none;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-md);
+    }
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    #start {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: #fff;
+    }
+
+    #start:hover {
+      background: linear-gradient(135deg, #059669 0%, #047857 100%);
+    }
+
+    #stop {
+      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+      color: #fff;
+    }
+
+    #stop:hover {
+      background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+    }
+
+    #refresh {
+      background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+      color: #fff;
+    }
+
+    #refresh:hover {
+      background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+    }
+
+    #dark_toggle {
+      background: linear-gradient(135deg, #64748b 0%, #475569 100%);
+      color: #fff;
+      font-size: 1.25rem;
+      padding: 0.5rem 0.875rem;
+    }
+
+    main {
+      padding: 2rem;
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 2rem;
+      max-width: 1600px;
+      margin: 0 auto;
+    }
+
+    aside {
+      background: var(--card);
+      border-radius: var(--radius-md);
+      padding: 1.5rem;
+      box-shadow: var(--shadow-md);
+      height: fit-content;
+      position: sticky;
+      top: 100px;
+    }
+
+    aside h3, aside h4 {
+      margin-bottom: 1rem;
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    aside > div {
+      margin-bottom: 0.875rem;
+    }
+
+    aside hr {
+      margin: 1.5rem 0;
+      border: none;
+      border-top: 2px solid var(--table-border);
+    }
+
+    section {
+      background: var(--card);
+      border-radius: var(--radius-md);
+      padding: 1.5rem;
+      box-shadow: var(--shadow-md);
+    }
+
+    section h2, section h3 {
+      margin-bottom: 1rem;
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 1rem;
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      box-shadow: var(--shadow-sm);
+      background: var(--bg-secondary);
+    }
+
+    th, td {
+      padding: 0.875rem 1rem;
+      text-align: left;
+      border-bottom: 1px solid var(--table-border);
+    }
+
+    th {
+      background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+      color: var(--muted);
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 0.75rem;
+      letter-spacing: 0.05em;
+    }
+
+    tbody tr {
+      transition: background-color 0.15s ease;
+    }
+
+    tbody tr:hover {
+      background-color: rgba(99, 102, 241, 0.05);
+    }
+
+    tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .status-dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-right: 0.5rem;
+      vertical-align: middle;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    .status-ok {
+      color: var(--ok);
+      font-weight: 600;
+    }
+
+    .status-ok .status-dot {
+      background: var(--ok);
+      box-shadow: 0 0 8px var(--ok);
+    }
+
+    .status-alert {
+      color: #92400e;
+      font-weight: 700;
+    }
+
+    .status-alert .status-dot {
+      background: var(--warn);
+      box-shadow: 0 0 8px var(--warn);
+    }
+
+    .status-error {
+      color: var(--err);
+      font-weight: 700;
+    }
+
+    .status-error .status-dot {
+      background: var(--err);
+      box-shadow: 0 0 8px var(--err);
+    }
+
+    .alert {
+      padding: 1rem 1.25rem;
+      border-radius: var(--radius-sm);
+      margin: 0.75rem 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: var(--shadow-sm);
+      transition: transform 0.2s ease;
+    }
+
+    .alert:hover {
+      transform: translateX(4px);
+    }
+
+    .bull {
+      background: linear-gradient(90deg, #d1fae5 0%, #a7f3d0 100%);
+      border-left: 4px solid #10b981;
+    }
+
+    .bear {
+      background: linear-gradient(90deg, #fee2e2 0%, #fecaca 100%);
+      border-left: 4px solid #ef4444;
+    }
+
+    #coins_list {
+      max-height: 320px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--muted) transparent;
+    }
+
+    #coins_list::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    #coins_list::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    #coins_list::-webkit-scrollbar-thumb {
+      background: var(--muted);
+      border-radius: 3px;
+    }
+
+    #coins_list > div {
+      border-bottom: 1px dashed var(--table-border);
+      padding: 0.75rem 0;
+    }
+
+    input[type="text"],
+    input[type="checkbox"],
+    select {
+      padding: 0.625rem 0.875rem;
+      border: 2px solid var(--table-border);
+      border-radius: var(--radius-sm);
+      font-size: 0.875rem;
+      transition: all 0.2s ease;
+      background: var(--bg-secondary);
+      color: var(--accent);
+    }
+
+    input[type="text"]:focus,
+    select:focus {
+      outline: none;
+      border-color: #6366f1;
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    }
+
+    input[type="checkbox"] {
+      width: 1.125rem;
+      height: 1.125rem;
+      cursor: pointer;
+      accent-color: #6366f1;
+    }
+
+    label {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+    }
+
+    .trend-bull {
+      color: var(--ok);
+      font-weight: 700;
+    }
+
+    .trend-bear {
+      color: var(--err);
+      font-weight: 700;
+    }
+
+    #hero {
+      margin: 2rem;
+      margin-bottom: 0;
+      border-radius: var(--radius-lg);
+      padding: 2rem;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display: flex;
+      gap: 2rem;
+      align-items: center;
+      box-shadow: var(--shadow-lg);
+      color: white;
+    }
+
+    #hero h2 {
+      margin: 0;
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: white;
+    }
+
+    #hero-sub {
+      margin-top: 0.5rem;
+      opacity: 0.9;
+      font-size: 0.95rem;
+    }
+
+    .hero-stat {
+      text-align: center;
+      padding: 1rem 1.5rem;
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-md);
+      min-width: 120px;
+      backdrop-filter: blur(10px);
+    }
+
+    .hero-stat-label {
+      color: var(--muted);
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+
+    .hero-stat-value {
+      font-size: 2rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    canvas {
+      border-radius: var(--radius-sm);
+      box-shadow: var(--shadow-sm);
+    }
+
+    /* Dark mode */
+    body.dark {
+      --bg: #0f172a;
+      --bg-secondary: #1e293b;
+      --accent: #e2e8f0;
+      --card: #1e293b;
+      --table-border: #334155;
+    }
+
+    body.dark header {
+      background: #1e293b;
+      border-bottom-color: #334155;
+    }
+
+    body.dark table {
+      background: #1e293b;
+    }
+
+    body.dark th {
+      background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+      color: #94a3b8;
+    }
+
+    body.dark tbody tr:hover {
+      background-color: rgba(99, 102, 241, 0.1);
+    }
+
+    body.dark .bull {
+      background: linear-gradient(90deg, rgba(16, 185, 129, 0.15) 0%, rgba(16, 185, 129, 0.25) 100%);
+      border-left-color: #10b981;
+    }
+
+    body.dark .bear {
+      background: linear-gradient(90deg, rgba(239, 68, 68, 0.15) 0%, rgba(239, 68, 68, 0.25) 100%);
+      border-left-color: #ef4444;
+    }
+
+    body.dark input[type="text"],
+    body.dark select {
+      background: #0f172a;
+      border-color: #334155;
+      color: #e2e8f0;
+    }
+
+    body.dark input[type="text"]:focus,
+    body.dark select:focus {
+      border-color: #6366f1;
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+    }
+
+    @media (max-width: 1200px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+
+      aside {
+        position: relative;
+        top: 0;
+      }
+
+      #hero {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .hero-stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+        gap: 0.75rem;
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📊 MACD Monitor</h1>
+    <div style="margin-left:auto">
+      <button id="start">Start</button>
+      <button id="stop">Stop</button>
+      <button id="refresh">Refresh</button>
+      <button id="dark_toggle" title="Toggle dark mode">🌓</button>
+    </div>
+  </header>
+
+  <!-- Hero card -->
+  <div id="hero">
+    <div style="flex:1">
+      <h2>📈 MACD Real-time Monitor</h2>
+      <div id="hero-sub">Realtime overview of tracked symbols and alerts</div>
+    </div>
+    <div class="hero-stats" style="display:flex;gap:1rem;">
+      <div class="hero-stat">
+        <div class="hero-stat-label">Coins</div>
+        <div id="hero-coins" class="hero-stat-value">0</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-label">Alerts</div>
+        <div id="hero-alerts" class="hero-stat-value">0</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-label">Last scan</div>
+        <div id="hero-last" class="hero-stat-value" style="font-size:1rem;">-</div>
+      </div>
+    </div>
+  </div>
+
+  <main>
+    <aside>
+      <h3>⚙️ Config</h3>
+      <div>
+        <label>
+          <input type="checkbox" id="telegram_enabled">
+          Telegram enabled
+        </label>
+      </div>
+      <div>
+        <label style="display:block;margin-bottom:0.25rem;font-weight:600;">Token</label>
+        <input type="text" id="telegram_token" style="width:100%" placeholder="Bot token">
+      </div>
+      <div>
+        <label style="display:block;margin-bottom:0.25rem;font-weight:600;">Chat ID</label>
+        <input type="text" id="telegram_chat_id" style="width:100%" placeholder="Chat ID">
+      </div>
+      <div style="margin-top:1rem">
+        <button id="save_config" style="width:100%;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff">Save Config</button>
+      </div>
+
+      <hr>
+      <h4>📊 Followed coins</h4>
+      <div id="coins_list"></div>
+      <div style="display:flex;gap:0.5rem;margin-top:1rem">
+        <select id="symbol_select" style="flex:1"></select>
+        <select id="interval_select"><option>1m</option><option>3m</option><option>5m</option><option>15m</option><option selected>30m</option><option>1h</option><option>4h</option><option>1d</option></select>
+      </div>
+      <div style="margin-top:0.75rem">
+        <button id="add_coin" style="width:100%;background:linear-gradient(135deg,#10b981,#059669);color:#fff">Add Coin</button>
+      </div>
+    </aside>
+
+    <section>
+      <h2>📊 Status & Charts</h2>
+      <div id="meta" style="color:var(--muted);font-size:0.875rem;margin-bottom:1rem;"></div>
+      <div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+          <label style="font-weight:600;margin:0;">Symbol:</label>
+          <select id="chart_symbol" style="min-width:120px;"></select>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+          <label style="font-weight:600;margin:0;">Interval:</label>
+          <select id="chart_interval"><option>1m</option><option>3m</option><option>5m</option><option>15m</option><option selected>30m</option><option>1h</option><option>4h</option><option>1d</option></select>
+        </div>
+        <button id="load_chart" style="background:linear-gradient(135deg,#8b5cf6,#7c3aed);color:#fff">📈 Load Chart</button>
+      </div>
+
+      <div style="margin-top:1.5rem;padding:1rem;background:var(--bg);border-radius:var(--radius-sm);">
+        <canvas id="priceChart" height="160"></canvas>
+      </div>
+
+      <h3 style="margin-top:2rem">🔴 Live Status</h3>
+      <table id="status-table">
+        <thead>
+          <tr><th>Symbol</th><th>Interval</th><th>Status</th><th>Price</th><th>MACD</th><th>Signal</th><th>Trend</th><th>Last Update</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <h3 style="margin-top:2rem">🔔 Alerts</h3>
+      <div id="alerts"></div>
+    </section>
+  </main>
+
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    async function api(path, opts){
+      const r = await fetch(path, opts)
+      return r.json()
+    }
+
+    function render(data){
+      document.getElementById('meta').innerText = `Checks: ${data.check_count}  Last scan: ${data.last_scan_time || '-'} `
+      // hero updates
+      try{
+        const coinsCount = Object.keys(data.current_data || {}).length
+        document.getElementById('hero-coins').innerText = coinsCount
+        document.getElementById('hero-alerts').innerText = (data.alerts || []).length
+        document.getElementById('hero-last').innerText = data.last_scan_time || '-'
+      }catch(e){/* ignore */}
+      const tbody = document.querySelector('#status-table tbody')
+      tbody.innerHTML = ''
+      for(const k in data.current_data){
+        const entry = data.current_data[k]
+        const [symbol, interval] = k.split('_')
+        const tr = document.createElement('tr')
+        const statusText = entry.error ? 'ERROR' : (entry.has_new_alert ? 'ALERT' : 'OK')
+        tr.innerHTML = `
+          <td>${symbol}</td>
+          <td>${interval}</td>
+          <td class="status-cell"><span class="status-dot"></span><span class="status-text">${statusText}</span></td>
+          <td>${entry.price ?? '-'}</td>
+          <td>${entry.macd ?? '-'}</td>
+          <td>${entry.signal ?? '-'}</td>
+          <td>${entry.trend ?? '-'}</td>
+          <td>${entry.timestamp ?? '-'}</td>
+        `
+        // apply status class
+        const statusCell = tr.querySelector('.status-cell')
+        if(entry.error){
+          statusCell.classList.add('status-error')
+        } else if(entry.has_new_alert){
+          statusCell.classList.add('status-alert')
+        } else {
+          statusCell.classList.add('status-ok')
+        }
+        tbody.appendChild(tr)
+        // color trend cell
+        const trendCell = tr.querySelectorAll('td')[6]
+        if(entry.trend === 'BULLISH'){
+          trendCell.classList.add('trend-bull')
+          trendCell.innerHTML = '🟢 ' + (entry.trend || '')
+        } else if(entry.trend === 'BEARISH'){
+          trendCell.classList.add('trend-bear')
+          trendCell.innerHTML = '🔴 ' + (entry.trend || '')
+        }
+      }
+
+      const alerts = document.getElementById('alerts')
+      alerts.innerHTML = ''
+      for(const a of data.alerts.slice(0,50)){
+        const d = document.createElement('div')
+        d.className = 'alert ' + (a.type === 'BULLISH' ? 'bull' : 'bear')
+        d.innerHTML = `<strong>${a.symbol} ${a.interval} - ${a.type}</strong> @ ${a.price} <div style="font-size:90%">${a.timestamp}</div>`
+        alerts.appendChild(d)
+      }
+    }
+
+    async function refresh(){
+      try{
+        const data = await api('/api/status')
+        render(data)
+      }catch(e){
+        console.error(e)
+      }
+    }
+
+    document.getElementById('refresh').onclick = refresh
+    document.getElementById('start').onclick = async ()=>{ await api('/api/start',{method:'POST'}) ; setTimeout(refresh,1000)}
+    document.getElementById('stop').onclick = async ()=>{ await api('/api/stop',{method:'POST'}) }
+    document.getElementById('dark_toggle').onclick = ()=>{
+      const isDark = document.body.classList.toggle('dark')
+      localStorage.setItem('macd_dark', isDark ? '1' : '0')
+    }
+
+    // load symbols into selects
+    async function load_symbols(){
+      try{
+        const res = await api('/api/symbols')
+        let list = res.symbols || []
+        // fallback if API returns empty
+        if(!list || list.length === 0){
+          list = ['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','ADAUSDT','MATICUSDT']
+        }
+        const sel = document.getElementById('symbol_select')
+        const chartSel = document.getElementById('chart_symbol')
+        sel.innerHTML = ''
+        chartSel.innerHTML = ''
+        for(const s of list){
+          const o = document.createElement('option'); o.value = s; o.text = s; sel.appendChild(o)
+          const o2 = document.createElement('option'); o2.value = s; o2.text = s; chartSel.appendChild(o2)
+        }
+      }catch(e){console.error('symbols',e)}
+    }
+
+    document.getElementById('add_coin').onclick = async ()=>{
+      const symbol = document.getElementById('symbol_select').value
+      const interval = document.getElementById('interval_select').value
+      try{
+        const res = await api(`/api/add_coin?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}`, {method:'POST'})
+        if(res.status === 'added'){
+          alert('Added')
+        } else if(res.status === 'exists'){
+          alert('Coin already exists')
+        } else {
+          alert('Response: ' + JSON.stringify(res))
+        }
+      }catch(err){
+        alert('Add coin failed: ' + err)
+      }
+      await load_config()
+    }
+
+    async function load_config(){
+      const cfg = await api('/api/config')
+      document.getElementById('telegram_enabled').checked = !!cfg.telegram_enabled
+      document.getElementById('telegram_token').value = cfg.telegram_token || ''
+      document.getElementById('telegram_chat_id').value = cfg.telegram_chat_id || ''
+      render_coins(cfg.coins || [])
+    }
+
+    document.getElementById('save_config').onclick = async ()=>{
+      const cfg = await api('/api/config')
+      cfg.telegram_enabled = document.getElementById('telegram_enabled').checked
+      cfg.telegram_token = document.getElementById('telegram_token').value
+      cfg.telegram_chat_id = document.getElementById('telegram_chat_id').value
+      await api('/api/config', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(cfg)})
+      alert('Saved')
+    }
+
+    function render_coins(coins){
+      const div = document.getElementById('coins_list')
+      div.innerHTML = ''
+      for(const c of coins){
+        const row = document.createElement('div')
+        row.style.display='flex';row.style.justifyContent='space-between';row.style.alignItems='center';row.style.padding='6px 0'
+        row.innerHTML = `<div>${c.symbol} <small>${c.interval}</small></div>`
+        const btns = document.createElement('div')
+        const rem = document.createElement('button')
+        rem.textContent='Remove'
+        rem.onclick = async ()=>{ await api(`/api/remove_coin?symbol=${encodeURIComponent(c.symbol)}&interval=${encodeURIComponent(c.interval)}`,{method:'POST'}); load_config() }
+        btns.appendChild(rem)
+        row.appendChild(btns)
+        div.appendChild(row)
+      }
+    }
+
+    // Charting
+    let chart = null
+    function createChart(labels, priceData, macdData, signalData){
+      const ctx = document.getElementById('priceChart').getContext('2d')
+      if(chart) chart.destroy()
+      chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {label:'Price', data: priceData, borderColor:'blue', yAxisID:'y'},
+            {label:'MACD', data: macdData, borderColor:'green', yAxisID:'y2'},
+            {label:'Signal', data: signalData, borderColor:'red', yAxisID:'y2'}
+          ]
+        },
+        options:{
+          scales:{
+            y:{position:'left'},
+            y2:{position:'right', grid:{drawOnChartArea:false}}
+          }
+        }
+      })
+    }
+
+    document.getElementById('load_chart').onclick = async ()=>{
+      const symbol = document.getElementById('chart_symbol').value
+      const interval = document.getElementById('chart_interval').value
+      const res = await api(`/api/history?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&limit=200`)
+      const candles = res.candles||[]
+      const labels = candles.map(c=>c.timestamp)
+      const price = candles.map(c=>c.close)
+      const macd = candles.map(c=>c.macd)
+      const signal = candles.map(c=>c.signal)
+      createChart(labels, price, macd, signal)
+    }
+
+    // initial load
+    load_symbols()
+    load_config()
+    refresh()
+    setInterval(refresh, 5000)
+
+    // apply saved dark mode
+    try{
+      const saved = localStorage.getItem('macd_dark')
+      if(saved === '1') document.body.classList.add('dark')
+    }catch(e){}
+  </script>
+</body>
+</html>

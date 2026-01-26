@@ -379,7 +379,9 @@ def test_all_scenarios(symbol='BTCUSDT', interval='1h', start_date='1 year ago U
         
         tp_configs = [
             {'name': 'Crossover', 'method': 'crossover'},
-            {'name': 'Fixed 2%', 'method': 'fixed', 'fixed_pct': 2.0},
+            {'name': 'Fixed 1%', 'method': 'fixed', 'fixed_pct': 1},
+                        {'name': 'Fixed 1%', 'method': 'fixed', 'fixed_pct': 1.5},
+            {'name': 'Fixed 2%', 'method': 'fixed', 'fixed_pct': 2},
             {'name': 'Fixed 3%', 'method': 'fixed', 'fixed_pct': 3.0},
             {'name': 'ATR 1.5x', 'method': 'atr', 'atr_mult': 1.5},
             {'name': 'ATR 2x', 'method': 'atr', 'atr_mult': 2.0},

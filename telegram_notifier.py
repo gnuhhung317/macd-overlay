@@ -1,23 +1,44 @@
 import requests
 from datetime import datetime
+from pathlib import Path
+
+
+def format_price(price: float) -> str:
+    """Smart price formatting - show enough decimals for low-price coins."""
+    if price is None or price == 0:
+        return "$0"
+    if price >= 1000:
+        return f"${price:,.0f}"
+    elif price >= 1:
+        return f"${price:.2f}"
+    elif price >= 0.01:
+        return f"${price:.4f}"
+    elif price >= 0.0001:
+        return f"${price:.6f}"
+    else:
+        return f"${price:.8f}"
 
 
 class TelegramNotifier:
     """
     Module xử lý gửi thông báo qua Telegram
+    Tích hợp ML predictions cho entry, SL, TP
     """
     
-    def __init__(self, token, chat_id):
+    def __init__(self, token, chat_id, ml_system=None):
         """
         Khởi tạo Telegram notifier
         
         Args:
             token (str): Telegram bot token
             chat_id (str): Telegram chat ID
+            ml_system: Optional ML system for predictions
         """
         self.token = token
         self.chat_id = chat_id
         self.api_url = f"https://api.telegram.org/bot{self.token}"
+        self.ml_system = ml_system
+        self.entry_threshold = 0.5  # Minimum confidence to send alert
         
     def send_message(self, message, parse_mode='HTML'):
         """
@@ -50,44 +71,143 @@ class TelegramNotifier:
             print(f"✗ Exception khi gửi Telegram: {e}")
             return False
     
-    def send_crossover_alert(self, crossover, symbol):
+
+    def send_crossover_alert(self, crossover, symbol, interval=None, features_df=None):
         """
-        Gửi thông báo crossover
-        
+        Gửi thông báo crossover với ML predictions
         Args:
             crossover (dict): Thông tin crossover
             symbol (str): Symbol (e.g., BTCUSDT)
+            interval (str, optional): Khung thời gian (e.g., 1d, 1h)
+            features_df (pd.DataFrame, optional): Features for ML prediction
+        Returns:
+            bool: True nếu gửi thành công, False nếu bị filter hoặc lỗi
         """
-        message = self.format_crossover_message(crossover, symbol)
-        return self.send_message(message)
-    
-    def format_crossover_message(self, crossover, symbol):
-        """
-        Format tin nhắn crossover cho Telegram
+        ml_prediction = None
         
+        # Check if ml_prediction was already passed in crossover dict
+        if 'ml_prediction' in crossover:
+            ml_prediction = crossover['ml_prediction']
+        # Otherwise, try to get prediction from features_df
+        elif self.ml_system is not None and features_df is not None:
+            try:
+                ml_prediction = self.ml_system.predict(features_df)
+            except Exception as e:
+                print(f"⚠️ ML prediction error: {e}")
+                ml_prediction = None
+        
+        # Filter by confidence threshold (only if we have ml_prediction)
+        if ml_prediction is not None and ml_prediction.get('entry_confidence', 1.0) < self.entry_threshold:
+            print(f"⚠️ Signal filtered: confidence {ml_prediction['entry_confidence']:.1%} < {self.entry_threshold:.0%}")
+            return False
+        
+        message = self.format_crossover_message(crossover, symbol, interval, ml_prediction)
+        return self.send_message(message)
+
+    def format_crossover_message(self, crossover, symbol, interval=None, ml_prediction=None):
+        """
+        Format tin nhắn crossover cho Telegram với ML predictions
         Args:
             crossover (dict): Thông tin crossover
             symbol (str): Trading symbol
-            
+            interval (str, optional): Khung thời gian
+            ml_prediction (dict, optional): ML prediction results
         Returns:
             str: Tin nhắn đã format
         """
-        emoji = "🟢" if crossover['type'] == 'BULLISH' else "🔴"
-        signal_type = "Tín hiệu MUA" if crossover['type'] == 'BULLISH' else "Tín hiệu BÁN"
+        is_bullish = crossover['type'] == 'BULLISH'
+        emoji = "🟢" if is_bullish else "🔴"
+        signal_type = "Tín hiệu MUA" if is_bullish else "Tín hiệu BÁN"
+        interval_str = f" | Khung: <b>{interval}</b>" if interval else ""
+        
+        price = crossover['price']
+        price_str = format_price(price)
         
         message = f"""
-{emoji} <b>MACD Crossover - {symbol}</b>
+{emoji} <b>MACD Crossover - {symbol}{interval_str}</b>
 
 📊 Loại: <b>{signal_type}</b>
-💰 Giá: <b>${crossover['price']:.2f}</b>
+💰 Giá: <b>{price_str}</b>
 📅 Thời gian: {crossover['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}
 
 📈 MACD: {crossover['macd']:.4f}
 📉 Signal: {crossover['signal']:.4f}
-📊 Histogram: {crossover['macd'] - crossover['signal']:.4f}
-        """
-        
+📊 Histogram: {crossover['macd'] - crossover['signal']:.4f}"""
+
+        # Add ML predictions if available
+        if ml_prediction is not None:
+            confidence = ml_prediction.get('entry_confidence', 0)
+            sl_pct = ml_prediction.get('sl_pct', 0.02)
+            tp_pct = ml_prediction.get('tp_pct', 0.04)
+            rr_ratio = ml_prediction.get('risk_reward', 2.0)
+            
+            # Calculate recommended entry (adjust if SL is far)
+            # If SL > 5%, suggest limit order below current price
+            entry_adjustment = 0
+            if sl_pct > 0.05:
+                # Adjust entry by (SL - 3%) to get better RR
+                entry_adjustment = (sl_pct - 0.03) * 0.5
+            
+            if is_bullish:
+                recommended_entry = price * (1 - entry_adjustment)
+                sl_price = recommended_entry * (1 - sl_pct)
+                tp_price = recommended_entry * (1 + tp_pct)
+                # Trailing SL: move SL to breakeven when price hits 50% of TP
+                trailing_trigger = recommended_entry * (1 + tp_pct * 0.5)
+            else:
+                recommended_entry = price * (1 + entry_adjustment)
+                sl_price = recommended_entry * (1 + sl_pct)
+                tp_price = recommended_entry * (1 - tp_pct)
+                trailing_trigger = recommended_entry * (1 - tp_pct * 0.5)
+            
+            # Confidence emoji
+            if confidence >= 0.7:
+                conf_emoji = "🔥"
+                conf_text = "Cao"
+            elif confidence >= 0.5:
+                conf_emoji = "✅"
+                conf_text = "Trung bình"
+            else:
+                conf_emoji = "⚠️"
+                conf_text = "Thấp"
+            
+            # RR quality
+            if rr_ratio >= 2.5:
+                rr_emoji = "🎯"
+            elif rr_ratio >= 1.5:
+                rr_emoji = "👍"
+            else:
+                rr_emoji = "⚖️"
+            
+            message += f"""
+
+━━━━━━ <b>🤖 ML Recommendation</b> ━━━━━━
+
+{conf_emoji} Độ tin cậy: <b>{confidence:.1%}</b> ({conf_text})
+{rr_emoji} Risk/Reward: <b>1:{rr_ratio:.1f}</b>
+
+💵 Entry đề xuất: <b>{format_price(recommended_entry)}</b>"""
+            
+            if entry_adjustment > 0:
+                message += f" (limit -{entry_adjustment*100:.1f}%)"
+            
+            message += f"""
+🛑 Stop Loss: <b>{format_price(sl_price)}</b> ({sl_pct*100:.1f}%)
+🎯 Take Profit: <b>{format_price(tp_price)}</b> ({tp_pct*100:.1f}%)
+
+📌 <b>Trailing SL:</b>
+• Khi giá đạt {format_price(trailing_trigger)} (+{tp_pct*50:.1f}%)
+• Dời SL lên breakeven {format_price(recommended_entry)}"""
+
         return message.strip()
+    
+    def set_ml_system(self, ml_system):
+        """Set ML system for predictions."""
+        self.ml_system = ml_system
+    
+    def set_entry_threshold(self, threshold: float):
+        """Set minimum confidence threshold for alerts."""
+        self.entry_threshold = threshold
     
     def send_summary(self, summary_data):
         """

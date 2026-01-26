@@ -1,26 +1,25 @@
-version: '3.8'
-
 services:
-  macd-dashboard:
-    image: gnuhhung317/macd-monitor-dashboard:latest
-    container_name: macd-dashboard
+  macd-monitor:
+    # build: .
+    image: gnuhhung317/macd-monitor-dashboard
+    container_name: macd-monitor
     restart: unless-stopped
     ports:
-      - "8501:8501"
+      - "8000:8000"
     volumes:
-      # Persist configuration
-      - ./monitor_config.json:/app/monitor_config.json
-      # Optional: Mount config.py if you want to use it
-      - ./config.py:/app/config.py
+    - ./monitor_config.json:/app/monitor_config.json
+    - ./data:/app/data
     environment:
       # Timezone
       - TZ=Asia/Ho_Chi_Minh
+      # Python environment
+      - PYTHONUNBUFFERED=1
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/status"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 10s
     networks:
       - macd-network
 
