@@ -22,6 +22,9 @@ COPY monitor_config.json* ./
 # Create static directory and copy files
 COPY static/ ./static/
 
+# Copy ML models directory
+COPY ml/ ./ml/
+
 # Create directory for data persistence
 RUN mkdir -p /app/data
 

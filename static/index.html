@@ -3,7 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>MACD Monitor</title>
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>Multi-Timeframe MACD Monitor v2.0</title>
   <style>
     * {
       box-sizing: border-box;
@@ -399,6 +402,72 @@
       box-shadow: var(--shadow-sm);
     }
 
+    /* Timeframe tabs */
+    .timeframe-tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+      border-bottom: 2px solid var(--table-border);
+      padding-bottom: 0;
+    }
+
+    .timeframe-tab {
+      padding: 0.75rem 1.5rem;
+      background: transparent;
+      border: none;
+      border-bottom: 3px solid transparent;
+      color: var(--muted);
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      position: relative;
+      bottom: -2px;
+    }
+
+    .timeframe-tab:hover {
+      color: var(--accent);
+      background: rgba(99, 102, 241, 0.05);
+      transform: none;
+      box-shadow: none;
+    }
+
+    .timeframe-tab.active {
+      color: #6366f1;
+      border-bottom-color: #6366f1;
+      background: rgba(99, 102, 241, 0.05);
+    }
+
+    .timeframe-tab .badge {
+      display: inline-block;
+      background: #6366f1;
+      color: white;
+      border-radius: 12px;
+      padding: 2px 8px;
+      font-size: 0.75rem;
+      margin-left: 0.5rem;
+      font-weight: 700;
+    }
+
+    .timeframe-content {
+      display: none;
+    }
+
+    .timeframe-content.active {
+      display: block;
+    }
+
+    .memory-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
+      border-radius: var(--radius-sm);
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: #6366f1;
+    }
+
     /* Dark mode */
     body.dark {
       --bg: #0f172a;
@@ -487,10 +556,14 @@
   <!-- Hero card -->
   <div id="hero">
     <div style="flex:1">
-      <h2>📈 MACD Real-time Monitor</h2>
-      <div id="hero-sub">Realtime overview of tracked symbols and alerts</div>
+      <h2>📈 Multi-Timeframe MACD Monitor</h2>
+      <div id="hero-sub">Real-time monitoring across multiple timeframes with optimized memory usage</div>
     </div>
-    <div class="hero-stats" style="display:flex;gap:1rem;">
+    <div class="hero-stats" style="display:flex;gap:1rem;flex-wrap:wrap;">
+      <div class="hero-stat">
+        <div class="hero-stat-label">Timeframes</div>
+        <div id="hero-timeframes" class="hero-stat-value">0</div>
+      </div>
       <div class="hero-stat">
         <div class="hero-stat-label">Coins</div>
         <div id="hero-coins" class="hero-stat-value">0</div>
@@ -500,8 +573,8 @@
         <div id="hero-alerts" class="hero-stat-value">0</div>
       </div>
       <div class="hero-stat">
-        <div class="hero-stat-label">Last scan</div>
-        <div id="hero-last" class="hero-stat-value" style="font-size:1rem;">-</div>
+        <div class="hero-stat-label">Memory</div>
+        <div id="hero-memory" class="hero-stat-value" style="font-size:1.25rem;">0 MB</div>
       </div>
     </div>
   </div>
@@ -540,8 +613,19 @@
     </aside>
 
     <section>
-      <h2>📊 Status & Charts</h2>
-      <div id="meta" style="color:var(--muted);font-size:0.875rem;margin-bottom:1rem;"></div>
+      <h2>📊 Multi-Timeframe Status</h2>
+      <div id="meta" style="color:var(--muted);font-size:0.875rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;">
+        <span id="meta-text"></span>
+        <span id="meta-memory" class="memory-badge"></span>
+      </div>
+      
+      <!-- Timeframe Tabs -->
+      <div class="timeframe-tabs" id="timeframe-tabs"></div>
+      
+      <!-- Timeframe Content Containers -->
+      <div id="timeframe-contents"></div>
+      
+      <h3 style="margin-top:2rem">📈 Historical Chart</h3>
       <div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;">
         <div style="display:flex;align-items:center;gap:0.5rem;">
           <label style="font-weight:600;margin:0;">Symbol:</label>
@@ -549,7 +633,7 @@
         </div>
         <div style="display:flex;align-items:center;gap:0.5rem;">
           <label style="font-weight:600;margin:0;">Interval:</label>
-          <select id="chart_interval"><option>1m</option><option>3m</option><option>5m</option><option>15m</option><option selected>30m</option><option>1h</option><option>4h</option><option>1d</option></select>
+          <select id="chart_interval"><option>1m</option><option>3m</option><option>5m</option><option>15m</option><option>30m</option><option>1h</option><option>4h</option><option>8h</option><option>12h</option><option selected>1d</option></select>
         </div>
         <button id="load_chart" style="background:linear-gradient(135deg,#8b5cf6,#7c3aed);color:#fff">📈 Load Chart</button>
       </div>
@@ -557,83 +641,234 @@
       <div style="margin-top:1.5rem;padding:1rem;background:var(--bg);border-radius:var(--radius-sm);">
         <canvas id="priceChart" height="160"></canvas>
       </div>
-
-      <h3 style="margin-top:2rem">🔴 Live Status</h3>
-      <table id="status-table">
-        <thead>
-          <tr><th>Symbol</th><th>Interval</th><th>Status</th><th>Price</th><th>MACD</th><th>Signal</th><th>Trend</th><th>Last Update</th></tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-
-      <h3 style="margin-top:2rem">🔔 Alerts</h3>
-      <div id="alerts"></div>
     </section>
   </main>
 
   <!-- Chart.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
+    let currentTimeframe = null;
+    let timeframesData = {};
+
     async function api(path, opts){
       const r = await fetch(path, opts)
       return r.json()
     }
 
-    function render(data){
-      document.getElementById('meta').innerText = `Checks: ${data.check_count}  Last scan: ${data.last_scan_time || '-'} `
-      // hero updates
-      try{
-        const coinsCount = Object.keys(data.current_data || {}).length
-        document.getElementById('hero-coins').innerText = coinsCount
-        document.getElementById('hero-alerts').innerText = (data.alerts || []).length
-        document.getElementById('hero-last').innerText = data.last_scan_time || '-'
-      }catch(e){/* ignore */}
-      const tbody = document.querySelector('#status-table tbody')
-      tbody.innerHTML = ''
-      for(const k in data.current_data){
-        const entry = data.current_data[k]
-        const [symbol, interval] = k.split('_')
-        const tr = document.createElement('tr')
-        const statusText = entry.error ? 'ERROR' : (entry.has_new_alert ? 'ALERT' : 'OK')
+    function renderTimeframeTabs(timeframes, alertCounts) {
+      const tabsContainer = document.getElementById('timeframe-tabs');
+      tabsContainer.innerHTML = '';
+      
+      if (!timeframes || timeframes.length === 0) {
+        tabsContainer.innerHTML = '<div style="padding:1rem;color:var(--muted);">No timeframes configured</div>';
+        return;
+      }
+      
+      timeframes.forEach((tf, idx) => {
+        const button = document.createElement('button');
+        button.className = 'timeframe-tab';
+        if (idx === 0 || tf === currentTimeframe) {
+          button.classList.add('active');
+          if (!currentTimeframe) currentTimeframe = tf;
+        }
+        
+        const alertCount = alertCounts[tf] || 0;
+        button.innerHTML = `${tf} ${alertCount > 0 ? `<span class="badge">${alertCount}</span>` : ''}`;
+        button.onclick = () => switchTimeframe(tf);
+        tabsContainer.appendChild(button);
+      });
+    }
+
+    function switchTimeframe(interval) {
+      currentTimeframe = interval;
+      
+      // Update tab active states
+      document.querySelectorAll('.timeframe-tab').forEach(tab => {
+        tab.classList.remove('active');
+        if (tab.innerText.startsWith(interval)) {
+          tab.classList.add('active');
+        }
+      });
+      
+      // Update content active states
+      document.querySelectorAll('.timeframe-content').forEach(content => {
+        content.classList.remove('active');
+        if (content.dataset.interval === interval) {
+          content.classList.add('active');
+        }
+      });
+    }
+
+    function renderTimeframeContent(interval, data, alerts) {
+      const contentsContainer = document.getElementById('timeframe-contents');
+      let contentDiv = contentsContainer.querySelector(`[data-interval="${interval}"]`);
+      
+      if (!contentDiv) {
+        contentDiv = document.createElement('div');
+        contentDiv.className = 'timeframe-content';
+        contentDiv.dataset.interval = interval;
+        contentDiv.innerHTML = `
+          <h3>🔴 Live Status - ${interval}</h3>
+          <table class="status-table">
+            <thead>
+              <tr><th>Symbol</th><th>Status</th><th>Price</th><th>MACD</th><th>Signal</th><th>Trend</th><th>Last Update</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+          <h3 style="margin-top:2rem">🔔 Alerts - ${interval}</h3>
+          <div class="alerts-container"></div>
+        `;
+        contentsContainer.appendChild(contentDiv);
+      }
+      
+      if (interval === currentTimeframe) {
+        contentDiv.classList.add('active');
+      }
+      
+      // Render status table
+      const tbody = contentDiv.querySelector('tbody');
+      tbody.innerHTML = '';
+      
+      for (const k in data) {
+        const entry = data[k];
+        const symbol = k.replace(`_${interval}`, '');
+        const tr = document.createElement('tr');
+        const statusText = entry.error ? 'ERROR' : (entry.has_new_alert ? 'ALERT' : 'OK');
         tr.innerHTML = `
           <td>${symbol}</td>
-          <td>${interval}</td>
           <td class="status-cell"><span class="status-dot"></span><span class="status-text">${statusText}</span></td>
           <td>${entry.price ?? '-'}</td>
-          <td>${entry.macd ?? '-'}</td>
-          <td>${entry.signal ?? '-'}</td>
-          <td>${entry.trend ?? '-'}</td>
+          <td>${entry.macd?.toFixed(4) ?? '-'}</td>
+          <td>${entry.signal?.toFixed(4) ?? '-'}</td>
+          <td class="trend-cell">${entry.trend ?? '-'}</td>
           <td>${entry.timestamp ?? '-'}</td>
-        `
-        // apply status class
-        const statusCell = tr.querySelector('.status-cell')
-        if(entry.error){
-          statusCell.classList.add('status-error')
-        } else if(entry.has_new_alert){
-          statusCell.classList.add('status-alert')
+        `;
+        
+        const statusCell = tr.querySelector('.status-cell');
+        if (entry.error) {
+          statusCell.classList.add('status-error');
+        } else if (entry.has_new_alert) {
+          statusCell.classList.add('status-alert');
         } else {
-          statusCell.classList.add('status-ok')
+          statusCell.classList.add('status-ok');
         }
-        tbody.appendChild(tr)
-        // color trend cell
-        const trendCell = tr.querySelectorAll('td')[6]
-        if(entry.trend === 'BULLISH'){
-          trendCell.classList.add('trend-bull')
-          trendCell.innerHTML = '🟢 ' + (entry.trend || '')
-        } else if(entry.trend === 'BEARISH'){
-          trendCell.classList.add('trend-bear')
-          trendCell.innerHTML = '🔴 ' + (entry.trend || '')
+        
+        const trendCell = tr.querySelector('.trend-cell');
+        if (entry.trend === 'BULLISH') {
+          trendCell.classList.add('trend-bull');
+          trendCell.innerHTML = '🟢 ' + (entry.trend || '');
+        } else if (entry.trend === 'BEARISH') {
+          trendCell.classList.add('trend-bear');
+          trendCell.innerHTML = '🔴 ' + (entry.trend || '');
         }
+        
+        tbody.appendChild(tr);
       }
+      
+      // Render alerts
+      const alertsContainer = contentDiv.querySelector('.alerts-container');
+      alertsContainer.innerHTML = '';
+      
+      if (!alerts || alerts.length === 0) {
+        alertsContainer.innerHTML = '<div style="padding:1rem;color:var(--muted);text-align:center;">No alerts yet</div>';
+      } else {
+        alerts.slice(0, 20).forEach(a => {
+          const d = document.createElement('div');
+          d.className = 'alert ' + (a.type === 'BULLISH' ? 'bull' : 'bear');
+          
+          // Get ML prediction data
+          const ml = a.ml_prediction || a.predictions;
+          const entryConf = a.entry_confidence || (ml ? ml.entry_confidence : 0.5);
+          const slPct = ml ? (ml.sl_pct || ml.sl_percent) : null;
+          const tpPct = ml ? (ml.tp_pct || ml.tp_percent) : null;
+          
+          // Format confidence badge with color
+          let confidenceBadge = '';
+          if (entryConf != null) {
+            const confPercent = (entryConf * 100).toFixed(0);
+            let confColor = '#6366f1'; // default blue
+            if (entryConf >= 0.7) confColor = '#10b981'; // green
+            else if (entryConf >= 0.5) confColor = '#f59e0b'; // orange
+            else confColor = '#ef4444'; // red
+            
+            confidenceBadge = `<span style="background:${confColor};color:white;padding:2px 8px;border-radius:4px;font-weight:bold;margin-left:8px;">⭐ ${confPercent}%</span>`;
+          }
+          
+          // Format ML info or show "No ML" message
+          let mlInfo = '';
+          if (ml && slPct != null && tpPct != null) {
+            mlInfo = `<br><small style="opacity:0.9;">📊 ML: SL ${slPct?.toFixed(1)}% | TP ${tpPct?.toFixed(1)}% | Entry ${(entryConf * 100)?.toFixed(1)}%</small>`;
+          } else {
+            mlInfo = `<br><small style="opacity:0.7;color:var(--muted);">⚠️ Basic signal (ML not available)</small>`;
+          }
+          
+          d.innerHTML = `
+            <div>
+              <strong>${a.symbol} - ${a.type}</strong> @ ${a.price} ${confidenceBadge}
+              ${mlInfo}
+            </div>
+            <div style="font-size:90%;color:var(--muted)">${a.timestamp}</div>
+          `;
+          alertsContainer.appendChild(d);
+        });
+      }
+    }
 
-      const alerts = document.getElementById('alerts')
-      alerts.innerHTML = ''
-      for(const a of data.alerts.slice(0,50)){
-        const d = document.createElement('div')
-        d.className = 'alert ' + (a.type === 'BULLISH' ? 'bull' : 'bear')
-        d.innerHTML = `<strong>${a.symbol} ${a.interval} - ${a.type}</strong> @ ${a.price} <div style="font-size:90%">${a.timestamp}</div>`
-        alerts.appendChild(d)
+    function render(data) {
+      document.getElementById('meta-text').innerText = `Checks: ${data.check_count}  Last scan: ${data.last_scan_time || '-'}`;
+      document.getElementById('meta-memory').innerText = `💾 ${data.memory_usage_mb?.toFixed(0) || 0} MB`;
+      
+      // Update hero stats
+      try {
+        const timeframeStats = data.timeframe_stats || {};
+        const timeframeCount = Object.keys(timeframeStats).length;
+        const coinsCount = Object.keys(data.current_data || {}).length;
+        
+        document.getElementById('hero-timeframes').innerText = timeframeCount;
+        document.getElementById('hero-coins').innerText = coinsCount;
+        document.getElementById('hero-alerts').innerText = (data.alerts || []).length;
+        document.getElementById('hero-memory').innerText = `${data.memory_usage_mb?.toFixed(0) || 0} MB`;
+      } catch (e) { console.error('Hero update error:', e); }
+      
+      // Group data by timeframe
+      const timeframeMap = {};
+      const alertMap = {};
+      
+      for (const k in data.current_data) {
+        const parts = k.split('_');
+        const interval = parts[parts.length - 1];
+        if (!timeframeMap[interval]) {
+          timeframeMap[interval] = {};
+        }
+        timeframeMap[interval][k] = data.current_data[k];
       }
+      
+      // Group alerts by timeframe
+      (data.alerts || []).forEach(alert => {
+        const interval = alert.interval;
+        if (!alertMap[interval]) {
+          alertMap[interval] = [];
+        }
+        alertMap[interval].push(alert);
+      });
+      
+      const alertCounts = {};
+      for (const interval in alertMap) {
+        alertCounts[interval] = alertMap[interval].length;
+      }
+      
+      // Render tabs
+      const timeframes = Object.keys(timeframeMap).sort((a, b) => {
+        const order = ['4h', '8h', '12h', '1d', '1h'];
+        return order.indexOf(a) - order.indexOf(b);
+      });
+      
+      renderTimeframeTabs(timeframes, alertCounts);
+      
+      // Render content for each timeframe
+      timeframes.forEach(interval => {
+        renderTimeframeContent(interval, timeframeMap[interval], alertMap[interval] || []);
+      });
     }
 
     async function refresh(){

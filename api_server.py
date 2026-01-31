@@ -10,6 +10,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from data_processor import BinanceDataProcessor
 from telegram_notifier import TelegramNotifier
+from optimized_monitor import OptimizedMonitor
 import pandas as pd
 
 # ML Predictor (optional)
@@ -28,12 +29,20 @@ SCAN_INTERVAL = 300  # seconds
 app = FastAPI(title="MACD Monitor API")
 
 def sanitize_json_value(obj):
-    """Replace NaN and Infinity with None for JSON compatibility, convert numpy types"""
+    """Replace NaN and Infinity with None for JSON compatibility, convert numpy types and datetime"""
     import numpy as np
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    
     if isinstance(obj, dict):
         return {k: sanitize_json_value(v) for k, v in obj.items()}
     elif isinstance(obj, list):
         return [sanitize_json_value(v) for v in obj]
+    elif isinstance(obj, datetime):
+        # Convert datetime to ISO string
+        if obj.tzinfo is None:
+            obj = obj.replace(tzinfo=ZoneInfo('UTC'))
+        return obj.astimezone(ZoneInfo('Asia/Ho_Chi_Minh')).isoformat()
     elif isinstance(obj, (np.floating, np.float32, np.float64)):
         val = float(obj)
         if math.isnan(val) or math.isinf(val):
@@ -72,7 +81,10 @@ shared_data = {
     'last_scan_time': None,
     'current_data': {},
     'alerts': [],
-    'last_check': {}
+    'last_check': {},
+    'timeframe_stats': {},  # Per-timeframe statistics
+    'memory_usage_mb': 0,
+    'monitor': None  # OptimizedMonitor instance
 }
 
 
@@ -263,20 +275,24 @@ def scan_coins_worker():
 
 
 def crawler_worker():
-    print('[CRAWLER] started')
-    # initial run
+    print('[CRAWLER] Multi-timeframe monitor started')
+    
+    with data_lock:
+        monitor = shared_data['monitor']
+    
+    if monitor is None:
+        print('[CRAWLER] Monitor not initialized')
+        return
+    
+    # Run the optimized monitor's main loop (runs continuously until stop_event)
+    # Using run() instead of run_scan_cycle() to get continuous monitoring
     try:
-        scan_coins_worker()
+        monitor.run()  # This runs the continuous loop with smart scheduling
     except Exception as e:
-        print('[CRAWLER] init error', e)
-    while not stop_event.is_set():
-        if stop_event.wait(timeout=SCAN_INTERVAL):
-            break
-        try:
-            scan_coins_worker()
-        except Exception as e:
-            print('[CRAWLER] error', e)
-            time.sleep(5)
+        print(f'[CRAWLER] Monitor error: {e}')
+        import traceback
+        traceback.print_exc()
+    
     print('[CRAWLER] stopped')
 
 
@@ -289,6 +305,21 @@ def api_start():
     config = load_config()
     setup_telegram_if_needed(config)
     setup_processor(config)
+    
+    # Initialize OptimizedMonitor
+    with data_lock:
+        if shared_data['monitor'] is None:
+            try:
+                shared_data['monitor'] = OptimizedMonitor(
+                    stop_event=stop_event,
+                    shared_data=shared_data,
+                    data_lock=data_lock
+                )
+                print('[MONITOR] OptimizedMonitor initialized')
+            except Exception as e:
+                print(f'[MONITOR] Failed to initialize: {e}')
+                return {'status': 'error', 'message': str(e)}
+    
     if crawler_thread is None or not crawler_thread.is_alive():
         stop_event.clear()
         crawler_thread = threading.Thread(target=crawler_worker, daemon=True)
@@ -310,20 +341,34 @@ def api_status():
             'check_count': shared_data['check_count'],
             'last_scan_time': iso(shared_data['last_scan_time']),
             'current_data': {},
-            'alerts': []
+            'alerts': [],
+            'timeframe_stats': {},
+            'memory_usage_mb': shared_data.get('memory_usage_mb', 0),
+            'monitor_active': shared_data.get('monitor') is not None
         }
-        # convert datetimes
+        
+        # Convert timeframe_stats datetimes
+        for interval, stats in shared_data.get('timeframe_stats', {}).items():
+            stats_copy = stats.copy() if isinstance(stats, dict) else {}
+            if 'last_scan' in stats_copy and isinstance(stats_copy['last_scan'], datetime):
+                stats_copy['last_scan'] = iso(stats_copy['last_scan'])
+            data['timeframe_stats'][interval] = stats_copy
+        
+        # convert current_data datetimes
         for k, v in shared_data['current_data'].items():
             entry = v.copy()
             if isinstance(entry.get('timestamp'), datetime):
                 entry['timestamp'] = iso(entry['timestamp'])
             data['current_data'][k] = entry
+            
         # ensure alerts are sorted newest-first
         alerts_sorted = sorted(shared_data['alerts'], key=lambda x: x.get('timestamp') or datetime.min, reverse=True)
         for a in alerts_sorted[:100]:
             a2 = a.copy()
-            a2['timestamp'] = iso(a2['timestamp'])
+            if isinstance(a2.get('timestamp'), datetime):
+                a2['timestamp'] = iso(a2['timestamp'])
             data['alerts'].append(a2)
+            
     # Sanitize NaN/Infinity values before JSON serialization
     data = sanitize_json_value(data)
     return JSONResponse(data)
@@ -414,6 +459,63 @@ def api_remove_coin(symbol: str, interval: str = '30m'):
 @app.get('/api/symbols')
 def api_symbols():
     return {'symbols': get_futures_symbols()}
+
+
+@app.get('/api/timeframes')
+def api_timeframes():
+    """Get list of all enabled timeframes with configuration"""
+    with data_lock:
+        monitor = shared_data.get('monitor')
+    
+    if monitor is None:
+        return JSONResponse({'timeframes': [], 'message': 'Monitor not initialized'})
+    
+    timeframes_list = []
+    for interval in monitor.config.get_enabled_timeframes():
+        tf_config = monitor.config.get_timeframe_config(interval)
+        timeframes_list.append({
+            'interval': interval,
+            'scan_interval': tf_config.get('scan_interval', 300),
+            'telegram_chat_id': tf_config.get('telegram_chat_id', ''),
+            'enabled': tf_config.get('enabled', True)
+        })
+    
+    return JSONResponse({'timeframes': timeframes_list})
+
+
+@app.get('/api/timeframes/{interval}/status')
+def api_timeframe_status(interval: str):
+    """Get status for a specific timeframe"""
+    with data_lock:
+        stats = shared_data.get('timeframe_stats', {}).get(interval, {})
+        # Get alerts for this timeframe
+        timeframe_alerts = [
+            a for a in shared_data['alerts'] 
+            if a.get('interval') == interval
+        ][:20]  # Last 20 alerts for this timeframe
+        
+        # Get current data for coins in this timeframe
+        timeframe_data = {
+            k: v for k, v in shared_data['current_data'].items() 
+            if k.endswith(f'_{interval}')
+        }
+    
+    # Convert datetimes
+    for a in timeframe_alerts:
+        a['timestamp'] = iso(a.get('timestamp'))
+    
+    for k, v in timeframe_data.items():
+        if isinstance(v.get('timestamp'), datetime):
+            v['timestamp'] = iso(v['timestamp'])
+    
+    result = {
+        'interval': interval,
+        'stats': stats,
+        'alerts': timeframe_alerts,
+        'current_data': timeframe_data
+    }
+    
+    return JSONResponse(sanitize_json_value(result))
 
 
 @app.get('/ping')

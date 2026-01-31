@@ -137,9 +137,16 @@ class TelegramNotifier:
         # Add ML predictions if available
         if ml_prediction is not None:
             confidence = ml_prediction.get('entry_confidence', 0)
-            sl_pct = ml_prediction.get('sl_pct', 0.02)
-            tp_pct = ml_prediction.get('tp_pct', 0.04)
-            rr_ratio = ml_prediction.get('risk_reward', 2.0)
+            # Support both old keys (sl_pct/tp_pct) and new keys (sl_percent/tp_percent)
+            sl_pct = ml_prediction.get('sl_percent', ml_prediction.get('sl_pct', 0.02))
+            tp_pct = ml_prediction.get('tp_percent', ml_prediction.get('tp_pct', 0.04))
+            # Convert from percentage to decimal if needed (>1 means it's percentage like 7.9)
+            if sl_pct > 1:
+                sl_pct = sl_pct / 100
+            if tp_pct > 1:
+                tp_pct = tp_pct / 100
+            # Calculate risk/reward ratio
+            rr_ratio = tp_pct / sl_pct if sl_pct > 0 else 2.0
             
             # Calculate recommended entry (adjust if SL is far)
             # If SL > 5%, suggest limit order below current price
@@ -198,6 +205,17 @@ class TelegramNotifier:
 📌 <b>Trailing SL:</b>
 • Khi giá đạt {format_price(trailing_trigger)} (+{tp_pct*50:.1f}%)
 • Dời SL lên breakeven {format_price(recommended_entry)}"""
+        else:
+            # No ML prediction available - show warning
+            message += """
+
+━━━━━━ <b>⚠️ ML Prediction</b> ━━━━━━
+
+❌ <b>ML không khả dụng cho symbol này</b>
+• Không đủ dữ liệu lịch sử
+• Hoặc lỗi tính toán features
+
+📌 <i>Khuyến nghị: Chờ tín hiệu có ML support</i>"""
 
         return message.strip()
     

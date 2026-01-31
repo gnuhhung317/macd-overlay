@@ -1,0 +1,101 @@
+MULTI-TIMEFRAME MISSED ENTRY ANALYSIS REPORT
+============================================
+
+============================================================
+MISSED ENTRY ANALYSIS (4h)
+============================================================
+Total Signals: 2000
+Signals with Recommended Limit Offset: 1952 (97.6%)
+
+Miss Rate (Order Never Filled): 24.5%
+
+Average PnL per Trade:
+  Market Entry: -0.78%
+  Limit Entry:  -0.69%
+  Difference:   -0.10%
+Conclusion: LIMIT ENTRY is better overall (Patience pays off)
+
+------------------------------------------------------------
+Analysis by Confidence Level
+------------------------------------------------------------
+Confidence      Count  Miss%    Mkt PnL    Lmt PnL    Winner    
+----------------------------------------------------------------------
+(0.0, 0.5]      1377   23.9%    -0.82%    -0.76%   LIMIT
+(0.5, 0.6]      432    27.1%    -0.70%    -0.65%   LIMIT
+(0.6, 0.7]      131    22.1%    -0.57%     0.07%   LIMIT
+(0.7, 0.8]      12     25.0%    -2.02%    -1.45%   LIMIT
+
+============================================================
+MISSED ENTRY ANALYSIS (8h)
+============================================================
+Total Signals: 2000
+Signals with Recommended Limit Offset: 1961 (98.0%)
+
+Miss Rate (Order Never Filled): 22.4%
+
+Average PnL per Trade:
+  Market Entry: -1.08%
+  Limit Entry:  -1.12%
+  Difference:   0.04%
+Conclusion: MARKET ENTRY is better overall (FOMO pays off)
+
+------------------------------------------------------------
+Analysis by Confidence Level
+------------------------------------------------------------
+Confidence      Count  Miss%    Mkt PnL    Lmt PnL    Winner    
+----------------------------------------------------------------------
+(0.0, 0.5]      1354   21.5%    -1.31%    -1.40%   MARKET
+(0.5, 0.6]      454    25.3%    -0.80%    -0.71%   LIMIT
+(0.6, 0.7]      123    21.1%    -0.45%    -0.60%   MARKET
+(0.7, 0.8]      28     28.6%     2.71%     2.91%   LIMIT
+(0.8, 0.9]      2      0.0%     0.00%     0.00%   LIMIT
+
+============================================================
+MISSED ENTRY ANALYSIS (12h)
+============================================================
+Total Signals: 2000
+Signals with Recommended Limit Offset: 1968 (98.4%)
+
+Miss Rate (Order Never Filled): 17.4%
+
+Average PnL per Trade:
+  Market Entry: -1.11%
+  Limit Entry:  -0.98%
+  Difference:   -0.13%
+Conclusion: LIMIT ENTRY is better overall (Patience pays off)
+
+------------------------------------------------------------
+Analysis by Confidence Level
+------------------------------------------------------------
+Confidence      Count  Miss%    Mkt PnL    Lmt PnL    Winner    
+----------------------------------------------------------------------
+(0.0, 0.5]      1301   16.3%    -1.24%    -1.12%   LIMIT
+(0.5, 0.6]      471    21.0%    -0.66%    -0.67%   MARKET
+(0.6, 0.7]      161    16.1%    -1.50%    -0.86%   LIMIT
+(0.7, 0.8]      34     17.6%     0.08%    -0.25%   MARKET
+(0.8, 0.9]      1      0.0%   -15.00%   -15.00%   LIMIT
+
+============================================================
+MISSED ENTRY ANALYSIS (1d)
+============================================================
+Total Signals: 2000
+Signals with Recommended Limit Offset: 1940 (97.0%)
+
+Miss Rate (Order Never Filled): 12.4%
+
+Average PnL per Trade:
+  Market Entry: -1.52%
+  Limit Entry:  -1.28%
+  Difference:   -0.24%
+Conclusion: LIMIT ENTRY is better overall (Patience pays off)
+
+------------------------------------------------------------
+Analysis by Confidence Level
+------------------------------------------------------------
+Confidence      Count  Miss%    Mkt PnL    Lmt PnL    Winner    
+----------------------------------------------------------------------
+(0.0, 0.5]      1255   9.4%    -2.72%    -2.38%   LIMIT
+(0.5, 0.6]      448    15.6%    -0.67%    -0.02%   LIMIT
+(0.6, 0.7]      168    23.8%     2.51%     1.52%   MARKET
+(0.7, 0.8]      59     20.3%     6.44%     4.84%   MARKET
+(0.8, 0.9]      10     10.0%    -2.53%    -2.53%   LIMIT

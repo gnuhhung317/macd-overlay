@@ -86,10 +86,9 @@ class BinanceDataProcessor:
         
         # Fetch data in batches
         current_start = start_date
-        print(start_date)
         while True:
             batch_count += 1
-            print(f"  Batch {batch_count}: Đang tải...", end='', flush=True)
+            # print(f"  Batch {batch_count}: Đang tải...", end='', flush=True)
             
             try:
                 # Sử dụng Futures hoặc Spot API
@@ -117,12 +116,12 @@ class BinanceDataProcessor:
                 print(" Không có dữ liệu")
                 break
             
-            print(f" {len(klines)} nến")
+            # print(f" {len(klines)} nến")
             all_klines.extend(klines)
             
             # Nếu số nến < limit, đã hết dữ liệu trong khoảng thời gian
             if len(klines) < limit:
-                print(f"      (Đã lấy hết dữ liệu - nhận được {len(klines)} < {limit} nến)")
+                # print(f"      (Đã lấy hết dữ liệu - nhận được {len(klines)} < {limit} nến)")
                 break
             
             # Cập nhật start_date cho batch tiếp theo

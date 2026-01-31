@@ -4,39 +4,39 @@
   "timeframes": {
     "4h": {
       "enabled": true,
-      "telegram_chat_id": "-5158391406",
+      "telegram_chat_id": "-5113373606",
       "scan_interval": 7200,
       "models_dir": "ml/models/4h",
-      "entry_threshold": 0.63,
+      "entry_threshold": 0.55,
       "description": "4-hour timeframe - Primary timeframe with best Sharpe ratio"
     },
     "8h": {
       "enabled": true,
-      "telegram_chat_id": "-5208509935",
+      "telegram_chat_id": "-5113373607",
       "scan_interval": 14400,
       "models_dir": "ml/models/8h",
-      "entry_threshold": 0.63,
+      "entry_threshold": 0.55,
       "description": "8-hour timeframe"
     },
     "12h": {
       "enabled": true,
-      "telegram_chat_id": "-5165549093",
+      "telegram_chat_id": "-5113373608",
       "scan_interval": 21600,
       "models_dir": "ml/models/12h",
-      "entry_threshold": 0.63,
+      "entry_threshold": 0.55,
       "description": "12-hour timeframe"
     },
     "1d": {
       "enabled": true,
-      "telegram_chat_id": "-5113373606",
+      "telegram_chat_id": "-5113373609",
       "scan_interval": 43200,
       "models_dir": "ml/models/1d",
-      "entry_threshold": 0.63,
+      "entry_threshold": 0.6,
       "description": "Daily timeframe - Lower frequency, higher confidence"
     },
     "1h": {
       "enabled": false,
-      "telegram_chat_id": "-5113373606",
+      "telegram_chat_id": "-5113373610",
       "scan_interval": 3600,
       "models_dir": "ml/models/4h",
       "entry_threshold": 0.5,
@@ -1738,6 +1738,5 @@
     "max_memory_mb": 1000,
     "model_cache_ttl": 3600,
     "enable_model_caching": true
-  },
-  "telegram_chat_id": "-5113373606"
+  }
 }

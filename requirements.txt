@@ -4,3 +4,7 @@ numpy
 requests
 fastapi
 uvicorn[standard]
+psutil
+scikit-learn
+joblib
+xgboost
