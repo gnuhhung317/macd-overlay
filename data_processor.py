@@ -130,7 +130,7 @@ class BinanceDataProcessor:
             
             # Convert sang datetime để kiểm tra
             last_dt = pd.to_datetime(last_timestamp, unit='ms')
-            print(f"      (Timestamp cuối: {last_dt})")
+            # print(f"      (Timestamp cuối: {last_dt})")
             
             # Start của batch tiếp theo = timestamp cuối + 1ms
             current_start = last_timestamp + 1
@@ -215,13 +215,14 @@ class BinanceDataProcessor:
         Returns:
             pd.DataFrame: DataFrame với MACD indicators
         """
-        # MACD theo Pine Script: ema(close, slow-fast)
-        # Khác với MACD chuẩn (ema_fast - ema_slow)
-        macd_period = self.slow_period - self.fast_period  # 26 - 12 = 14
-        df['macd'] = self.calculate_ema(df['close'], macd_period)
+        # Standard MACD: EMA_fast - EMA_slow
+        # Formula matches ml/data_pipeline.py used for training
+        ema_fast = self.calculate_ema(df['close'], self.fast_period)
+        ema_slow = self.calculate_ema(df['close'], self.slow_period)
+        df['macd'] = ema_fast - ema_slow
         
-        # Signal line = SMA(MACD)
-        df['signal'] = self.calculate_sma(df['macd'], self.signal_period)
+        # Signal line = EMA(MACD) (Standard uses EMA, not SMA)
+        df['signal'] = self.calculate_ema(df['macd'], self.signal_period)
         
         # Histogram = MACD - Signal
         df['histogram'] = df['macd'] - df['signal']
@@ -426,9 +427,26 @@ class BinanceDataProcessor:
         else:
             avg_interval = 0
         
-        return {
-            'total': len(crossovers),
-            'bullish': bullish_count,
-            'bearish': bearish_count,
-            'avg_interval_hours': round(avg_interval, 2)
-        }
+    def get_current_funding_rate(self, symbol):
+        """
+        Lấy funding rate hiện tại cho symbol
+        
+        Args:
+            symbol (str): Trading pair (e.g., BTCUSDT)
+            
+        Returns:
+            float: Funding rate (e.g., 0.0001) or 0.0 if failed
+        """
+        if not self.use_futures:
+            return 0.0
+            
+        try:
+            # Get funding rate (returns list of funding rates, we need latest or current)
+            # client.futures_premium_index returns dict with lastFundingRate
+            info = self.client.futures_premium_index(symbol=symbol)
+            if isinstance(info, dict) and 'lastFundingRate' in info:
+                return float(info['lastFundingRate'])
+            return 0.0
+        except Exception as e:
+            print(f"Error fetching funding rate for {symbol}: {e}")
+            return 0.0

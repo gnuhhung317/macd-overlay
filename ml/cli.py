@@ -46,6 +46,94 @@ def cmd_train(args):
     run_training()
 
 
+def cmd_predict(args):
+    """Run prediction for a symbol"""
+    from inference import InferenceEngine, load_data_for_symbol
+    
+    print(f"Loading {args.timeframe} models...")
+    engine = InferenceEngine(args.timeframe)
+    
+    print(f"Loading data for {args.symbol}...")
+    df = load_data_for_symbol(args.symbol, "1h") # Always load 1h and resample? Or load timeframe specifically?
+    # Context: The training data was built from 1h. inference.py assumes input is adequate.
+    # We should probably use the same logic as training: load 1h, resample if needed.
+    # For simplicity, let's assume we load the raw 1h data and let the engine/pipeline handle features.
+    # Wait, inference.py logic above calls calculate_features on the passed df. 
+    # If timeframe is 4h, we need to pass 4h data.
+    
+    # Correction: The logic in multi_timeframe_pipeline resamples 1h to target timeframe.
+    # We should replicate that or assume user has target timeframe data.
+    # Let's try to load 1h and resample using the pipeline util if possible.
+    from multi_timeframe_pipeline import resample_to_timeframe
+    from data_pipeline import load_ohlcv_1h
+    import pandas as pd
+    
+    # Load 1h data
+    # Try data/ohlcv (Parquet) first as it seems to be the main source
+    print("Fetching data...")
+    df = None
+    
+    # Check data/ohlcv
+    parquet_path = Path(f"data/ohlcv/{args.symbol}USDT_USDT.parquet")
+    if not parquet_path.exists():
+        # Try without extra USDT
+        parquet_path = Path(f"data/ohlcv/{args.symbol}_USDT.parquet")
+        
+    if parquet_path.exists():
+        try:
+            df = pd.read_parquet(parquet_path)
+            # Ensure timestamp is datetime
+            if 'timestamp' in df.columns and not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
+        except Exception as e:
+            print(f"❌ Error loading parquet: {e}")
+            return
+    else:
+        # Fallback to data/raw/1h (CSV)
+        csv_path = Path(f"data/raw/1h/{args.symbol}USDT.csv") 
+        if not csv_path.exists():
+             csv_path = Path(f"data/raw/1h/{args.symbol}.csv")
+         
+        if csv_path.exists():
+             try:
+                 df = pd.read_csv(csv_path)
+                 df['timestamp'] = pd.to_datetime(df['timestamp'])
+             except Exception as e:
+                 print(f"❌ Error loading CSV: {e}")
+                 return
+    
+    if df is None or df.empty:
+         print(f"❌ Data for {args.symbol} not found in data/ohlcv or data/raw/1h")
+         return
+         
+    # Resample
+    if args.timeframe != '1h':
+        print(f"Resampling to {args.timeframe}...")
+        df = resample_to_timeframe(df, args.timeframe)
+        
+    print(f"Analyzing {len(df)} candles...")
+    result = engine.predict(args.symbol, df)
+    
+    if "error" in result:
+        print(f"❌ Error: {result['error']}")
+        return
+        
+    print("\n" + "="*50)
+    print(f"PREDICTION: {args.symbol} ({args.timeframe})")
+    print("="*50)
+    print(f"Time:       {result['timestamp']}")
+    print(f"Close:      {result['close_price']:.4f}")
+    print(f"Action:     {result['action']}")
+    
+    if result['can_enter']:
+        print("-" * 50)
+        print(f"Confidence: {result['confidence']:.1%}")
+        print(f"Stop Loss:  {result['sl_price']:.4f} (-{result['sl_pct']:.2%})")
+        print(f"Take Profit:{result['tp_price']:.4f} (+{result['tp_pct']:.2%})")
+        print(f"Risk/Reward: 1:{result['tp_pct']/result['sl_pct']:.1f}")
+    print("="*50)
+
+
 def cmd_backtest(args):
     """Run backtests"""
     from backtesting.backtest_timeframes import main as run_backtest
@@ -58,6 +146,10 @@ def cmd_backtest(args):
         argv.extend(['--size-usd', str(args.size_usd)])
     if args.leverage:
         argv.extend(['--leverage', str(args.leverage)])
+    if args.start_date:
+        argv.extend(['--start-date', args.start_date])
+    if args.end_date:
+        argv.extend(['--end-date', args.end_date])
     
     sys.argv = argv
     run_backtest()
@@ -107,11 +199,8 @@ Examples:
     # Backtest 4h with 5x leverage
     python cli.py backtest 4h --leverage 5
     
-    # Run full pipeline for 1d
-    python cli.py full 1d
-    
-    # Run full pipeline for all timeframes
-    python cli.py full all
+    # Predict signal for BTC
+    python cli.py predict BTC 1h
         """
     )
     
@@ -140,6 +229,14 @@ Examples:
     bt_parser.add_argument('--fixed-size', action='store_true')
     bt_parser.add_argument('--size-usd', type=float, default=1000)
     bt_parser.add_argument('--leverage', type=float, default=None)
+    bt_parser.add_argument('--start-date', type=str, help='Start date (YYYY-MM-DD)')
+    bt_parser.add_argument('--end-date', type=str, help='End date (YYYY-MM-DD)')
+    
+    # Predict command
+    pred_parser = subparsers.add_parser('predict', help='Predict signal')
+    pred_parser.add_argument('symbol', help='Symbol to predict (e.g. BTC)')
+    pred_parser.add_argument('timeframe', default='4h', nargs='?',
+                            help='Timeframe to analyze')
     
     # Full command
     full_parser = subparsers.add_parser('full', help='Run full pipeline')
@@ -165,6 +262,8 @@ Examples:
         cmd_train(args)
     elif args.command == 'backtest':
         cmd_backtest(args)
+    elif args.command == 'predict':
+        cmd_predict(args)
     elif args.command == 'full':
         cmd_full(args)
 

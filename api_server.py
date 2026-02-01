@@ -193,6 +193,15 @@ def check_coin(symbol, interval, config):
         lookback_period = interval_to_lookback.get(interval, '5 days ago UTC')
         df = processor.get_historical_data(symbol, interval, lookback_period, 'now UTC')
         time.sleep(1)  # avoid rate limits
+        
+        # ENFORCE CLOSED CANDLE LOGIC:
+        # Drop the last (forming) candle to prevent repaint/unstable signals
+        if not df.empty:
+            df = df.iloc[:-1].copy()
+            
+        if df.empty:
+            return False
+            
         df = processor.calculate_macd(df)
         current = {
             'price': float(df['close'].iloc[-1]) if not df.empty else None,
@@ -234,8 +243,15 @@ def check_coin(symbol, interval, config):
                 features_df = None
                 if ml_predictor is not None and ml_predictor.is_loaded:
                     try:
-                        # Calculate features for ML prediction
-                        features_df = ml_predictor.calculate_features(df)
+                        # Calculate features for ML prediction with dynamic parity
+                        # Fetch funding rate
+                        funding_rate = processor.get_current_funding_rate(symbol)
+                        
+                        features_df = ml_predictor.calculate_features(
+                            df, 
+                            timeframe=interval,
+                            funding_rate=funding_rate
+                        )
                         ml_prediction = ml_predictor.predict(features_df)
                         if ml_prediction:
                             print(f"[ML] {symbol}: confidence={ml_prediction['entry_confidence']:.1%}, "
@@ -383,6 +399,14 @@ def api_history(symbol: str, interval: str = '30m', limit: int = 500):
         df = processor.get_historical_data(symbol, interval, f"{limit} hours ago UTC", 'now UTC')
         if df.empty:
             return JSONResponse({'candles': []})
+            
+        # ENFORCE CLOSED CANDLE LOGIC:
+        # Drop the last (forming) candle to prevent repaint/unstable signals
+        df = df.iloc[:-1].copy()
+        
+        if df.empty:
+            return JSONResponse({'candles': []})
+            
         df = processor.calculate_macd(df)
 
         # Limit to last `limit` rows

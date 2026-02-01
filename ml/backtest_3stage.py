@@ -1147,5 +1147,151 @@ def main():
                          save_path=str(DATA_DIR.parent / f'backtest_equity_{lev_str}.png'))
 
 
+
+def plot_backtest_trades(df: pd.DataFrame, trades: List[Trade], title: str = "Backtest Trades", save_path: str = None):
+    """
+    Plot equity curves and trade entries/exits on price chart.
+    
+    Args:
+        df: DataFrame with OHLCV data (must have datetime index or timestamp column)
+        trades: List of Trade objects
+        title: Chart title
+        save_path: Path to save the plot
+    """
+    if df.empty or not trades:
+        print("⚠️ No data or trades to plot")
+        return
+
+    # Ensure timestamp is index
+    df_plot = df.copy()
+    if 'timestamp' in df_plot.columns:
+        df_plot.set_index('timestamp', inplace=True)
+    
+    # Create figure
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 12), gridspec_kw={'height_ratios': [3, 1]}, sharex=True)
+    
+    # Check for multiple symbols
+    if 'symbol' in df_plot.columns:
+        symbols = df_plot['symbol'].unique()
+        if len(symbols) > 1:
+            # Pick symbol with most trades
+            trade_counts = {}
+            for t in trades:
+                trade_counts[t.symbol] = trade_counts.get(t.symbol, 0) + 1
+            
+            if trade_counts:
+                best_symbol = max(trade_counts, key=trade_counts.get)
+            else:
+                best_symbol = symbols[0]
+                
+            print(f"📉 Plotting for single symbol: {best_symbol} (found {len(symbols)} symbols)")
+            df_plot = df_plot[df_plot['symbol'] == best_symbol]
+            trades = [t for t in trades if t.symbol == best_symbol]
+            title += f" ({best_symbol})"
+
+    # 1. Price Chart with Trades
+    ax1.plot(df_plot.index, df_plot['close'], label='Close Price', color='gray', alpha=0.5, linewidth=1)
+    
+    # Plot trades
+    long_entries = []
+    short_entries = []
+    win_exits = []
+    loss_exits = []
+    
+    # For annotations
+    annotations = []
+
+    for t in trades:
+        # Entry Marker
+        if t.direction == 'LONG':
+            long_entries.append((t.entry_time, t.entry_price, t.confidence))
+            color = 'green' if t.pnl > 0 else 'red'
+        else:
+            short_entries.append((t.entry_time, t.entry_price, t.confidence))
+            color = 'green' if t.pnl > 0 else 'red'
+            
+        # Exit Marker & Line
+        if t.pnl > 0:
+            win_exits.append((t.exit_time, t.exit_price))
+            # Draw line
+            ax1.plot([t.entry_time, t.exit_time], [t.entry_price, t.exit_price], 
+                    color='green', alpha=0.3, linewidth=1, linestyle='--')
+        else:
+            loss_exits.append((t.exit_time, t.exit_price))
+            ax1.plot([t.entry_time, t.exit_time], [t.entry_price, t.exit_price], 
+                    color='red', alpha=0.3, linewidth=1, linestyle='--')
+        
+        # Add annotation for high confidence or outliers
+        # Only annotate if confidence is available and > 0
+        if t.confidence > 0:
+            annotations.append({
+                'time': t.entry_time,
+                'price': t.entry_price,
+                'text': f"{t.confidence:.2f}",
+                'color': 'blue' if t.direction == 'LONG' else 'orange'
+            })
+
+    # Plot Entry Makers (size/alpha by confidence if possible, or just standard)
+    if long_entries:
+        times, prices, confs = zip(*long_entries)
+        # Scale size by confidence (e.g., 50 to 150)
+        sizes = [c * 150 for c in confs] if confs[0] > 0 else 50
+        sc = ax1.scatter(times, prices, marker='^', c=confs, cmap='Blues', vmin=0.5, vmax=1.0, s=sizes, label='Long Entry', zorder=5, edgecolors='black')
+        plt.colorbar(sc, ax=ax1, label='Long Confidence')
+        
+    if short_entries:
+        times, prices, confs = zip(*short_entries)
+        sizes = [c * 150 for c in confs] if confs[0] > 0 else 50
+        sc2 = ax1.scatter(times, prices, marker='v', c=confs, cmap='Oranges', vmin=0.5, vmax=1.0, s=sizes, label='Short Entry', zorder=5, edgecolors='black')
+        plt.colorbar(sc2, ax=ax1, label='Short Confidence')
+        
+    if win_exits:
+        times, prices = zip(*win_exits)
+        ax1.scatter(times, prices, marker='o', color='green', s=30, label='Take Profit', zorder=5)
+        
+    if loss_exits:
+        times, prices = zip(*loss_exits)
+        ax1.scatter(times, prices, marker='x', color='red', s=30, label='Stop Loss', zorder=5)
+    
+    # Add text annotations
+    for ann in annotations:
+        ax1.annotate(ann['text'], (ann['time'], ann['price']), 
+                     xytext=(0, 10), textcoords='offset points', 
+                     fontsize=8, color=ann['color'], ha='center', fontweight='bold')
+    
+    ax1.set_title(f'{title} - Price & Trades (Color/Size = Confidence)', fontsize=14, fontweight='bold')
+    ax1.set_ylabel('Price')
+    ax1.legend(loc='upper left')
+    ax1.grid(True, alpha=0.3)
+    
+    # 2. Cumulative PnL
+    # Sort trades by exit time
+    sorted_trades = sorted(trades, key=lambda t: t.exit_time if t.exit_time else t.entry_time)
+    
+    trade_dates = [t.exit_time for t in sorted_trades]
+    trade_pnl = [t.pnl_pct * 100 for t in sorted_trades] # Standardized to % return
+    
+    # Reconstruct equity curve aligned with time
+    if trade_pnl:
+        cum_pnl_curve = np.cumsum(trade_pnl)
+        
+        ax2.plot(trade_dates, cum_pnl_curve, label='Cumulative Return %', color='purple', linewidth=2)
+        ax2.fill_between(trade_dates, cum_pnl_curve, alpha=0.1, color='purple')
+    
+    ax2.set_title('Cumulative Return %', fontsize=14, fontweight='bold')
+    ax2.set_xlabel('Date')
+    ax2.set_ylabel('Return %')
+    ax2.legend(loc='upper left')
+    ax2.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"💾 Trade plot saved to: {save_path}")
+    
+    plt.close()
+
+
 if __name__ == '__main__':
     main()

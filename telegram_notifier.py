@@ -3,6 +3,15 @@ from datetime import datetime
 from pathlib import Path
 
 
+
+# --- Constants (From ML Analysis Report) ---
+AVG_MAE_STATS = {
+    '4h': 0.035,   # ~3.5%
+    '8h': 0.045,   # ~4.5%
+    '12h': 0.055,  # ~5.5%
+    '1d': 0.065    # ~6.5%
+}
+
 def format_price(price: float) -> str:
     """Smart price formatting - show enough decimals for low-price coins."""
     if price is None or price == 0:
@@ -17,7 +26,7 @@ def format_price(price: float) -> str:
         return f"${price:.6f}"
     else:
         return f"${price:.8f}"
-
+        
 
 class TelegramNotifier:
     """
@@ -148,23 +157,55 @@ class TelegramNotifier:
             # Calculate risk/reward ratio
             rr_ratio = tp_pct / sl_pct if sl_pct > 0 else 2.0
             
-            # Calculate recommended entry (adjust if SL is far)
-            # If SL > 5%, suggest limit order below current price
-            entry_adjustment = 0
-            if sl_pct > 0.05:
-                # Adjust entry by (SL - 3%) to get better RR
-                entry_adjustment = (sl_pct - 0.03) * 0.5
+            # --- Entry Zone Calculation ---
+            mae_stat = AVG_MAE_STATS.get(interval, 0.04) # Default 4%
             
             if is_bullish:
-                recommended_entry = price * (1 - entry_adjustment)
-                sl_price = recommended_entry * (1 - sl_pct)
-                tp_price = recommended_entry * (1 + tp_pct)
-                # Trailing SL: move SL to breakeven when price hits 50% of TP
+                zone_top = price
+                zone_bottom = price * (1 - mae_stat)
+                zone_str = f"{format_price(zone_bottom)} - {format_price(zone_top)}"
+            else:
+                zone_bottom = price
+                zone_top = price * (1 + mae_stat)
+                zone_str = f"{format_price(zone_bottom)} - {format_price(zone_top)}" # Price is bottom of short zone? No, short sell near top. 
+                # For SHORT: Ideal entry is HIGH. So Zone is [Price, Price + MAE].
+                # Wait, earlier I said "Discount Entry" for Short is getting a higher price.
+                # So for Short, Zone is actually [Price, Price + MAE].
+                zone_str = f"{format_price(zone_bottom)} - {format_price(zone_top)}"
+
+            
+            # Calculate recommended entry, SL, and TP
+            # We favor prices already calculated by the engine (InferenceEngine)
+            # but fall back to manual calculation if they are missing
+            recommended_entry = ml_prediction.get('limit_price', ml_prediction.get('entry_price', price))
+            sl_price = ml_prediction.get('sl_price')
+            tp_price = ml_prediction.get('tp_price')
+            
+            # Manual calculation fallback if engine didn't provide prices
+            if sl_price is None or tp_price is None:
+                # Calculate recommended entry (adjust if SL is far)
+                # If SL > 5%, suggest limit order below current price
+                entry_adjustment = 0
+                if sl_pct > 0.05:
+                    # Adjust entry by (SL - 3%) to get better RR
+                    entry_adjustment = (sl_pct - 0.03) * 0.5
+                
+                if is_bullish:
+                    recommended_entry = price * (1 - entry_adjustment)
+                    sl_price = recommended_entry * (1 - sl_pct)
+                    tp_price = recommended_entry * (1 + tp_pct)
+                else:
+                    recommended_entry = price * (1 + entry_adjustment)
+                    sl_price = recommended_entry * (1 + sl_pct)
+                    tp_price = recommended_entry * (1 - tp_pct)
+            
+            # Entry adjustment percentage for display
+            entry_adjustment_pct = abs(recommended_entry / price - 1)
+            
+            # Trailing Trigger (Breakeven)
+            if is_bullish:
                 trailing_trigger = recommended_entry * (1 + tp_pct * 0.5)
             else:
-                recommended_entry = price * (1 + entry_adjustment)
-                sl_price = recommended_entry * (1 + sl_pct)
-                tp_price = recommended_entry * (1 - tp_pct)
                 trailing_trigger = recommended_entry * (1 - tp_pct * 0.5)
             
             # Confidence emoji
@@ -193,10 +234,12 @@ class TelegramNotifier:
 {conf_emoji} Độ tin cậy: <b>{confidence:.1%}</b> ({conf_text})
 {rr_emoji} Risk/Reward: <b>1:{rr_ratio:.1f}</b>
 
-💵 Entry đề xuất: <b>{format_price(recommended_entry)}</b>"""
+💎 <b>Vùng Mua Gom</b> (Entry Zone):
+   <b>{zone_str}</b>
+
+💵 Entry Signal: <b>{format_price(recommended_entry)}</b>"""
             
-            if entry_adjustment > 0:
-                message += f" (limit -{entry_adjustment*100:.1f}%)"
+            message += f" (limit -{entry_adjustment_pct*100:.1f}%)" if entry_adjustment_pct > 0 else ""
             
             message += f"""
 🛑 Stop Loss: <b>{format_price(sl_price)}</b> ({sl_pct*100:.1f}%)

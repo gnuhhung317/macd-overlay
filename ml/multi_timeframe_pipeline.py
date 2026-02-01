@@ -190,10 +190,10 @@ def build_timeframe_dataset(
     # Shorter timeframes typically have smaller moves
     tf_scale = {
         '1h': 0.5,   # 1.5% TP, 0.75% SL
-        '4h': 0.75,  # 2.25% TP, 1.125% SL
-        '8h': 0.9,   # 2.7% TP, 1.35% SL
-        '12h': 1.0,  # 3% TP, 1.5% SL
-        '1d': 1.0    # 3% TP, 1.5% SL
+        '4h': 7,  # 2.25% TP, 1.125% SL
+        '8h': 7,   # 2.7% TP, 1.35% SL
+        '12h': 7.0,  # 3% TP, 1.5% SL
+        '1d': 7.0    # 3% TP, 1.5% SL
     }
     scale = tf_scale.get(timeframe, 1.0)
     tp_pct = 0.03 * scale
@@ -209,7 +209,9 @@ def build_timeframe_dataset(
         max_bars=10,
         use_atr=True,  # Enable ATR-based dynamic targets
         atr_tp_mult=atr_tp_mult,
-        atr_sl_mult=atr_sl_mult
+        atr_sl_mult=atr_sl_mult,
+        min_tp_pct=0.20,  # Minimum 20% gain required
+        max_tp_pct=1.00   # Allow up to 100% gain (or higher if needed)
     )
     
     # Stats
@@ -371,7 +373,7 @@ def compare_timeframe_performance(model_path: str = None):
     return results
 
 
-if __name__ == '__main__':
+def main():
     import sys
     
     if len(sys.argv) > 1:
@@ -394,3 +396,7 @@ if __name__ == '__main__':
         print("")
         print("Building 4h as example...")
         build_timeframe_dataset(timeframe='4h', limit_symbols=10)
+
+
+if __name__ == '__main__':
+    main()

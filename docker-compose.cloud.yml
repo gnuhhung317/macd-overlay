@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  macd-monitor:
+    image: gnuhhung317/macd-monitor-dashboard
+    container_name: macd-monitor
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./monitor_config.json:/app/monitor_config.json
+      - ./data:/app/data
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - macd-network
+
+networks:
+  macd-network:
+    driver: bridge

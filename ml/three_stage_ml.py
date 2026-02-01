@@ -119,19 +119,25 @@ class ThreeStageMLSystem:
         self.tp_features = data['feature_names']
         print(f"✓ Stage 3 - TP Predictor: {len(self.tp_features)} features")
     
-    def _prepare_features(self, features: pd.DataFrame, feature_names: list, scaler) -> np.ndarray:
-        """Prepare features for prediction."""
-        X = pd.DataFrame()
+    def _prepare_features(self, features: pd.DataFrame, feature_names: list, scaler) -> pd.DataFrame:
+        """Prepare features for prediction. Always returns a DataFrame with feature names."""
+        # Ensure it's a DataFrame
+        if isinstance(features, pd.Series):
+            features = features.to_frame().T
+            
+        X = pd.DataFrame(0.0, index=features.index, columns=feature_names)
+        
+        # Fill matching columns
         for col in feature_names:
             if col in features.columns:
-                X[col] = features[col].values if hasattr(features[col], 'values') else [features[col]]
-            else:
-                X[col] = 0
+                X[col] = pd.to_numeric(features[col], errors='coerce').fillna(0.0)
         
-        X = X.fillna(0).replace([np.inf, -np.inf], 0)
+        X = X.replace([np.inf, -np.inf], 0.0).fillna(0.0)
         
         if scaler is not None:
-            X = scaler.transform(X)
+            # Scaler returns numpy array, we MUST convert back to DataFrame to preserve feature names for XGBoost
+            X_scaled = scaler.transform(X)
+            X = pd.DataFrame(X_scaled, columns=feature_names, index=features.index)
         
         return X
     
@@ -141,7 +147,8 @@ class ThreeStageMLSystem:
             return True, 0.5
         
         X = self._prepare_features(features, self.entry_features, self.entry_scaler)
-        proba = self.entry_model.predict_proba(X)[0, 1]
+        # Use .values to bypass "feature names" check errors in inconsistent environments
+        proba = self.entry_model.predict_proba(X.values)[0, 1]
         should_enter = proba >= self.entry_threshold
         
         return should_enter, proba
@@ -152,7 +159,7 @@ class ThreeStageMLSystem:
             return self.default_sl
         
         X = self._prepare_features(features, self.sl_features, self.sl_scaler)
-        sl = self.sl_model.predict(X)[0]
+        sl = self.sl_model.predict(X.values)[0]
         return np.clip(sl, min_sl, max_sl)
     
     def predict_tp(self, features: pd.DataFrame, min_tp: float = 0.01, max_tp: float = 0.15) -> float:
@@ -161,7 +168,7 @@ class ThreeStageMLSystem:
             return self.default_tp
         
         X = self._prepare_features(features, self.tp_features, self.tp_scaler)
-        tp = self.tp_model.predict(X)[0]
+        tp = self.tp_model.predict(X.values)[0]
         return np.clip(tp, min_tp, max_tp)
     
     def predict(self, features: pd.DataFrame) -> Dict:
@@ -188,12 +195,11 @@ class ThreeStageMLSystem:
         }
         
         # Stage 1: Entry Filter
-        should_enter, confidence = self.predict_entry(features)
+        stage1_should_enter, confidence = self.predict_entry(features)
         result['entry_confidence'] = confidence
         
-        if not should_enter:
-            result['filter_reason'] = f'Low confidence ({confidence:.2%} < {self.entry_threshold:.0%})'
-            return result
+        if not stage1_should_enter:
+            result['filter_reason'] = f'Low confidence ({confidence:.1%} < {self.entry_threshold:.0%})'
         
         # Stage 2: SL Prediction
         sl_pct = self.predict_sl(features)
@@ -209,10 +215,12 @@ class ThreeStageMLSystem:
         
         # Final decision: Check if RR is acceptable
         if rr_ratio < self.min_rr_ratio:
-            result['filter_reason'] = f'Poor RR ({rr_ratio:.2f} < {self.min_rr_ratio:.1f})'
+            reason = f'Poor RR ({rr_ratio:.2f} < {self.min_rr_ratio:.1f})'
+            result['filter_reason'] = (result['filter_reason'] + " & " if result['filter_reason'] else "") + reason
             return result
         
-        result['should_enter'] = True
+        # Trade is valid only if Stage 1 passed
+        result['should_enter'] = stage1_should_enter
         return result
     
     def get_position_size(self, base_size: float, risk_reward: float, confidence: float) -> float:
@@ -439,8 +447,14 @@ def compare_strategies(df: pd.DataFrame) -> Dict:
     print("Strategy 2: ML Entry Filter + Fixed TP/SL")
     print("="*60)
     
+    # Default to 1d or 4h models if available
+    tf = '1d'
+    model_dir = MODEL_DIR / tf
+    if not model_dir.exists():
+        model_dir = MODEL_DIR / '4h'
+    
     entry_only_system = ThreeStageMLSystem(
-        entry_model_path=str(MODEL_DIR / 'entry_filter.joblib'),
+        entry_model_path=str(model_dir / 'entry_filter.joblib'),
         entry_threshold=0.5,
         min_rr_ratio=0.0,
         default_sl=0.015,
@@ -449,35 +463,36 @@ def compare_strategies(df: pd.DataFrame) -> Dict:
     results['ml_entry'] = backtest_3stage_ml(df, entry_only_system)
     print_backtest_summary(results['ml_entry'], "ML Entry")
     
-        # Strategy 2: ML Entry Only
+    # Strategy 2.1: ML Entry Filter + Fixed TP/SL (High Threshold)
     print("\n" + "="*60)
-    print("Strategy 2.1: ML Entry Filter + Fixed TP/SL")
+    print("Strategy 2.1: ML Entry Filter (Strict) + Fixed TP/SL")
     print("="*60)
     
-    entry_only_system = ThreeStageMLSystem(
-        entry_model_path=str(MODEL_DIR / 'entry_filter.joblib'),
-        entry_threshold=0.4,
-        min_rr_ratio=2,
-        default_sl=0.1,
-        default_tp=0.05
+    entry_only_system_strict = ThreeStageMLSystem(
+        entry_model_path=str(model_dir / 'entry_filter.joblib'),
+        entry_threshold=0.6,  # Higher threshold
+        min_rr_ratio=0.0,
+        default_sl=0.015,
+        default_tp=0.03
     )
-    results['ml_entry'] = backtest_3stage_ml(df, entry_only_system)
-    print_backtest_summary(results['ml_entry'], "ML Entry")
+    results['ml_entry_strict'] = backtest_3stage_ml(df, entry_only_system_strict)
+    print_backtest_summary(results['ml_entry_strict'], "ML Entry (Strict)")
 
 
     # Strategy 3: ML Entry + Dynamic SL
     print("\n" + "="*60)
-    print("Strategy 3: ML Entry + Dynamic SL (Fixed 2:1 RR)")
+    print("Strategy 3: ML Entry + Dynamic SL")
     print("="*60)
     
     entry_sl_system = ThreeStageMLSystem(
-        entry_model_path=str(MODEL_DIR / 'entry_filter.joblib'),
-        sl_model_path=str(MODEL_DIR / 'sl_predictor.joblib'),
+        entry_model_path=str(model_dir / 'entry_filter.joblib'),
+        sl_model_path=str(model_dir / 'sl_predictor.joblib'),
         entry_threshold=0.5,
         min_rr_ratio=0.0,
-        default_tp=0.06  # Will be overridden by 2x SL
+        default_tp=0.06  # Will be overridden if TP model were present, but here it's just Entry+SL
     )
-    # For this strategy, TP = 2 * SL
+    # For this strategy, TP is fixed (default_tp) or could be 2*SL if logic permitted, 
+    # but base class uses fixed default_tp if no TP model.
     results['ml_entry_sl'] = backtest_3stage_ml(df, entry_sl_system)
     print_backtest_summary(results['ml_entry_sl'], "ML Entry + SL")
     
@@ -487,9 +502,9 @@ def compare_strategies(df: pd.DataFrame) -> Dict:
     print("="*60)
     
     full_system = ThreeStageMLSystem(
-        entry_model_path=str(MODEL_DIR / 'entry_filter.joblib'),
-        sl_model_path=str(MODEL_DIR / 'sl_predictor.joblib'),
-        tp_model_path=str(MODEL_DIR / 'tp_predictor.joblib'),
+        entry_model_path=str(model_dir / 'entry_filter.joblib'),
+        sl_model_path=str(model_dir / 'sl_predictor.joblib'),
+        tp_model_path=str(model_dir / 'tp_predictor.joblib'),
         entry_threshold=0.5,
         min_rr_ratio=1.0  # Require RR >= 1
     )

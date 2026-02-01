@@ -11,13 +11,15 @@ from pathlib import Path
 from typing import Dict, List
 import pandas as pd
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config import SUPPORTED_TIMEFRAMES, get_timeframe_config
-from backtest_3stage import ThreeStageBacktester, BacktestConfig, BacktestResult
+from backtest_3stage import ThreeStageBacktester, BacktestConfig, BacktestResult, plot_equity_curve, plot_backtest_trades
 
 # Paths
 ML_DIR = Path(__file__).parent.parent
@@ -103,9 +105,37 @@ def run_timeframe_backtest(timeframe: str, config: BacktestConfig = None) -> Bac
     df = pd.read_parquet(data_path)
     print(f"Loaded {len(df):,} rows")
     
-    # Use last 20% for testing
-    test_start_idx = int(len(df) * 0.8)
-    df_test = df.iloc[test_start_idx:].copy()
+    # Filter for test set
+    if config and (hasattr(config, 'start_date') and config.start_date or hasattr(config, 'end_date') and config.end_date):
+        df_test = df.copy()
+        if hasattr(config, 'start_date') and config.start_date:
+            start_dt = pd.Timestamp(config.start_date)
+            # Handle timezone naive/aware comparison
+            if df_test['timestamp'].iloc[0].tz is not None and start_dt.tz is None:
+                start_dt = start_dt.tz_localize('UTC')
+            elif df_test['timestamp'].iloc[0].tz is None and start_dt.tz is not None:
+                start_dt = start_dt.tz_localize(None)
+            
+            df_test = df_test[df_test['timestamp'] >= start_dt]
+            
+        if hasattr(config, 'end_date') and config.end_date:
+            end_dt = pd.Timestamp(config.end_date)
+            # Handle timezone naive/aware comparison
+            if df_test['timestamp'].iloc[0].tz is not None and end_dt.tz is None:
+                end_dt = end_dt.tz_localize('UTC')
+            elif df_test['timestamp'].iloc[0].tz is None and end_dt.tz is not None:
+                end_dt = end_dt.tz_localize(None)
+                
+            df_test = df_test[df_test['timestamp'] <= end_dt]
+            
+        if df_test.empty:
+            print(f"⚠️ No data found in range. Dates: {config.start_date} to {config.end_date}")
+            return None
+    else:
+        # Default: Use last 20% for testing
+        test_start_idx = int(len(df) * 0.8)
+        df_test = df.iloc[test_start_idx:].copy()
+        
     print(f"Test period: {len(df_test):,} rows")
     
     # Get timeframe config
@@ -127,7 +157,7 @@ def run_timeframe_backtest(timeframe: str, config: BacktestConfig = None) -> Bac
     print(f"   Return: {result.total_return:.1%}, Max DD: {result.max_drawdown:.1%}")
     print(f"   Sharpe: {result.sharpe_ratio:.2f}, PF: {result.profit_factor:.2f}")
     
-    return result
+    return result, df_test
 
 
 def compare_timeframes(config: BacktestConfig = None) -> Dict[str, BacktestResult]:
@@ -151,7 +181,7 @@ def compare_timeframes(config: BacktestConfig = None) -> Dict[str, BacktestResul
             print(f"\n⚠️ Skipping {tf}: No data found")
             continue
         
-        result = run_timeframe_backtest(tf, config)
+        result, _ = run_timeframe_backtest(tf, config)
         if result:
             results[tf] = result
     
@@ -274,6 +304,8 @@ def main():
     parser.add_argument('--fixed-size', action='store_true', help='Use fixed position size')
     parser.add_argument('--size-usd', type=float, default=1000, help='Fixed position size')
     parser.add_argument('--leverage', type=float, default=None, help='Override leverage')
+    parser.add_argument('--start-date', type=str, help='Start date (YYYY-MM-DD)')
+    parser.add_argument('--end-date', type=str, help='End date (YYYY-MM-DD)')
     
     args = parser.parse_args()
     
@@ -283,6 +315,12 @@ def main():
         fixed_position_size=args.fixed_size,
         position_size_usd=args.size_usd
     )
+    
+    if hasattr(args, 'start_date'):
+        config.start_date = args.start_date
+    if hasattr(args, 'end_date'):
+        config.end_date = args.end_date
+        
     if args.leverage:
         config.leverage = args.leverage
     
@@ -294,7 +332,23 @@ def main():
                 save_path=str(ML_DIR.parent / 'backtest_timeframe_comparison.png')
             )
     else:
-        result = run_timeframe_backtest(args.timeframe, config)
+        result, df_test = run_timeframe_backtest(args.timeframe, config)
+        if result:
+            # Plot results
+            RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+            
+            # Equity Curve
+            plot_path = RESULTS_DIR / f'backtest_{args.timeframe}.png'
+            plot_equity_curve({args.timeframe: result}, title=f"Backtest {args.timeframe}", save_path=str(plot_path))
+            print(f"📊 Equity Chart saved to: {plot_path}")
+            
+            # Trade Setup Chart
+            trade_plot_path = RESULTS_DIR / f'backtest_trades_{args.timeframe}.png'
+            plot_backtest_trades(df_test, result.trades, title=f"Backtest Trades {args.timeframe}", save_path=str(trade_plot_path))
+            print(f"🕯️ Trade Chart saved to: {trade_plot_path}")
+            
+            # Show summary
+            print(f"Trades: {result.total_trades} | Return: {result.total_return:.1%} | Win Rate: {result.win_rate:.1%}")
 
 
 if __name__ == '__main__':

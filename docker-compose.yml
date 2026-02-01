@@ -1,13 +1,16 @@
 services:
   macd-monitor:
-    # build: .
-    image: gnuhhung317/macd-monitor-dashboard
+    build: .
+    # image: gnuhhung317/macd-monitor-dashboard
     container_name: macd-monitor
     restart: unless-stopped
     ports:
       - "8000:8000"
     volumes:
-    - ./monitor_config.json:/app/monitor_config.json
+    - .:/app
+    - /app/venv
+    - /app/__pycache__
+    - /app/ml/__pycache__
     - ./data:/app/data
     environment:
       # Timezone

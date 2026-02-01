@@ -293,7 +293,9 @@ def generate_labels(
     max_bars: int = 10,
     use_atr: bool = True,
     atr_tp_mult: float = 3.0,
-    atr_sl_mult: float = 1.5
+    atr_sl_mult: float = 1.5,
+    min_tp_pct: float = 0.01,
+    max_tp_pct: float = 0.30
 ) -> pd.DataFrame:
     """
     Generate labels for each MACD crossover using Triple Barrier Method.
@@ -311,6 +313,8 @@ def generate_labels(
         use_atr: If True, use ATR-based dynamic TP/SL instead of fixed %
         atr_tp_mult: ATR multiplier for TP (default 3.0x ATR)
         atr_sl_mult: ATR multiplier for SL (default 1.5x ATR)
+        min_tp_pct: Minimum TP % (prevent TP from being too small)
+        max_tp_pct: Maximum TP % (prevent TP from being unrealistic)
     
     Labels:
     - 1: Good entry (hit TP first)
@@ -329,13 +333,15 @@ def generate_labels(
             lambda x: _generate_labels_triple_barrier(
                 x.sort_values('timestamp'), 
                 tp_pct, sl_pct, max_bars,
-                use_atr, atr_tp_mult, atr_sl_mult
+                use_atr, atr_tp_mult, atr_sl_mult,
+                min_tp_pct, max_tp_pct
             )
         ).reset_index(drop=True)
     else:
         return _generate_labels_triple_barrier(
             df, tp_pct, sl_pct, max_bars,
-            use_atr, atr_tp_mult, atr_sl_mult
+            use_atr, atr_tp_mult, atr_sl_mult,
+            min_tp_pct, max_tp_pct
         )
 
 
@@ -346,14 +352,12 @@ def _generate_labels_triple_barrier(
     max_bars: int,
     use_atr: bool,
     atr_tp_mult: float,
-    atr_sl_mult: float
+    atr_sl_mult: float,
+    min_tp_pct: float = 0.01,
+    max_tp_pct: float = 0.30
 ) -> pd.DataFrame:
     """
     Triple Barrier Method label generation for a single symbol.
-    
-    Dynamic TP/SL based on ATR adapts to market volatility:
-    - High volatility → wider TP/SL → avoid getting stopped out by noise
-    - Low volatility → tighter TP/SL → don't wait forever for small moves
     """
     df = df.copy().reset_index(drop=True)
     n = len(df)
@@ -420,7 +424,7 @@ def _generate_labels_triple_barrier(
             actual_sl_pct = current_atr_pct * atr_sl_mult
             
             # Clamp final TP/SL to reasonable bounds
-            actual_tp_pct = np.clip(actual_tp_pct, 0.01, 0.30)  # 1% - 30%
+            actual_tp_pct = np.clip(actual_tp_pct, min_tp_pct, max_tp_pct)
             actual_sl_pct = np.clip(actual_sl_pct, 0.005, 0.15)  # 0.5% - 15%
         else:
             # Fixed targets
@@ -497,6 +501,21 @@ def _generate_labels_triple_barrier(
             label = 1 if final_pnl > 0 else 0
             result = 'TIMEOUT_WIN' if final_pnl > 0 else 'TIMEOUT_LOSS'
         
+        # --- ROBUST SL LABELING (NEW) ---
+        # If the trade was a success (hit TP), the "optimal" SL would have been 
+        # the max drawdown experienced plus a small safety buffer.
+        if label == 1:
+            # Winner: Optimal SL = MAE + buffer
+            # We want to catch the "survival" SL
+            optimal_sl = max_drawdown * 1.5 + 0.005 # 1.5x MAE + 0.5% buffer
+        else:
+            # Loser: Don't learn to have a massive SL for a trade that fails anyway.
+            # Stick to the baseline ATR-based SL.
+            optimal_sl = actual_sl_pct
+            
+        # Final clamp for training stability
+        optimal_sl = np.clip(optimal_sl, 0.01, 0.20)
+        
         labels.append(label)
         max_profits.append(max_profit)
         max_drawdowns.append(max_drawdown)
@@ -504,7 +523,7 @@ def _generate_labels_triple_barrier(
         bars_to_sls.append(bars_to_sl)
         results.append(result)
         tp_pcts_used.append(actual_tp_pct)
-        sl_pcts_used.append(actual_sl_pct)
+        sl_pcts_used.append(optimal_sl) # USE ROBUST SL FOR TRAINING LABEL
     
     # Assign results back to DataFrame
     df.loc[crossover_indices, 'label'] = labels

@@ -11,9 +11,11 @@ RUN apt-get update && apt-get install -y \
 
 # Copy requirements first (for better caching)
 COPY requirements.txt .
+COPY ml/requirements_ml.txt ./ml/
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir -r ml/requirements_ml.txt
 
 # Copy application files
 COPY *.py .
