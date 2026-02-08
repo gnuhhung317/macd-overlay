@@ -1,28 +1,37 @@
 services:
   macd-monitor:
-    build: .
-    # image: gnuhhung317/macd-monitor-dashboard
+    image: gnuhhung317/macd-monitor-dashboard
     container_name: macd-monitor
     restart: unless-stopped
     ports:
       - "8000:8000"
     volumes:
-    - .:/app
-    - /app/venv
-    - /app/__pycache__
-    - /app/ml/__pycache__
-    - ./data:/app/data
+      - ./data:/app/data
+      - ./monitor_config.json:/app/monitor_config.json
     environment:
-      # Timezone
       - TZ=Asia/Ho_Chi_Minh
-      # Python environment
       - PYTHONUNBUFFERED=1
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/status"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+    networks:
+      - macd-network
+
+  signal-dashboard:
+    image: gnuhhung317/macd-monitor-dashboard
+    container_name: signal-dashboard
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+    # Run streamlit from the app root
+    command: streamlit run ml/signal_dashboard.py --server.port 8501 --server.address 0.0.0.0
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+      - PYTHONUNBUFFERED=1
     networks:
       - macd-network
 

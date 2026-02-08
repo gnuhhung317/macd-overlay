@@ -35,10 +35,73 @@ class RealtimePredictor:
         self.ml_system = None
         self.is_loaded = False
         self.entry_threshold = entry_threshold
+        self.profiles = {}
         
         # Try to load models
         self._load_models()
+        self._load_profiles()
     
+    def _load_profiles(self):
+        """Load timeframe-specific success profiles for refined filtering."""
+        timeframes = ['4h', '8h', '12h', '1d']
+        for tf in timeframes:
+            p = MODEL_DIR / f'profile_{tf}.json'
+            if p.exists():
+                try:
+                    import json
+                    with open(p, 'r') as f:
+                        self.profiles[tf] = json.load(f)
+                    print(f"[ML] Profile loaded for {tf}")
+                except Exception as e:
+                    print(f"[ML] Failed to load profile for {tf}: {e}")
+
+    def get_refined_score(self, features_df: pd.DataFrame, timeframe: str) -> Dict:
+        """
+        Calculate refined score (0-1) and return details.
+        """
+        result = {'score': 1.0, 'total': 0, 'factors': [], 'pass_count': 0}
+        
+        if timeframe not in self.profiles or features_df.empty:
+            return result
+            
+        row = features_df.iloc[-1]
+        direction = 'LONG' if row.get('is_bullish_cross', 0) == 1 else 'SHORT'
+        
+        tf_profile = self.profiles[timeframe]
+        if direction not in tf_profile:
+            return result
+            
+        score = 0
+        filters = tf_profile[direction]
+        total = len(filters)
+        factors = []
+        
+        for f in filters:
+            val = row.get(f['feat'], 0)
+            passed = False
+            if f['shift'] > 0:
+                if val >= f['w_mean'] - 0.2 * f['std']: 
+                    score += 1
+                    passed = True
+            else:
+                if val <= f['w_mean'] + 0.2 * f['std']: 
+                    score += 1
+                    passed = True
+            
+            factors.append({
+                'feature': f['feat'],
+                'value': float(val),
+                'target': float(f['w_mean']),
+                'passed': passed
+            })
+                
+        return {
+            'score': score / total if total > 0 else 1.0,
+            'total': total,
+            'pass_count': score,
+            'factors': factors
+        }
+
     def _load_models(self):
         """Load ML models if available."""
         entry_path = MODEL_DIR / 'entry_filter.joblib'
@@ -128,9 +191,15 @@ class RealtimePredictor:
         df['rsi_14'] = self._calculate_rsi(df['close'], 14)
         df['rsi_7'] = self._calculate_rsi(df['close'], 7)
         
+        # RSI Slope (momentum of momentum) - NEW for TP prediction
+        df['rsi_slope'] = df[f'rsi_{14}'].diff(3) / 3
+
         # Stochastic
         df['stoch_k'] = self._calculate_stochastic(df, 14)
         df['stoch_d'] = df['stoch_k'].rolling(3).mean()
+        
+        # ADX (Average Directional Index) - NEW for TP prediction
+        df = self._calculate_adx(df, 14)
         
         # Rate of Change
         df['roc_7'] = df['close'].pct_change(7)
@@ -140,8 +209,12 @@ class RealtimePredictor:
         # ===== Volume Features =====
         df['volume_sma_7'] = df['volume'].rolling(7).mean()
         df['volume_sma_14'] = df['volume'].rolling(14).mean()
+        df['volume_sma_20'] = df['volume'].rolling(20).mean()
         df['volume_ratio'] = df['volume'] / df['volume_sma_14']
         df['volume_trend'] = df['volume_sma_7'] / df['volume_sma_14']
+        
+        # Volume Spike (is this a breakout?) - NEW for TP prediction
+        df['volume_spike'] = (df['volume'] / df['volume_sma_20']).clip(0, 5)
         
         # OBV
         df['obv'] = (np.sign(df['returns']) * df['volume']).cumsum()
@@ -194,56 +267,29 @@ class RealtimePredictor:
         df['is_bullish_cross'] = df['macd_cross_up']
         
         # Bars since cross (Also in training pipeline)
-        # Calculating this iteratively is slow, but for realtime (small df) it's fine
-        # Or we can just default to 0 for the immediate signal?
-        # Pipeline does full calculation. Let's do a simplified version for the latest rows or just fill 0
-        # The model uses 'bars_since_cross_up/down'.
-        # Vectorized approach:
-        cross_up_mask = df['macd_cross_up'] == 1
-        cross_down_mask = df['macd_cross_down'] == 1
+        # Optimized for realtime: only calculate for the last row to avoid O(N^2)
+        df['bars_since_cross_up'] = 999
+        df['bars_since_cross_down'] = 999
         
-        # We only strictly need it for the last row if that's what we predict on.
-        # But let's keep it simple. If we are AT a cross, it is 0.
-        # If we are 1 bar after, it is 1.
-        # For now, initializing to 0 is "safe-ish" but might affect tree splits.
-        # Let's try to do it right for at least the recent window.
-        df['bars_since_cross_up'] = 0
-        df['bars_since_cross_down'] = 0
-        
-        # Fast way for last row: look back
-        # (Optimization: We assume the caller passes enough history, e.g. 100+ bars)
-        
-        last_idx = df.index[-1]
-        
-        # Find last True in mask
-        last_up = df.index[df['macd_cross_up'] == 1].max()
-        last_down = df.index[df['macd_cross_down'] == 1].max()
-        
-        if pd.notna(last_up):
-             # Assuming purely integer index or we rely on position
-             # Since df is likely RangeIndex or checks above, let's use integer position
-             # We can't easily do date math without more checks.
-             # Reset index to be safe
-             df_temp = df.reset_index(drop=True)
-             last_up_idx = df_temp.index[df_temp['macd_cross_up'] == 1].max()
-             current_idx = df_temp.index[-1]
-             if pd.notna(last_up_idx):
-                 df.iloc[-1, df.columns.get_loc('bars_since_cross_up')] = current_idx - last_up_idx
-        else:
-             df.iloc[-1, df.columns.get_loc('bars_since_cross_up')] = 999
-             
-        if pd.notna(last_down):
-             df_temp = df.reset_index(drop=True)
-             last_down_idx = df_temp.index[df_temp['macd_cross_down'] == 1].max()
-             current_idx = df_temp.index[-1]
-             if pd.notna(last_down_idx):
-                 df.iloc[-1, df.columns.get_loc('bars_since_cross_down')] = current_idx - last_down_idx
-        else:
-             df.iloc[-1, df.columns.get_loc('bars_since_cross_down')] = 999
-        
-        # Clean up
-        df = df.replace([np.inf, -np.inf], np.nan)
-        df = df.fillna(0)
+        # Vectorized way to find distance to last True for the entire series
+        def get_bars_since(mask):
+            a = np.where(mask)[0]
+            if len(a) == 0:
+                return np.full(len(mask), 999)
+            
+            idx = np.arange(len(mask))
+            # Find the index of the latest True before or at each position
+            # This is a bit complex for a full series, let's just do it for the last 100 rows
+            # to keep performance high and logic simple.
+            res = np.full(len(mask), 999)
+            for i in range(max(0, len(mask)-100), len(mask)):
+                prev_indices = a[a <= i]
+                if len(prev_indices) > 0:
+                    res[i] = i - prev_indices[-1]
+            return res
+
+        df['bars_since_cross_up'] = get_bars_since(df['macd_cross_up'].values)
+        df['bars_since_cross_down'] = get_bars_since(df['macd_cross_down'].values)
         
         return df
     
@@ -273,7 +319,21 @@ class RealtimePredictor:
         low_min = df['low'].rolling(period).min()
         high_max = df['high'].rolling(period).max()
         return 100 * (df['close'] - low_min) / (high_max - low_min)
-    
+
+    def _calculate_adx(self, df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+        """Calculate ADX (Average Directional Index)"""
+        df = df.copy()
+        df['_plus_dm'] = df['high'].diff()
+        df['_minus_dm'] = -df['low'].diff()
+        df['_plus_dm'] = df['_plus_dm'].where((df['_plus_dm'] > df['_minus_dm']) & (df['_plus_dm'] > 0), 0)
+        df['_minus_dm'] = df['_minus_dm'].where((df['_minus_dm'] > df['_plus_dm']) & (df['_minus_dm'] > 0), 0)
+        atr = df['atr_14'] if 'atr_14' in df.columns else self._calculate_atr(df, period)
+        df['_plus_di'] = 100 * (df['_plus_dm'].ewm(span=period, adjust=False).mean() / (atr + 1e-10))
+        df['_minus_di'] = 100 * (df['_minus_dm'].ewm(span=period, adjust=False).mean() / (atr + 1e-10))
+        df['_dx'] = 100 * abs(df['_plus_di'] - df['_minus_di']) / (df['_plus_di'] + df['_minus_di'] + 1e-10)
+        df['adx'] = df['_dx'].ewm(span=period, adjust=False).mean()
+        return df.drop(columns=['_plus_dm', '_minus_dm', '_plus_di', '_minus_di', '_dx'], errors='ignore')
+
     def predict(self, features_df: pd.DataFrame) -> Optional[Dict]:
         """
         Get ML prediction for the last row of features.

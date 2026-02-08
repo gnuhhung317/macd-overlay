@@ -257,6 +257,13 @@ def check_coin(symbol, interval, config):
                             print(f"[ML] {symbol}: confidence={ml_prediction['entry_confidence']:.1%}, "
                                   f"SL={ml_prediction['sl_pct']:.1%}, TP={ml_prediction['tp_pct']:.1%}")
                             alert['ml_prediction'] = ml_prediction
+                        
+                        # Calculate Refined Score (2/3 logic)
+                        refined_data = ml_predictor.get_refined_score(features_df, interval)
+                        alert['refined_score'] = refined_data['score']
+                        alert['refined_details'] = refined_data['factors']
+                        print(f"[ML] {symbol}: Refined Score={refined_data['score']:.2f} ({refined_data['pass_count']}/{refined_data['total']})")
+                                  
                     except Exception as e:
                         print(f"[ML] Prediction error for {symbol}: {e}")
                 

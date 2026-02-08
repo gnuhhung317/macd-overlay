@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   macd-monitor:
     image: gnuhhung317/macd-monitor-dashboard
@@ -19,6 +17,21 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    networks:
+      - macd-network
+
+  signal-dashboard:
+    image: gnuhhung317/macd-monitor-dashboard
+    container_name: signal-dashboard
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+    command: streamlit run ml/signal_dashboard.py --server.port 8501 --server.address 0.0.0.0
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+      - PYTHONUNBUFFERED=1
     networks:
       - macd-network
 

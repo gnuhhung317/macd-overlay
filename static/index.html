@@ -615,7 +615,13 @@
     <section>
       <h2>📊 Multi-Timeframe Status</h2>
       <div id="meta" style="color:var(--muted);font-size:0.875rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;">
-        <span id="meta-text"></span>
+        <div style="display:flex; gap: 1rem; align-items:center;">
+          <span id="meta-text"></span>
+          <label style="background: rgba(99, 102, 241, 0.1); padding: 4px 12px; border-radius: 20px; color: #6366f1; cursor: pointer; border: 1px solid rgba(99, 102, 241, 0.3);">
+            <input type="checkbox" id="refined_toggle" style="margin-right:8px"> 
+            ✨ Refined Filter (2/3 logic)
+          </label>
+        </div>
         <span id="meta-memory" class="memory-badge"></span>
       </div>
       
@@ -699,7 +705,7 @@
       });
     }
 
-    function renderTimeframeContent(interval, data, alerts) {
+    function renderTimeframeContent(interval, data, alerts, isRefined) {
       const contentsContainer = document.getElementById('timeframe-contents');
       let contentDiv = contentsContainer.querySelector(`[data-interval="${interval}"]`);
       
@@ -769,10 +775,15 @@
       const alertsContainer = contentDiv.querySelector('.alerts-container');
       alertsContainer.innerHTML = '';
       
-      if (!alerts || alerts.length === 0) {
-        alertsContainer.innerHTML = '<div style="padding:1rem;color:var(--muted);text-align:center;">No alerts yet</div>';
+      // Filter alerts if refined mode is ON (Score >= 0.6)
+      const filteredAlerts = isRefined 
+        ? (alerts || []).filter(a => (a.refined_score === undefined ? true : a.refined_score >= 0.6))
+        : (alerts || []);
+
+      if (filteredAlerts.length === 0) {
+        alertsContainer.innerHTML = `<div style="padding:1rem;color:var(--muted);text-align:center;">${isRefined ? 'No high-probability setups found' : 'No alerts yet'}</div>`;
       } else {
-        alerts.slice(0, 20).forEach(a => {
+        filteredAlerts.slice(0, 20).forEach(a => {
           const d = document.createElement('div');
           d.className = 'alert ' + (a.type === 'BULLISH' ? 'bull' : 'bear');
           
@@ -793,6 +804,14 @@
             
             confidenceBadge = `<span style="background:${confColor};color:white;padding:2px 8px;border-radius:4px;font-weight:bold;margin-left:8px;">⭐ ${confPercent}%</span>`;
           }
+
+          // Refined Score Badge
+          let refinedBadge = '';
+          if (a.refined_score !== undefined) {
+             const scoreLabel = a.refined_score >= 1.0 ? "ELITE" : a.refined_score >= 0.6 ? "BALANCED" : "REJECTED";
+             const scoreColor = a.refined_score >= 1.0 ? "#8b5cf6" : a.refined_score >= 0.6 ? "#6366f1" : "gray";
+             refinedBadge = `<span style="border: 1px solid ${scoreColor}; color:${scoreColor}; padding:1px 6px; border-radius:10px; font-size: 0.7rem; font-weight: 800; margin-left: 8px;">✨ ${scoreLabel} (${(a.refined_score*3).toFixed(0)}/3)</span>`;
+          }
           
           // Format ML info or show "No ML" message
           let mlInfo = '';
@@ -804,7 +823,7 @@
           
           d.innerHTML = `
             <div>
-              <strong>${a.symbol} - ${a.type}</strong> @ ${a.price} ${confidenceBadge}
+              <strong>${a.symbol} - ${a.type}</strong> @ ${a.price} ${confidenceBadge} ${refinedBadge}
               ${mlInfo}
             </div>
             <div style="font-size:90%;color:var(--muted)">${a.timestamp}</div>
@@ -815,6 +834,8 @@
     }
 
     function render(data) {
+      const isRefined = document.getElementById('refined_toggle').checked;
+      
       document.getElementById('meta-text').innerText = `Checks: ${data.check_count}  Last scan: ${data.last_scan_time || '-'}`;
       document.getElementById('meta-memory').innerText = `💾 ${data.memory_usage_mb?.toFixed(0) || 0} MB`;
       
@@ -854,7 +875,11 @@
       
       const alertCounts = {};
       for (const interval in alertMap) {
-        alertCounts[interval] = alertMap[interval].length;
+         // Count only refined alerts if toggle is ON
+         const count = isRefined 
+            ? alertMap[interval].filter(a => (a.refined_score === undefined ? true : a.refined_score >= 0.6)).length
+            : alertMap[interval].length;
+         alertCounts[interval] = count;
       }
       
       // Render tabs
@@ -867,7 +892,7 @@
       
       // Render content for each timeframe
       timeframes.forEach(interval => {
-        renderTimeframeContent(interval, timeframeMap[interval], alertMap[interval] || []);
+        renderTimeframeContent(interval, timeframeMap[interval], alertMap[interval] || [], isRefined);
       });
     }
 
@@ -887,6 +912,9 @@
       const isDark = document.body.classList.toggle('dark')
       localStorage.setItem('macd_dark', isDark ? '1' : '0')
     }
+    
+    // Toggle refined mode
+    document.getElementById('refined_toggle').onchange = refresh;
 
     // load symbols into selects
     async function load_symbols(){

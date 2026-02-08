@@ -15,6 +15,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from data_processor import BinanceDataProcessor
 from ml.inference import InferenceEngine
 from ml.signal_manager import SignalManager
+from ml.realtime_predictor import get_predictor
+
+# Load predictor for refined filtering
+predictor = get_predictor()
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -157,6 +161,14 @@ def fetch_symbol_signal(symbol, timeframe, lookback_days):
             # The key in InferenceEngine is 'entry_confidence', not 'confidence'
             confidence = prediction.get('entry_confidence', prediction.get('confidence', 0.0))
             
+            # Calculate Refined Score (2/3 logic)
+            refined_data = {'score': 1.0, 'factors': []}
+            try:
+                feat_df = predictor.calculate_features(df.loc[:row.name], timeframe=timeframe)
+                refined_data = predictor.get_refined_score(feat_df, timeframe=timeframe)
+            except Exception as e:
+                print(f"Refined score calculation error: {e}")
+
             return {
                 'symbol': symbol,
                 'type': 'BULLISH' if is_up else 'BEARISH',
@@ -165,6 +177,8 @@ def fetch_symbol_signal(symbol, timeframe, lookback_days):
                 'highest_since': highest,
                 'lowest_since': lowest,
                 'confidence': float(confidence),
+                'refined_score': float(refined_data['score']),
+                'refined_factors': refined_data['factors'],
                 'sl_pct': prediction.get('sl_pct', 0.02),
                 'tp_pct': prediction.get('tp_pct', 0.04),
                 'sl_price': prediction.get('sl_price', 0.0),
@@ -280,7 +294,7 @@ def get_entry_status(signal_type, cross_price, current_price, mae_pct, mfe_pct):
     return status, zone_min, zone_max, color
 
 # --- UI Helper ---
-def display_signal_table(timeframe, signals, current_prices):
+def display_signal_table(timeframe, signals, current_prices, use_refined=False):
     if not signals:
         st.info(f"No active signals cached for {timeframe}. Press 'Load Signals' to scan.")
         return
@@ -329,6 +343,7 @@ def display_signal_table(timeframe, signals, current_prices):
             'Giá Hiện Tại': f"{curr_price:.4f}",
             'Entry Zone': zone_str,
             'Trạng Thái': status_msg,
+            'Score': s.get('refined_score', 1.0),
             'PnL (Signal)': pnl * 100,
             'Max Profit': max_profit * 100,
             'Max Pullback': max_pullback * 100,
@@ -344,8 +359,13 @@ def display_signal_table(timeframe, signals, current_prices):
     # User requirement: min confidence 0.6 (60%)
     df = df[df['Confidence'] >= 60.0]
     
+    # --- Refined Filter (If enabled) ---
+    if use_refined:
+        # 2/3 logic means refined_score >= 0.6
+        df = df[df['Score'] >= 0.6]
+    
     if df.empty:
-        st.info("Không có tín hiệu nào đạt mức tin cậy tối thiểu (60%).")
+        st.info("Không có tín hiệu nào đạt mức tin cậy tối thiểu (60%) hoặc không khớp bộ lọc Refined.")
         return
         
     # --- Status Filter (Above Table) ---
@@ -374,21 +394,73 @@ def display_signal_table(timeframe, signals, current_prices):
         df,
         column_config={
             "Confidence": st.column_config.ProgressColumn("Confidence (%)", min_value=0, max_value=100, format="%.0f%%"),
+            "Score": st.column_config.NumberColumn("Refined Score", format="%.2f"),
             "PnL (Signal)": st.column_config.NumberColumn("PnL (Signal) (%)", format="%.2f%%"),
             "Max Profit": st.column_config.NumberColumn("Max Profit (%)", format="%.2f%%"),
             "Max Pullback": st.column_config.NumberColumn("Max Pullback (%)", format="%.2f%%"),
             "Độ trễ (h)": st.column_config.NumberColumn("Độ trễ", format="%.1f h"),
             "Entry Zone": st.column_config.TextColumn("Entry Zone (Discount -> FOMO)"),
         },
-        use_container_width=True,
+        width='stretch',
         hide_index=True
     )
+    
+    # --- Detailed Journal Helper (Expanders below table) ---
+    st.markdown("### 📝 Trade Journal Helper")
+    
+    # Filter signals that match table filters first
+    journal_signals = []
+    for s in signals:
+        conf = s['confidence'] * 100
+        score = s.get('refined_score', 1.0)
+        if conf >= 60.0 and (not use_refined or score >= 0.6):
+            journal_signals.append(s)
+            
+    if journal_signals:
+        search_query = st.text_input(f"🔍 Tìm Symbol để ghi chú ({timeframe.upper()})", key=f"search_{timeframe}").upper()
+        
+        for s in journal_signals:
+            symbol = s['symbol']
+            if search_query and search_query not in symbol:
+                continue
+                
+            score = s.get('refined_score', 1.0)
+            conf = s['confidence'] * 100
+            
+            with st.expander(f"📔 Nhật ký: {symbol} ({s['type']}) - Score: {score:.2f}"):
+                factors_str = ""
+                for f in s.get('refined_factors', []):
+                    icon = "✅" if f['passed'] else "❌"
+                    factors_str += f"- {icon} **{f['feature']}**: {f['value']:.4f} (Mục tiêu: {f['target']:.4f})\n"
+                
+                note = f"""### TRADING NOTE: {symbol} ({s['type']})
+- **Timeframe**: {timeframe.upper()}
+- **Timestamp**: {s['timestamp']}
+- **ML Confidence**: {conf:.1f}%
+- **Refined Score**: {score:.2f} ({(score*3):.0f}/3)
+- **Success Factors**:
+{factors_str}
+- **Entry Price**: {s['cross_price']:.4f}
+- **Stop Loss**: {s['sl_price']:.4f} ({s['sl_pct']*100:.1f}%)
+- **Take Profit**: {s['tp_price']:.4f} ({s['tp_pct']*100:.1f}%)
+- **Notes**: [Điền bối cảnh thị trường tại đây]
+"""
+                st.code(note, language="markdown")
+                if st.button("📋 Copy Note to Clipboard", key=f"copy_{timeframe}_{symbol}"):
+                    try:
+                        # Attempt to use built-in copy (Streamlit >= 1.34)
+                        st.copy_to_clipboard(note)
+                        st.toast("Đã copy vào bộ nhớ tạm!", icon="✅")
+                    except:
+                        st.warning("Vui lòng nhấn nút Copy ở góc trên bên phải của khung mã bên trên.")
+
 
 # --- Main App ---
 def main():
     initialize_state()
     
     st.sidebar.title("🚀 Signal Admin")
+    use_refined = st.sidebar.checkbox("✨ Refined Filter (2/3 logic)", value=False)
     scan_all = st.sidebar.checkbox("Scan All Symbols", value=False)
     
     if scan_all:
@@ -400,9 +472,29 @@ def main():
     
     st.title("📊 High Profit MACD Dashboard")
     st.caption("Dữ liệu được lấy từ Binance Futures và lọc qua mô hình ML tối ưu 20% TP.")
+
+    # --- Strategy Performance Guide ---
+    with st.expander("📊 Chi tiết Hiệu suất & Hướng dẫn Chiến thuật (Cheat Sheet)", expanded=False):
+        st.markdown("""
+### 📈 Thống kê Hiệu suất (Dựa trên Backtest 8H)
+Việc sử dụng Điểm số (Score) giúp bạn cân bằng giữa **Số lượng kèo** và **Chất lượng kèo**.
+
+| Phân hạng | Score | Win Rate (8H) | Số lượng kèo | Đặc điểm |
+| :--- | :--- | :--- | :--- | :--- |
+| **🏆 ELITE** | 3/3 | **82.2%** | Ít | Cực kỳ an toàn, Volume và Trend đồng thuận tuyệt đối. |
+| **🥈 BALANCED** | **>= 2/3** | **79.1%** | Trung bình | **Sweet Spot**: Tăng gấp đôi số kèo mà vẫn giữ Winrate cao. |
+| **⚠️ RELAXED** | >= 1/3 | 76.0% | Nhiều | Rủi ro hơn, chỉ dùng khi thị trường có xu hướng mạnh. |
+| **❌ RAW** | 0/3 | 73.5% | Rất nhiều | Tín hiệu gốc, không khuyến khích đánh trực tiếp. |
+
+### 💡 Hướng dẫn vào lệnh chuẩn (SOP):
+1. **Lọc**: Luôn bật `Refined Filter (2/3 logic)`.
+2. **Chọn**: Ưu tiên **ELITE (3/3)**. Nếu ít kèo, dùng **BALANCED (2/3)**.
+3. **Vào**: Sử dụng **Limit Price** gợi ý để tối ưu Risk/Reward.
+4. **Cắt**: Tuyệt đối cài **SL** và **TP** theo AI gợi ý.
+        """)
     
     # Global Refresh Price Button
-    if st.button("📈 Cập nhật giá Hiện tại", use_container_width=True):
+    if st.button("📈 Cập nhật giá Hiện tại", width='stretch'):
         st.session_state.ticker_cache = fetch_current_prices([])
         st.toast("Updated Prices!")
 
@@ -441,7 +533,7 @@ def main():
                 # Align button with input
                 st.write("") # Spacer
                 st.write("") # Spacer
-                if st.button(f"🔄 Scan {tf.upper()}", key=f"btn_{tf}", use_container_width=True):
+                if st.button(f"🔄 Scan {tf.upper()}", key=f"btn_{tf}", width='stretch'):
                     with st.status(f"Scanning {tf}...", expanded=True) as status:
                         symbols = get_top_symbols(limit)
                         signals = scan_timeframe(tf, symbols, lookback_days)
@@ -449,7 +541,7 @@ def main():
                     st.rerun()
 
             signals = st.session_state.signal_manager.get_signals(tf)
-            display_signal_table(tf, signals, current_prices)
+            display_signal_table(tf, signals, current_prices, use_refined)
 
     st.divider()
     st.caption(f"Last Price Sync: {datetime.now().strftime('%H:%M:%S')}")

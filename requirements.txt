@@ -8,4 +8,6 @@ psutil
 scikit-learn
 joblib
 xgboost
+lightgbm
 fastparquet
+streamlit

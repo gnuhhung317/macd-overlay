@@ -153,8 +153,8 @@ class ThreeStageMLSystem:
         
         return should_enter, proba
     
-    def predict_sl(self, features: pd.DataFrame, min_sl: float = 0.005, max_sl: float = 0.10) -> float:
-        """Stage 2: Predict optimal SL."""
+    def predict_sl(self, features: pd.DataFrame, min_sl: float = 0.005, max_sl: float = 0.20) -> float:
+        """Stage 2: Predict optimal SL (Default max raised to 20%)."""
         if self.sl_model is None:
             return self.default_sl
         
@@ -162,8 +162,8 @@ class ThreeStageMLSystem:
         sl = self.sl_model.predict(X.values)[0]
         return np.clip(sl, min_sl, max_sl)
     
-    def predict_tp(self, features: pd.DataFrame, min_tp: float = 0.01, max_tp: float = 0.15) -> float:
-        """Stage 3: Predict optimal TP."""
+    def predict_tp(self, features: pd.DataFrame, min_tp: float = 0.01, max_tp: float = 0.40) -> float:
+        """Stage 3: Predict optimal TP (Default max raised to 40%)."""
         if self.tp_model is None:
             return self.default_tp
         
@@ -171,7 +171,7 @@ class ThreeStageMLSystem:
         tp = self.tp_model.predict(X.values)[0]
         return np.clip(tp, min_tp, max_tp)
     
-    def predict(self, features: pd.DataFrame) -> Dict:
+    def predict(self, features: pd.DataFrame, **kwargs) -> Dict:
         """
         Full 3-stage prediction with dynamic Risk-Reward.
         
@@ -202,11 +202,11 @@ class ThreeStageMLSystem:
             result['filter_reason'] = f'Low confidence ({confidence:.1%} < {self.entry_threshold:.0%})'
         
         # Stage 2: SL Prediction
-        sl_pct = self.predict_sl(features)
+        sl_pct = self.predict_sl(features, max_sl=kwargs.get('max_sl', 0.20))
         result['sl_pct'] = sl_pct
         
         # Stage 3: TP Prediction
-        tp_pct = self.predict_tp(features)
+        tp_pct = self.predict_tp(features, max_tp=kwargs.get('max_tp', 0.40))
         result['tp_pct'] = tp_pct
         
         # Calculate dynamic Risk-Reward
