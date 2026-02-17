@@ -90,27 +90,51 @@ class BinanceDataProcessor:
             batch_count += 1
             # print(f"  Batch {batch_count}: Đang tải...", end='', flush=True)
             
-            try:
-                # Sử dụng Futures hoặc Spot API
-                if self.use_futures:
-                    klines = self.client.futures_historical_klines(
-                        symbol, 
-                        interval, 
-                        current_start,
-                        end_date,
-                        limit=limit
-                    )
-                else:
-                    klines = self.client.get_historical_klines(
-                        symbol, 
-                        interval, 
-                        current_start,
-                        end_date,
-                        limit=limit
-                    )
-            except Exception as e:
-                print(f" Lỗi: {e}")
+            # Retry / Rate Limit Handling
+            klines = []
+            max_retries = 3
+            success = False
+            
+            for attempt in range(max_retries):
+                try:
+                    # Sử dụng Futures hoặc Spot API
+                    if self.use_futures:
+                        klines = self.client.futures_historical_klines(
+                            symbol, 
+                            interval, 
+                            current_start,
+                            end_date,
+                            limit=limit
+                        )
+                    else:
+                        klines = self.client.get_historical_klines(
+                            symbol, 
+                            interval, 
+                            current_start,
+                            end_date,
+                            limit=limit
+                        )
+                    success = True
+                    break # Success!
+                    
+                except Exception as e:
+                    err_msg = str(e)
+                    if "-1003" in err_msg:
+                        print(f"⚠️ API Rate Limit (-1003). Sleeping 65s... (Attempt {attempt+1}/{max_retries})")
+                        time.sleep(65)
+                    else:
+                        print(f" Lỗi: {e}")
+                        # Don't break immediately, maybe retry? 
+                        # Or break if it's not recoverable. Let's break for non-rate-limit errors to mimic old behavior but safer
+                        if attempt < max_retries - 1:
+                            time.sleep(2)
+                        else:
+                            break
+            
+            if not success:
+                print(f"✗ Failed to fetch batch {batch_count} after {max_retries} attempts.")
                 break
+
             
             if not klines:
                 print(" Không có dữ liệu")
@@ -450,3 +474,41 @@ class BinanceDataProcessor:
         except Exception as e:
             print(f"Error fetching funding rate for {symbol}: {e}")
             return 0.0
+
+    def get_top_symbols(self, limit: int = 0, min_volume: float = 0) -> list:
+        """
+        Get top symbols by volume
+        """
+        try:
+            if self.use_futures:
+                tickers = self.client.futures_ticker()
+            else:
+                tickers = self.client.get_ticker()
+                
+            # Filter and sort
+            symbols = []
+            for t in tickers:
+                symbol = t['symbol']
+                vol = float(t['quoteVolume'])
+                
+                if not symbol.endswith('USDT'):
+                    continue
+                    
+                if vol < min_volume:
+                    continue
+                    
+                symbols.append((symbol, vol))
+                
+            # Sort by volume desc
+            symbols.sort(key=lambda x: x[1], reverse=True)
+            
+            # Extract symbols
+            result = [s[0] for s in symbols]
+            
+            if limit > 0:
+                return result[:limit]
+            return result
+            
+        except Exception as e:
+            print(f"Error fetching top symbols: {e}")
+            return []

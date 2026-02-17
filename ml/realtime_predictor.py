@@ -227,30 +227,21 @@ class RealtimePredictor:
         
         # ===== Timeframe & Funding Features (New for Parity) =====
         # Timeframe mapping (hours)
-        # Note: We need to handle non-standard timeframes like 15m, 30m by estimating
         tf_map = {
             '1m': 1/60, '3m': 3/60, '5m': 5/60, '15m': 0.25, '30m': 0.5,
             '1h': 1, '2h': 2, '4h': 4, '6h': 6, '8h': 8, '12h': 12, '1d': 24
         }
-        df['timeframe_hours'] = tf_map.get(timeframe, 4) # Default to 4h if unknown
+        df['timeframe_hours'] = tf_map.get(timeframe, 24) # Default to 1d (matches pipeline)
         
-        # Volatility Scaling (matches multi_timeframe_pipeline.py)
-        # 1d is the baseline? Pipeline scales 1h/4h UP to match 1d volatility scale approx?
-        # Pipeline logic:
-        # if timeframe in ['1h', '4h']:
-        #     scale = 24 / tf_map[timeframe]
-        #     df['volatility_7_scaled'] = df['volatility_7'] * np.sqrt(scale)
-        # else: ...
-        
-        # We apply the same logic generally
-        hours = df['timeframe_hours'].iloc[-1]
-        scale = 24 / max(hours, 0.01) # Avoid div by zero
-        
-        # Only scale if timeframe < 24h? Pipeline only did it for 1h/4h explicitly but we generalize
-        if hours < 24:
+        # Volatility Scaling - STRICTLY match multi_timeframe_pipeline.py
+        # Pipeline only scales for '1h' and '4h' explicitly.
+        if timeframe in ['1h', '4h']:
+            hours = tf_map[timeframe]
+            scale = 24 / hours
             df['volatility_7_scaled'] = df['volatility_7'] * np.sqrt(scale)
             df['volatility_14_scaled'] = df['volatility_14'] * np.sqrt(scale)
         else:
+            # For 8h, 12h, 1d and others, training code uses raw volatility
             df['volatility_7_scaled'] = df['volatility_7']
             df['volatility_14_scaled'] = df['volatility_14']
             

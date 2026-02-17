@@ -167,8 +167,9 @@ class InferenceEngine:
         is_short = latest_row.get('macd_cross_down', 0) == 1
         
         if not is_long and not is_short:
-             result["reason"] = "No MACD Crossover Signal"
-             return result
+             # result["reason"] = "No MACD Crossover Signal"
+             # return result
+             return None # Return None to indicate no signal, so scanner can skip it
 
         direction = "LONG" if is_long else "SHORT"
         result["direction"] = direction
@@ -251,6 +252,12 @@ class InferenceEngine:
                 result["limit_price"] = price * (1 + entry_adjust)
                 result["sl_price"] = result["limit_price"] * (1 + result["sl_pct"])
                 result["tp_price"] = result["limit_price"] * (1 - result["tp_pct"])
+
+            # Calculate Risk/Reward Ratio
+            if result["sl_pct"] > 0:
+                result["risk_reward"] = result["tp_pct"] / result["sl_pct"]
+            else:
+                result["risk_reward"] = 0.0
             
             # If no adjustment, limit_price is just current price
             if entry_adjust == 0:

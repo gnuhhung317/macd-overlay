@@ -386,7 +386,8 @@ def main():
         else:
             # Build specific timeframe
             tf = sys.argv[1]
-            build_timeframe_dataset(timeframe=tf)
+            limit = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2].isdigit() else None
+            build_timeframe_dataset(timeframe=tf, limit_symbols=limit)
     else:
         # Default: build 4h for testing
         print("Usage:")

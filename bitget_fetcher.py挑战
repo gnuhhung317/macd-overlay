@@ -1,0 +1,202 @@
+#!/usr/bin/env python3
+import ccxt
+import pandas as pd
+import numpy as np
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+import os
+import argparse
+
+# Config
+DATA_ROOT = Path("bitget-data")
+OHLCV_DIR = DATA_ROOT / "ohlcv"
+FUNDING_DIR = DATA_ROOT / "funding"
+
+# Create directories
+OHLCV_DIR.mkdir(parents=True, exist_ok=True)
+FUNDING_DIR.mkdir(parents=True, exist_ok=True)
+
+class BitgetFetcher:
+    def __init__(self):
+        self.exchange = ccxt.bitget({
+            'enableRateLimit': True,
+            'options': {
+                'defaultType': 'swap',  # USDT-M Perpetual
+            }
+        })
+        self.start_ts = int(datetime(2020, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
+
+    def get_all_symbols(self):
+        """Get all USDT-M perpetual symbols from Bitget"""
+        print("Fetching markets...")
+        markets = self.exchange.load_markets()
+        symbols = [
+            m['symbol'] for m in markets.values() 
+            if m['linear'] and m['active'] and m['quote'] == 'USDT'
+        ]
+        return symbols
+
+    def fetch_ohlcv(self, symbol, timeframe='1h'):
+        """Fetch historical OHLCV data going backward until 2020 or listing date"""
+        print(f"  Fetching OHLCV for {symbol}...")
+        all_ohlcv = []
+        end_time = int(time.time() * 1000)
+        since_ms = self.start_ts
+        limit = 200 # Safer limit for Bitget historical data
+        
+        while True:
+            try:
+                params = {'endTime': end_time}
+                ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe, since=None, limit=limit, params=params)
+                
+                if not ohlcv:
+                    break
+                
+                all_ohlcv.extend(ohlcv)
+                
+                # Check oldest in this batch
+                oldest_ts = ohlcv[0][0]
+                
+                if oldest_ts <= since_ms:
+                    break
+                
+                # If we got very few, we hit the start
+                if len(ohlcv) < 50:
+                    break
+                
+                if oldest_ts == end_time: break
+                    
+                end_time = oldest_ts - 1
+                time.sleep(self.exchange.rateLimit / 1000)
+            except Exception as e:
+                print(f"    Error fetching OHLCV for {symbol}: {e}")
+                time.sleep(5)
+                continue
+        
+        if not all_ohlcv:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(all_ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df = df.drop_duplicates(subset=['timestamp'])
+        df = df[df['timestamp'] >= since_ms]
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        df = df.sort_values('timestamp').reset_index(drop=True)
+        return df
+
+    def fetch_funding_rates(self, symbol):
+        """Fetch historical funding rate data with page-based pagination"""
+        print(f"  Fetching Funding Rates for {symbol}...")
+        all_funding = []
+        page_no = 1
+        page_size = 100
+        since_ms = self.start_ts
+        
+        while True:
+            try:
+                params = {
+                    'pageNo': page_no,
+                    'pageSize': page_size
+                }
+                rates = self.exchange.fetch_funding_rate_history(symbol, since=None, limit=page_size, params=params)
+                
+                if not rates:
+                    break
+                
+                newest_in_page = max(r['timestamp'] for r in rates)
+                oldest_in_page = min(r['timestamp'] for r in rates)
+                
+                if newest_in_page < since_ms:
+                    break
+                
+                valid_rates = [r for r in rates if r['timestamp'] >= since_ms]
+                all_funding.extend(valid_rates)
+                
+                if oldest_in_page <= since_ms:
+                    break
+                    
+                if len(rates) < page_size:
+                    break
+                
+                page_no += 1
+                time.sleep(self.exchange.rateLimit / 1000)
+                if page_no > 200: break
+            except Exception as e:
+                if "not supported" in str(e).lower():
+                    print(f"    Funding history not supported for {symbol}")
+                    break
+                print(f"    Error fetching Funding for {symbol}: {e}")
+                time.sleep(5)
+                continue
+                
+        if not all_funding:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(all_funding)
+        df = df.drop_duplicates(subset=['timestamp'])
+        df = df[['timestamp', 'fundingRate']].copy()
+        df.rename(columns={'fundingRate': 'funding_rate'}, inplace=True)
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        df = df.sort_values('timestamp').reset_index(drop=True)
+        return df
+
+    def get_clean_symbol(self, symbol):
+        clean_symbol = symbol.replace('/', '').replace(':', '_')
+        if not clean_symbol.endswith('_USDT'):
+            if '_' in clean_symbol:
+                base = clean_symbol.split('_')[0]
+            else:
+                base = clean_symbol.replace('USDT', '') + 'USDT'
+            clean_symbol = f"{base}_USDT"
+        return clean_symbol
+
+    def run(self, limit_coins=None):
+        symbols = self.get_all_symbols()
+        if limit_coins:
+            symbols = symbols[:limit_coins]
+            print(f"Limiting to first {limit_coins} symbols...")
+            
+        print(f"Total symbols to process: {len(symbols)}")
+        
+        for i, symbol in enumerate(symbols):
+            clean_name = self.get_clean_symbol(symbol)
+            ohlcv_path = OHLCV_DIR / f"{clean_name}.parquet"
+            funding_path = FUNDING_DIR / f"{clean_name}.parquet"
+            
+            print(f"[{i+1}/{len(symbols)}] Processing {symbol} ({clean_name})...")
+            
+            # OHLCV
+            should_fetch_ohlcv = True
+            if ohlcv_path.exists():
+                try:
+                    df_check = pd.read_parquet(ohlcv_path)
+                    if len(df_check) > 500: # Threshold to consider it "fetched"
+                        print(f"    OHLCV already exists with {len(df_check)} rows, skipping.")
+                        should_fetch_ohlcv = False
+                except:
+                    pass
+            
+            if should_fetch_ohlcv:
+                df_ohlcv = self.fetch_ohlcv(symbol)
+                if not df_ohlcv.empty:
+                    df_ohlcv.to_parquet(ohlcv_path, index=False)
+                    print(f"    Saved OHLCV ({len(df_ohlcv)} rows)")
+            
+            # Funding
+            if not funding_path.exists():
+                df_funding = self.fetch_funding_rates(symbol)
+                if not df_funding.empty:
+                    df_funding.to_parquet(funding_path, index=False)
+                    print(f"    Saved Funding ({len(df_funding)} rows)")
+            else:
+                pass
+            
+            print("-" * 30)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Bitget Historical Data Fetcher")
+    parser.add_argument("--limit", type=int, help="Limit number of coins to fetch (for testing)")
+    args = parser.parse_args()
+    
+    fetcher = BitgetFetcher()
+    fetcher.run(limit_coins=args.limit)

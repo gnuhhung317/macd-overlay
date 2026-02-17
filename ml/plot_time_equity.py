@@ -1,0 +1,647 @@
+#!/usr/bin/env python3
+"""
+Time-based Equity Curve Plotter
+Create daily equity curve from backtest results
+"""
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from datetime import datetime, timedelta
+from pathlib import Path
+import sys
+from typing import List, Dict, Optional
+
+# Import backtest module
+from backtest_3stage import ThreeStageBacktester, BacktestConfig
+
+def create_daily_equity_curve(df, backtester, start_date, end_date, price_data):
+    """
+    Create daily equity curve from backtest results with mark-to-market.
+    
+    Args:
+        df: Full dataset with warm-up period
+        backtester: Configured backtester
+        start_date: Start date for equity curve (after warm-up)
+        end_date: End date for equity curve
+        price_data: Price data for mark-to-market calculation
+    """
+    print("Starting backtest...")
+    result = backtester.run_backtest(df, verbose=True)
+    
+    if not result.trades:
+        print("❌ No trades found!")
+        return None, None, None
+    
+    print(f"\n📊 Backtest Complete:")
+    print(f"   Total Trades: {len(result.trades)}")
+    print(f"   Total Return: {result.total_return:.1%}")
+    print(f"   Final Equity: ${result.equity_curve[-1]:,.2f}")
+    
+    # Create time-based equity curve with mark-to-market
+    daily_equity = create_time_based_equity_mtm(
+        result.trades, start_date, end_date, 
+        backtester.config.initial_capital, price_data
+    )
+    
+    # Create benchmark data
+    benchmark_data = create_benchmark_data(price_data, start_date, end_date, backtester.config.initial_capital)
+    
+    return result, daily_equity, benchmark_data
+
+def create_time_based_equity_mtm(trades, start_date, end_date, initial_capital, price_data):
+    """
+    Create daily equity curve with mark-to-market (floating PnL).
+    This properly tracks unrealized gains/losses for open positions.
+    """
+    # Convert trades to DataFrame for efficient processing
+    trade_events = []
+    
+    skipped_trades = 0
+    for trade in trades:
+        # ⚠️ CRITICAL: Validate trade data before processing
+        if trade.position_size <= 0 or trade.position_size > 1_000_000_000:  # 1 billion USD max
+            skipped_trades += 1
+            continue
+        if trade.entry_price <= 0 or trade.entry_price > 1_000_000:
+            skipped_trades += 1
+            continue
+            
+        # Entry event
+        trade_events.append({
+            'date': trade.entry_time.date(),
+            'type': 'entry',
+            'trade_id': id(trade),
+            'position_size': trade.position_size,
+            'direction': trade.direction,
+            'entry_price': trade.entry_price,
+            'symbol': getattr(trade, 'symbol', 'BTCUSDT')  # Default symbol
+        })
+        
+        # Exit event (if closed)
+        if trade.exit_time:
+            trade_events.append({
+                'date': trade.exit_time.date(),
+                'type': 'exit',
+                'trade_id': id(trade),
+                'realized_pnl': trade.pnl
+            })
+    
+    if skipped_trades > 0:
+        print(f"⚠️ Skipped {skipped_trades} corrupted trades with invalid data")
+    
+    trade_df = pd.DataFrame(trade_events)
+    
+    # Create date range
+    date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+    
+    # Prepare price data for mark-to-market (per symbol)
+    price_df = price_data.copy()
+    price_df['date'] = pd.to_datetime(price_df['timestamp']).dt.date
+    
+    # Group by BOTH symbol and date to get correct price for each coin
+    if 'symbol' in price_df.columns:
+        price_daily = price_df.groupby(['symbol', 'date'])['close'].last().reset_index()
+    else:
+        # Fallback: if no symbol column, assume single asset
+        price_daily = price_df.groupby('date')['close'].last().reset_index()
+        price_daily['symbol'] = 'BTCUSDT'  # Default symbol
+    
+    # Initialize tracking
+    daily_equity = []
+    open_positions = {}  # trade_id -> position info
+    realized_equity = initial_capital
+    
+    for date in date_range:
+        current_date = date.date()
+        
+        # Process trade events for this date
+        day_events = trade_df[trade_df['date'] == current_date] if not trade_df.empty else pd.DataFrame()
+        
+        daily_realized_pnl = 0
+        
+        for _, event in day_events.iterrows():
+            if event['type'] == 'entry':
+                # Add new position
+                open_positions[event['trade_id']] = {
+                    'position_size': event['position_size'],
+                    'direction': event['direction'],
+                    'entry_price': event['entry_price'],
+                    'symbol': event['symbol']
+                }
+            elif event['type'] == 'exit':
+                # Close position and realize PnL
+                if event['trade_id'] in open_positions:
+                    del open_positions[event['trade_id']]
+                daily_realized_pnl += event['realized_pnl']
+        
+        # Update realized equity
+        realized_equity += daily_realized_pnl
+        
+        # Calculate mark-to-market for open positions with enhanced validation
+        floating_pnl = 0
+        
+        if open_positions:
+            for trade_id, pos in open_positions.items():
+                # ⚠️ CRITICAL: Validate entry price
+                if pos['entry_price'] <= 0 or pos['entry_price'] > 1_000_000:
+                    print(f"⚠️ Invalid entry price ${pos['entry_price']:.2f} for position {trade_id} - skipping")
+                    continue
+                
+                # ⚠️ CRITICAL: Validate position size
+                if pos['position_size'] <= 0 or pos['position_size'] > 1_000_000:
+                    print(f"⚠️ Invalid position size ${pos['position_size']:.2f} for position {trade_id} - skipping")
+                    continue
+                
+                # 🔧 FIX: Get price for THIS SPECIFIC symbol
+                symbol_price_data = price_daily[
+                    (price_daily['symbol'] == pos['symbol']) & 
+                    (price_daily['date'] == current_date)
+                ]
+                
+                if symbol_price_data.empty:
+                    # No price data for this symbol on this date - skip
+                    continue
+                
+                current_price = symbol_price_data['close'].iloc[0]
+                
+                # Validate current price
+                if current_price <= 0 or current_price > 1_000_000:
+                    continue
+                
+                # Calculate percentage change
+                price_change_pct = (current_price / pos['entry_price']) - 1
+                
+                # ⚠️ Cap extreme price changes (data errors)
+                price_change_pct = np.clip(price_change_pct, -0.99, 100)  # -99% to +10,000% max
+                
+                # ⚠️ SIMPLIFIED & SAFER floating PnL calculation
+                if pos['direction'] == 'LONG':
+                    pos_pnl = pos['position_size'] * price_change_pct
+                else:  # SHORT 
+                    pos_pnl = pos['position_size'] * (-price_change_pct)
+                
+                # ⚠️ Final safety check - cap extreme PnL 
+                max_reasonable_pnl = pos['position_size'] * 50  # Max 5000% gain/loss
+                pos_pnl = np.clip(pos_pnl, -max_reasonable_pnl, max_reasonable_pnl)
+                
+                floating_pnl += pos_pnl
+        
+        # Debug extreme floating PnL (optional - can be removed after testing)
+        if abs(floating_pnl) > 100000:  # $100K threshold (lowered)
+            print(f"⚠️ Extreme floating PnL on {current_date}: ${floating_pnl:,.2f}")
+            print(f"   Open positions: {len(open_positions)}")
+            for i, (tid, pos) in enumerate(list(open_positions.items())[:3]):
+                symbol_price = price_daily[
+                    (price_daily['symbol'] == pos['symbol']) & 
+                    (price_daily['date'] == current_date)
+                ]
+                if not symbol_price.empty:
+                    curr_px = symbol_price['close'].iloc[0]
+                    if pos['direction'] == 'LONG':
+                        pnl_calc = (curr_px - pos['entry_price']) * pos['position_size'] / pos['entry_price']
+                    else:
+                        pnl_calc = (pos['entry_price'] - curr_px) * pos['position_size'] / pos['entry_price']
+                    print(f"   {pos['symbol']}: ${pos['position_size']:,.2f} @ ${pos['entry_price']:,.2f} ({pos['direction']}) → ${pnl_calc:,.2f}")
+                else:
+                    print(f"   {pos['symbol']}: No price data for {current_date}")
+        
+        # Total equity = realized + floating
+        total_equity = realized_equity + floating_pnl
+        
+        # Calculate daily return using log returns (more stable)
+        if len(daily_equity) > 0:
+            prev_equity = daily_equity[-1]['equity']
+            daily_return = np.log(total_equity / prev_equity) if prev_equity > 0 and total_equity > 0 else 0
+        else:
+            daily_return = 0
+        
+        daily_equity.append({
+            'date': date,
+            'equity': total_equity,
+            'realized_equity': realized_equity,
+            'floating_pnl': floating_pnl,
+            'daily_realized_pnl': daily_realized_pnl,
+            'daily_return': daily_return,
+            'open_positions_count': len(open_positions)
+        })
+    
+    return pd.DataFrame(daily_equity)
+
+def create_benchmark_data(price_data, start_date, end_date, initial_capital):
+    """
+    Create realistic buy & hold benchmark.
+    """
+    # Prepare price data for mark-to-market (single asset benchmark)
+    price_df = price_data.copy()
+    price_df['date'] = pd.to_datetime(price_df['timestamp']).dt.date
+    
+    # For benchmark, typically use BTC or a single representative asset
+    if 'symbol' in price_df.columns:
+        # Use BTCUSDT as benchmark if available
+        btc_data = price_df[price_df['symbol'] == 'BTCUSDT']
+        if not btc_data.empty:
+            price_df = btc_data
+        else:
+            # Fallback to first available symbol
+            first_symbol = price_df['symbol'].iloc[0]
+            price_df = price_df[price_df['symbol'] == first_symbol]
+    
+    # Filter to date range
+    start_dt = pd.to_datetime(start_date).date()
+    end_dt = pd.to_datetime(end_date).date()
+    
+    price_range = price_df[
+        (price_df['date'] >= start_dt) & 
+        (price_df['date'] <= end_dt)
+    ]
+    
+    if price_range.empty:
+        return pd.DataFrame()
+    
+    # Get daily prices
+    daily_prices = price_range.groupby('date')['close'].last().reset_index()
+    
+    # Calculate buy & hold returns
+    initial_price = daily_prices['close'].iloc[0]
+    daily_prices['benchmark_equity'] = (daily_prices['close'] / initial_price) * initial_capital
+    
+    # Create date range and merge
+    date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+    benchmark_df = pd.DataFrame({'date': date_range})
+    benchmark_df['date_only'] = benchmark_df['date'].dt.date
+    
+    # Merge and forward fill
+    benchmark_df = benchmark_df.merge(
+        daily_prices[['date', 'benchmark_equity']], 
+        left_on='date_only', right_on='date', how='left'
+    )
+    benchmark_df['benchmark_equity'] = benchmark_df['benchmark_equity'].ffill()
+    
+    return benchmark_df[['date_x', 'benchmark_equity']].rename(columns={'date_x': 'date'})
+
+def plot_time_based_equity(daily_equity_df, trades, benchmark_df=None, title="Time-Based Equity Curve"):
+    """
+    Plot comprehensive time-based equity analysis.
+    """
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(20, 14))
+    
+    # 1. Daily Equity Curve
+    ax1.plot(daily_equity_df['date'], daily_equity_df['equity'], 
+             linewidth=2.5, color='#1f77b4', alpha=0.8)
+    ax1.fill_between(daily_equity_df['date'], daily_equity_df['equity'], 
+                     alpha=0.2, color='#1f77b4')
+    
+    # Add trade markers with error handling
+    trade_dates = [t.exit_time for t in trades if t.exit_time]
+    trade_pnls = [t.pnl for t in trades if t.exit_time]
+    
+    win_trades = []
+    lose_trades = []
+    
+    for t in trades:
+        if t.exit_time:
+            # Find corresponding equity value safely
+            matching_dates = daily_equity_df[daily_equity_df['date'].dt.date == t.exit_time.date()]
+            if not matching_dates.empty:
+                equity_value = matching_dates['equity'].iloc[0]
+                if t.pnl > 0:
+                    win_trades.append((t.exit_time, equity_value))
+                else:
+                    lose_trades.append((t.exit_time, equity_value))
+    
+    if win_trades:
+        win_dates, win_equities = zip(*win_trades)
+        ax1.scatter(win_dates, win_equities, color='green', s=30, alpha=0.7, label='Winning Trades', zorder=5)
+    
+    if lose_trades:
+        lose_dates, lose_equities = zip(*lose_trades)
+        ax1.scatter(lose_dates, lose_equities, color='red', s=30, alpha=0.7, label='Losing Trades', zorder=5)
+    
+    ax1.set_title('Daily Equity Curve', fontsize=14, fontweight='bold')
+    ax1.set_xlabel('Date')
+    ax1.set_ylabel('Equity ($)')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d'))
+    ax1.xaxis.set_major_locator(mdates.WeekdayLocator(interval=1))
+    plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45)
+    
+    # Format y-axis
+    ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x:,.0f}'))
+    
+    # 2. Daily Returns (convert log returns to %)  
+    returns = daily_equity_df['daily_return'] * 100
+    colors = ['green' if x > 0 else 'red' if x < 0 else 'gray' for x in returns]
+    
+    ax2.bar(daily_equity_df['date'], returns, color=colors, alpha=0.7, width=0.8)
+    ax2.set_title('Daily Returns (Log %) + Mark-to-Market', fontsize=14, fontweight='bold')
+    ax2.set_xlabel('Date')
+    ax2.set_ylabel('Daily Return (%)')
+    ax2.grid(True, alpha=0.3, axis='y')
+    ax2.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+    ax2.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d'))
+    ax2.xaxis.set_major_locator(mdates.WeekdayLocator(interval=1))
+    plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45)
+    
+    # Add floating vs realized annotation
+    if 'floating_pnl' in daily_equity_df.columns:
+        ax2_text = f"Floating PnL Range: ${daily_equity_df['floating_pnl'].min():,.0f} to ${daily_equity_df['floating_pnl'].max():,.0f}"
+        ax2.text(0.02, 0.98, ax2_text, transform=ax2.transAxes, 
+                verticalalignment='top', fontsize=10, 
+                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+    
+    # 3. Drawdown
+    equity_values = daily_equity_df['equity'].values
+    peak = np.maximum.accumulate(equity_values)
+    drawdown = (peak - equity_values) / peak * 100
+    
+    ax3.fill_between(daily_equity_df['date'], drawdown, alpha=0.3, color='red')
+    ax3.plot(daily_equity_df['date'], drawdown, color='red', linewidth=1.5)
+    ax3.set_title('Drawdown (%)', fontsize=14, fontweight='bold')
+    ax3.set_xlabel('Date')
+    ax3.set_ylabel('Drawdown (%)')
+    ax3.grid(True, alpha=0.3)
+    ax3.invert_yaxis()
+    ax3.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d'))
+    ax3.xaxis.set_major_locator(mdates.WeekdayLocator(interval=1))
+    plt.setp(ax3.xaxis.get_majorticklabels(), rotation=45)
+    
+    # 4. Cumulative vs Realistic Benchmark
+    initial_equity = daily_equity_df['equity'].iloc[0]
+    cumulative_return = (daily_equity_df['equity'] / initial_equity - 1) * 100
+    
+    ax4.plot(daily_equity_df['date'], cumulative_return, 
+             label='3-Stage Strategy (MTM)', linewidth=2.5, color='#1f77b4')
+    
+    # Add realistic benchmark if available
+    if benchmark_df is not None and not benchmark_df.empty:
+        benchmark_initial = benchmark_df['benchmark_equity'].iloc[0]
+        benchmark_return = (benchmark_df['benchmark_equity'] / benchmark_initial - 1) * 100
+        ax4.plot(benchmark_df['date'], benchmark_return, 
+                 label='Buy & Hold BTC', linewidth=2, color='orange', linestyle='--')
+    else:
+        # Fallback to simple benchmark
+        benchmark_daily = 0.013  # ~5% annual
+        benchmark_return = np.cumsum([benchmark_daily] * len(daily_equity_df))
+        ax4.plot(daily_equity_df['date'], benchmark_return, 
+                 label='5% Annual Benchmark', linewidth=2, color='gray', linestyle='--')
+    
+    ax4.set_title('Strategy vs Buy & Hold (Mark-to-Market)', fontsize=14, fontweight='bold')
+    ax4.set_xlabel('Date')
+    ax4.set_ylabel('Cumulative Return (%)')
+    ax4.legend()
+    ax4.grid(True, alpha=0.3)
+    ax4.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d'))
+    ax4.xaxis.set_major_locator(mdates.WeekdayLocator(interval=1))
+    plt.setp(ax4.xaxis.get_majorticklabels(), rotation=45)
+    
+    plt.suptitle(title, fontsize=16, fontweight='bold', y=1.02)
+    plt.tight_layout()
+    
+    return fig
+
+def print_time_based_stats(daily_equity_df, trades, benchmark_df=None):
+    """Print comprehensive time-based performance statistics with mark-to-market."""
+    
+    # Calculate metrics
+    total_days = len(daily_equity_df)
+    trading_days = len([d for d in daily_equity_df.get('daily_realized_pnl', [0]) if d != 0])
+    
+    initial_equity = daily_equity_df['equity'].iloc[0]
+    final_equity = daily_equity_df['equity'].iloc[-1]
+    total_return = (final_equity / initial_equity - 1) * 100
+    
+    # Daily returns (log returns)
+    daily_returns = daily_equity_df['daily_return']
+    positive_days = len([r for r in daily_returns if r > 0])
+    negative_days = len([r for r in daily_returns if r < 0])
+    
+    # Best/worst days
+    if 'daily_realized_pnl' in daily_equity_df.columns:
+        best_day = daily_equity_df.loc[daily_equity_df['daily_realized_pnl'].idxmax()]
+        worst_day = daily_equity_df.loc[daily_equity_df['daily_realized_pnl'].idxmin()]
+    else:
+        # Fallback for old format
+        best_day = daily_equity_df.loc[daily_equity_df['equity'].diff().idxmax()]
+        worst_day = daily_equity_df.loc[daily_equity_df['equity'].diff().idxmin()]
+    
+    # Max drawdown (now properly calculated with mark-to-market)
+    equity_values = daily_equity_df['equity'].values
+    peak = np.maximum.accumulate(equity_values)
+    drawdown = (peak - equity_values) / peak
+    max_drawdown = np.max(drawdown) * 100
+    max_dd_date = daily_equity_df.iloc[np.argmax(drawdown)]['date']
+    
+    # Enhanced volatility metrics
+    daily_vol = np.std(daily_returns) * np.sqrt(252)
+    
+    # Sharpe ratio (log returns, 3% risk-free rate)
+    risk_free_rate = 0.03 / 252  # Daily risk-free rate
+    excess_returns = daily_returns - risk_free_rate
+    sharpe = np.mean(excess_returns) / np.std(daily_returns) * np.sqrt(252) if np.std(daily_returns) > 0 else 0
+    
+    # Sortino ratio (downside deviation)
+    negative_returns = daily_returns[daily_returns < 0]
+    downside_deviation = np.std(negative_returns) * np.sqrt(252) if len(negative_returns) > 0 else 0
+    sortino = np.mean(excess_returns) * np.sqrt(252) / downside_deviation if downside_deviation > 0 else 0
+    
+    # Calmar ratio (return/max drawdown)
+    annualized_return = np.mean(daily_returns) * 252
+    calmar = annualized_return / (max_drawdown / 100) if max_drawdown > 0 else 0
+    
+    # Mark-to-market specific metrics with validation
+    if 'floating_pnl' in daily_equity_df.columns:
+        max_floating_loss = daily_equity_df['floating_pnl'].min()
+        max_floating_gain = daily_equity_df['floating_pnl'].max()
+        avg_positions = daily_equity_df['open_positions_count'].mean()
+        
+        # Validate for extreme outliers
+        if max_floating_gain > initial_equity * 1000:  # More than 1000x initial capital
+            print(f"\n⚠️ WARNING: Extreme floating gain detected: ${max_floating_gain:,.2f}")
+            print(f"   This suggests an error in floating PnL calculation.")
+        
+        if abs(max_floating_loss) > initial_equity * 10:  # More than 10x initial capital loss
+            print(f"\n⚠️ WARNING: Extreme floating loss detected: ${max_floating_loss:,.2f}")
+            print(f"   This suggests an error in floating PnL calculation.")
+    else:
+        max_floating_loss = max_floating_gain = avg_positions = 0
+    
+    print("\n" + "="*80)
+    print("📈 TIME-BASED PERFORMANCE ANALYSIS (MARK-TO-MARKET) 📈")
+    print("="*80)
+    
+    print(f"\n📅 Time Period:")
+    print(f"   Start Date: {daily_equity_df['date'].iloc[0].strftime('%Y-%m-%d')}")
+    print(f"   End Date: {daily_equity_df['date'].iloc[-1].strftime('%Y-%m-%d')}")
+    print(f"   Total Days: {total_days}")
+    print(f"   Active Trading Days: {trading_days}")
+    
+    print(f"\n💰 Equity Performance (MTM):")
+    print(f"   Initial Equity: ${initial_equity:,.2f}")
+    print(f"   Final Equity: ${final_equity:,.2f}")
+    print(f"   Total Return: {total_return:+.2f}%")
+    print(f"   Annualized Return: {annualized_return*100:.2f}%")
+    
+    # Mark-to-market specifics
+    if 'floating_pnl' in daily_equity_df.columns:
+        print(f"\n💫 Mark-to-Market Analysis:")
+        print(f"   Max Floating Loss: ${max_floating_loss:,.2f}")
+        print(f"   Max Floating Gain: ${max_floating_gain:,.2f}")
+        print(f"   Average Open Positions: {avg_positions:.1f}")
+        print(f"   Final Realized Equity: ${daily_equity_df['realized_equity'].iloc[-1]:,.2f}")
+        print(f"   Final Floating PnL: ${daily_equity_df['floating_pnl'].iloc[-1]:,.2f}")
+    
+    print(f"\n📊 Daily Statistics:")
+    print(f"   Positive Days: {positive_days} ({positive_days/total_days*100:.1f}%)")
+    print(f"   Negative Days: {negative_days} ({negative_days/total_days*100:.1f}%)")
+    if 'daily_realized_pnl' in daily_equity_df.columns:
+        print(f"   Best Day: {best_day['date'].strftime('%Y-%m-%d')} (+${best_day['daily_realized_pnl']:,.2f})")
+        print(f"   Worst Day: {worst_day['date'].strftime('%Y-%m-%d')} (${worst_day['daily_realized_pnl']:,.2f})")
+    
+    print(f"\n📉 Enhanced Risk Metrics:")
+    print(f"   Max Drawdown: {max_drawdown:.2f}% (on {max_dd_date.strftime('%Y-%m-%d')})")
+    print(f"   Annualized Volatility: {daily_vol*100:.2f}%")
+    print(f"   Sharpe Ratio: {sharpe:.3f}")
+    print(f"   Sortino Ratio: {sortino:.3f}")
+    print(f"   Calmar Ratio: {calmar:.3f}")
+    
+    # Benchmark comparison
+    if benchmark_df is not None and not benchmark_df.empty:
+        bench_initial = benchmark_df['benchmark_equity'].iloc[0]
+        bench_final = benchmark_df['benchmark_equity'].iloc[-1]
+        bench_return = (bench_final / bench_initial - 1) * 100
+        alpha = total_return - bench_return
+        print(f"\n🎯 vs Buy & Hold Benchmark:")
+        print(f"   Benchmark Return: {bench_return:+.2f}%")
+        print(f"   Alpha (Excess Return): {alpha:+.2f}%")
+    
+    print(f"\n🎯 Trade Summary:")
+    print(f"   Total Trades: {len(trades)}")
+    print(f"   Avg Trades/Day: {len(trades)/trading_days:.2f}" if trading_days > 0 else "   Avg Trades/Day: 0")
+    
+    print("\n⚠️  Note: This analysis includes mark-to-market (floating PnL)")
+    print("   which provides accurate drawdown and risk metrics.")
+    print("="*80)
+
+def main():
+    """Main function to create time-based equity curve with mark-to-market."""
+    
+    # Configuration
+    backtest_start = '2020-01-01'  # Analysis period
+    backtest_end = '2026-01-31'
+    warm_up_months = 6  # Months before analysis start for indicators
+    timeframe = '1d'
+    leverage = 1
+    initial_capital = 100
+    use_kelly = False  # ⚠️ Disable Kelly with leverage for safety
+    
+    print(f"🚀 Creating Enhanced Time-Based Equity Curve (Mark-to-Market)")
+    print(f"   Analysis Period: {backtest_start} to {backtest_end}")
+    print(f"   Warm-up Period: {warm_up_months} months")
+    print(f"   Timeframe: {timeframe}")
+    print(f"   Leverage: {leverage}x")
+    print(f"   Capital: ${initial_capital:,.2f}")
+    print(f"   Kelly Criterion: {'Enabled' if use_kelly else 'Disabled'}")
+    
+    # Load data
+    data_path = Path(__file__).parent.parent / 'data' / 'processed' / 'features_1d_full.parquet'
+    if not data_path.exists():
+        print(f"❌ Data file not found: {data_path}")
+        return
+    
+    print(f"\n📂 Loading data with warm-up period...")
+    df = pd.read_parquet(data_path)
+    print(f"   Loaded {len(df):,} rows")
+    
+    # Calculate warm-up start date
+    backtest_start_dt = pd.to_datetime(backtest_start)
+    warm_up_start_dt = backtest_start_dt - pd.DateOffset(months=warm_up_months)
+    backtest_end_dt = pd.to_datetime(backtest_end)
+    
+    # Filter with warm-up period
+    df_with_warmup = df[
+        (df['timestamp'] >= warm_up_start_dt) & 
+        (df['timestamp'] <= backtest_end_dt)
+    ].copy()
+    
+    print(f"   Warm-up starts: {warm_up_start_dt.strftime('%Y-%m-%d')}")
+    print(f"   Analysis starts: {backtest_start}")
+    print(f"   Total data with warm-up: {len(df_with_warmup):,} rows")
+    
+    if df_with_warmup.empty:
+        print("❌ No data found for the specified period!")
+        return
+    
+    # Configure backtest
+    config = BacktestConfig(
+        initial_capital=initial_capital,
+        risk_per_trade=0.01,  # 1% risk per trade
+        entry_threshold=0.65,
+        leverage=leverage,
+        timeframe=timeframe,
+        use_kelly=use_kelly,  # Use variable
+        require_fresh_crossover_after_exit=True  # Disable for faster processing
+    )
+    
+    # Create backtester
+    backtester = ThreeStageBacktester(config)
+    
+    # Prepare price data for mark-to-market (must include symbol column)
+    price_columns = ['timestamp', 'close']
+    if 'symbol' in df_with_warmup.columns:
+        price_columns.insert(0, 'symbol')
+    if 'open' in df_with_warmup.columns:
+        price_columns.extend(['open', 'high', 'low'])
+    price_data = df_with_warmup[price_columns].copy()
+    
+    # Run enhanced backtest with mark-to-market
+    result, daily_equity_df, benchmark_df = create_daily_equity_curve(
+        df_with_warmup, backtester, backtest_start_dt, backtest_end_dt, price_data
+    )
+    
+    if result is None:
+        print("❌ Backtest failed!")
+        return
+    
+    # Print enhanced statistics
+    print_time_based_stats(daily_equity_df, result.trades, benchmark_df)
+    
+    # Plot enhanced equity curve
+    print(f"\n📈 Creating enhanced time-based equity curve plot...")
+    fig = plot_time_based_equity(
+        daily_equity_df, 
+        result.trades,
+        benchmark_df,
+        title=f'3-Stage ML Strategy - Mark-to-Market Analysis ({timeframe}, {leverage}x leverage)'
+    )
+    
+    # Save enhanced results
+    save_path = Path(__file__).parent / f'time_equity_curve_mtm_{timeframe}_{leverage}x.png'
+    fig.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
+    print(f"💾 Enhanced chart saved: {save_path.name}")
+    
+    # Save comprehensive data
+    csv_path = save_path.with_suffix('.csv')
+    daily_equity_df.to_csv(csv_path, index=False)
+    print(f"💾 Mark-to-market data saved: {csv_path.name}")
+    
+    # Save benchmark data
+    if benchmark_df is not None and not benchmark_df.empty:
+        benchmark_path = save_path.parent / f'benchmark_data_{timeframe}.csv'
+        benchmark_df.to_csv(benchmark_path, index=False)
+        print(f"💾 Benchmark data saved: {benchmark_path.name}")
+    
+    print(f"\n✅ Analysis complete! Key improvements:")
+    print(f"   📊 Mark-to-market accounting for accurate risk metrics")
+    print(f"   🚀 Vectorized calculations (no nested loops)")
+    print(f"   📅 {warm_up_months}-month warm-up period for indicators")
+    print(f"   📐 Log returns for stable calculations")
+    print(f"   🎯 Realistic buy & hold benchmark")
+    print(f"   📈 Enhanced risk metrics (Sharpe, Sortino, Calmar)")
+    
+    plt.show()
+
+if __name__ == '__main__':
+    main()

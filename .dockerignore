@@ -33,4 +33,4 @@ data/
 
 # Test files
 test_*.py
-*_te
+*_test.py

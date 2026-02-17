@@ -9,7 +9,7 @@ from typing import List, Dict, Tuple
 import warnings
 warnings.filterwarnings('ignore')
 
-DATA_DIR = Path(__file__).parent.parent / 'data'
+DATA_DIR = Path(__file__).parent.parent / 'bitget-data'
 OHLCV_DIR = DATA_DIR / 'ohlcv'
 FUNDING_DIR = DATA_DIR / 'funding'
 PROCESSED_DIR = DATA_DIR / 'processed'

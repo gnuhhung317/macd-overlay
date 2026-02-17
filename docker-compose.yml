@@ -19,6 +19,20 @@ services:
     networks:
       - macd-network
 
+  macd-bot:
+    image: gnuhhung317/macd-monitor-dashboard
+    container_name: macd-bot
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+      - ./bot_config.json:/app/bot_config.json
+    command: python -m bot.main
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+      - PYTHONUNBUFFERED=1
+    networks:
+      - macd-network
+
   signal-dashboard:
     image: gnuhhung317/macd-monitor-dashboard
     container_name: signal-dashboard
