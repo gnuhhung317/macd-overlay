@@ -389,7 +389,8 @@ class PositionManager:
                 "tp_price": tp_price,
                 "size": final_size,
                 "leverage": self.config.exchange.leverage,
-                "raw_data": order_result
+                "raw_data": order_result,
+                "entry_time": datetime.now()
             }
             
             trade_id = self.db.add_trade(trade_record)
