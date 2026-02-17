@@ -3,3 +3,4 @@ venv/
 /data
 /bitget-data
 bot_config.json
+ml/models/*
