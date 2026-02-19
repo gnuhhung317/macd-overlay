@@ -16,6 +16,8 @@ class NumpyEncoder(json.JSONEncoder):
             return obj.tolist()
         elif isinstance(obj, np.bool_):
             return bool(obj)
+        elif isinstance(obj, (datetime, pd.Timestamp)):
+            return obj.isoformat()
         return super(NumpyEncoder, self).default(obj)
 
 DB_PATH = Path("data/bot_data.db")

@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
+from copy import deepcopy
 import joblib
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -76,6 +77,11 @@ class BacktestConfig:
     liquidation_threshold: float = 0.80  # Liquidation at 80% margin loss
     timeframe: Optional[str] = None  # e.g., '1d', '4h', '12h' - if set, filter df by 'timeframe' column
     require_fresh_crossover_after_exit: bool = True  # Require a fresh MACD crossover after a trade exit before allowing a new entry for the same symbol
+    require_fresh_crossover_after_exit: bool = True  # Require a fresh MACD crossover after a trade exit before allowing a new entry for the same symbol
+    margin_mode: str = 'ISOLATED'  # 'ISOLATED' or 'CROSS'
+    use_trailing_stop: bool = False
+    trailing_start_pct: float = 0.02  # Start trailing after 2% profit
+    trailing_step_pct: float = 0.01   # Keep SL 1% away from peak
 
 
 @dataclass
@@ -351,12 +357,56 @@ class ThreeStageBacktester:
         # Simulate through future candles
         for i, (idx, row) in enumerate(future_data.iterrows()):
             trade.bars_held = i + 1
+            current_time = row.get('timestamp', datetime.now())
             
             high = row['high']
             low = row['low']
             close = row['close']
             open_price = row.get('open', close)  # fallback to close if open not available
             
+            # --- TRAILING STOP LOGIC ---
+            if self.config.use_trailing_stop:
+                if direction == 'LONG':
+                    # Check if high price triggered trailing update
+                    current_high = high
+                    price_change_pct = (current_high - trade.entry_price) / trade.entry_price
+                    
+                    if price_change_pct >= self.config.trailing_start_pct:
+                        # Calculate new SL based on High
+                        new_sl = current_high * (1 - self.config.trailing_step_pct)
+                        # Only move SL up
+                        if new_sl > trade.sl_price:
+                            trade.sl_price = new_sl
+                            
+                    # Check if Low hit the new SL
+                    if low <= trade.sl_price:
+                        # Slippage applies to exit
+                        trade.exit_price = trade.sl_price * (1 - self.config.slippage)
+                        trade.exit_reason = 'TRAILING_STOP'
+                        trade.exit_time = current_time
+                        break
+                        
+                else: # SHORT
+                    # Check if low price triggered trailing update
+                    current_low = low
+                    price_change_pct = (trade.entry_price - current_low) / trade.entry_price
+                    
+                    if price_change_pct >= self.config.trailing_start_pct:
+                        # Calculate new SL based on Low
+                        new_sl = current_low * (1 + self.config.trailing_step_pct)
+                        # Only move SL down
+                        if new_sl < trade.sl_price:
+                            trade.sl_price = new_sl
+                            
+                    # Check if High hit the new SL
+                    if high >= trade.sl_price:
+                        # Slippage applies to exit
+                        trade.exit_price = trade.sl_price * (1 + self.config.slippage)
+                        trade.exit_reason = 'TRAILING_STOP'
+                        trade.exit_time = current_time
+                        break
+            
+            # --- STANDARD SL/TP LOGIC ---
             if direction == 'LONG':
                 # Check SL FIRST (conservative)
                 sl_hit = low <= trade.sl_price
@@ -427,10 +477,12 @@ class ThreeStageBacktester:
                 trade.pnl = np.clip(trade.pnl, -margin * 10, margin * 20)
             
             # Check for liquidation (loss exceeds margin * liquidation_threshold)
-            max_loss = -margin * self.config.liquidation_threshold
-            if trade.pnl < max_loss:
-                trade.pnl = -margin  # Lose entire margin
-                trade.exit_reason = 'LIQUIDATED'
+            # Only in ISOLATED mode. In CROSS mode, we allow PnL to exceed margin (draw from balance)
+            if self.config.margin_mode == 'ISOLATED':
+                max_loss = -margin * self.config.liquidation_threshold
+                if trade.pnl < max_loss:
+                    trade.pnl = -margin  # Lose entire margin
+                    trade.exit_reason = 'LIQUIDATED'
         
         return trade
     
@@ -657,26 +709,157 @@ class ThreeStageBacktester:
             capital += trade.pnl
             result.trades.append(trade)
         
-        # ===== STEP 4: Build equity curve =====
-        # Sort trades by exit time for proper equity curve
-        result.trades.sort(key=lambda t: t.exit_time or t.entry_time)
-        
-        # Rebuild equity curve from sorted trades
-        result.equity_curve = [self.config.initial_capital]
-        running_capital = self.config.initial_capital
-        for trade in result.trades:
-            running_capital += trade.pnl
-            result.equity_curve.append(running_capital)
-            result.timestamps.append(trade.exit_time or trade.entry_time)
+        # ===== STEP 4: Build Mark-to-Market equity curve =====
+        self._calculate_mtm_equity(df, result)
         
         if verbose:
             print(f"  Total trades executed: {len(result.trades)}")
-            print(f"  Final capital: ${capital:,.2f}")
+            print(f"  Final capital: ${result.equity_curve[-1] if result.equity_curve else capital:,.2f}")
         
-        # Calculate summary metrics
+        # Calculate summary metrics using the new equity curve
         self._calculate_metrics(result)
         
         return result
+
+    def _calculate_mtm_equity(self, df: pd.DataFrame, result: BacktestResult):
+        """
+        Calculate Mark-to-Market (MtM) equity curve.
+        Captures floating PnL of open positions at every timestamp.
+        
+        UPDATED: Calculates 'Conservative Equity' using Low/High prices (wicks)
+        to capture true intra-candle drawdown.
+        """
+        if not result.trades:
+            result.equity_curve = [self.config.initial_capital] * len(df['timestamp'].unique())
+            result.timestamps = df['timestamp'].unique()
+            return
+
+        # 1. Create price maps (pivot tables) for High, Low, Close
+        # We need these to calculate worst-case floating PnL
+        close_map = df.pivot_table(index='timestamp', columns='symbol', values='close').fillna(method='ffill')
+        low_map = df.pivot_table(index='timestamp', columns='symbol', values='low').fillna(method='ffill')
+        high_map = df.pivot_table(index='timestamp', columns='symbol', values='high').fillna(method='ffill')
+        
+        market_timestamps = close_map.index.sort_values()
+        
+        # 2. Track equity at each timestamp
+        equity_curve = []
+        timestamps = []
+        
+        # Sort trades by entry time
+        trades = sorted(result.trades, key=lambda t: t.entry_time)
+        active_trades = []
+        trade_idx = 0
+        
+        current_capital = self.config.initial_capital # Cash
+        
+        # Iterate through time
+        for ts in market_timestamps:
+            # A. Update realized PnL from closed trades (at this timestamp)
+            # Remove trades that closed BEFORE or AT this timestamp from active list
+            # and add their PnL to capital
+            
+            # First, check new entries
+            while trade_idx < len(trades) and trades[trade_idx].entry_time <= ts:
+                active_trades.append(trades[trade_idx])
+                trade_idx += 1
+            
+            # Now update active trades status and calculate Floating PnL
+            remaining_active = []
+            floating_pnl_total = 0.0
+            
+            for trade in active_trades:
+                # If trade closed before or at this timestamp
+                if trade.exit_time and trade.exit_time <= ts:
+                    current_capital += trade.pnl
+                    # Trade is closed, don't add to remaining
+                    continue
+                
+                # Trade is Open -> Calculate Floating PnL using WORST PRICE (Low/High)
+                symbol = trade.symbol
+                if symbol in close_map.columns:
+                    # Determine Worst Case Price for this candle
+                    if trade.direction == 'LONG':
+                        # For Long, worst case is the Low of the candle
+                        worst_price = low_map.at[ts, symbol]
+                    else:
+                        # For Short, worst case is the High of the candle
+                        worst_price = high_map.at[ts, symbol]
+                    
+                    if pd.isna(worst_price):
+                        worst_price = trade.entry_price # Fallback
+                        
+                    if trade.entry_price > 0:
+                        if trade.direction == 'LONG':
+                            pnl_pct = (worst_price - trade.entry_price) / trade.entry_price
+                        else:
+                            pnl_pct = (trade.entry_price - worst_price) / trade.entry_price
+                            
+                        # Apply Leverage and Size
+                        position_size = trade.position_size # Leveraged size
+                        
+                        # Calculate raw PnL
+                        floating_pnl = position_size * pnl_pct
+                        
+                        # ⚠️ IMPORTANT: Cap loss at Margin (Liquidation logic)
+                        margin = position_size / self.config.leverage
+                        if floating_pnl < -margin * self.config.liquidation_threshold:
+                            floating_pnl = -margin # Liquidated locally in time
+                        
+                        floating_pnl_total += floating_pnl
+                
+                remaining_active.append(trade)
+            
+            active_trades = remaining_active
+            
+        # Total Equity = Cash + Floating PnL (Worst Case)
+            total_equity = current_capital + floating_pnl_total
+            
+            # --- GLOBAL LIQUIDATION CHECK (Cross Margin) ---
+            if total_equity <= 0:
+                print(f"💀 GLOBAL LIQUIDATION at {ts} (Equity: ${total_equity:.2f})")
+                total_equity = 0
+                equity_curve.append(0)
+                timestamps.append(ts)
+                
+                # Update result to reflect death
+                self._handle_global_liquidation(result, ts, equity_curve, timestamps)
+                return
+
+            equity_curve.append(total_equity)
+            timestamps.append(ts)
+            
+        result.equity_curve = equity_curve
+        result.timestamps = timestamps
+    
+    def _handle_global_liquidation(self, result: BacktestResult, death_time: datetime, equity_curve: list, timestamps: list):
+        """
+        Handle the event where the entire account is blown (Cross Margin).
+        1. Truncate equity curve.
+        2. Mark all open trades as LIQUIDATED at death_time.
+        3. Remove future trades.
+        """
+        result.equity_curve = equity_curve
+        result.timestamps = timestamps
+        
+        # Valid trades are those that entered BEFORE death time
+        valid_trades = []
+        for trade in result.trades:
+            if trade.entry_time > death_time:
+                continue
+            
+            # If trade was open at death_time, force close it
+            if trade.exit_time is None or trade.exit_time > death_time:
+                trade.exit_time = death_time
+                trade.exit_reason = 'GLOBAL_LIQUIDATION'
+                # PnL is already captured in the equity curve crashing to 0
+                # But for trade stats, we can set it to the value at death?
+                # Actually, the account is 0. 
+                pass 
+                
+            valid_trades.append(trade)
+            
+        result.trades = valid_trades
     
     def _calculate_metrics(self, result: BacktestResult):
         """Calculate summary metrics for backtest."""
@@ -1114,12 +1297,6 @@ def plot_leverage_comparison(results: Dict[str, BacktestResult], initial_capital
     
     if save_path:
         plt.savefig(save_path, dpi=150, bbox_inches='tight', facecolor='white')
-        print(f"\n📊 Leverage chart saved to: {save_path}")
-    
-    plt.show()
-    return fig
-
-
 def run_baseline_comparison(df: pd.DataFrame, config: BacktestConfig) -> Dict[str, BacktestResult]:
     """
     Compare 3-stage ML with baseline strategies.
@@ -1380,6 +1557,13 @@ def main():
     parser.add_argument('--timeframe', type=str, default=None, help="Specify timeframe (1d, 4h, 8h, 12h) - load corresponding data file")
     parser.add_argument('--plot-trades', type=str, default='0', help='Number of individual trade charts to create (e.g. 20, 50) or "all"')
     parser.add_argument('--plot-individual', action='store_true', help='Plot sample individual trades with candlesticks')
+    parser.add_argument('--margin-mode', type=str, default='ISOLATED', choices=['ISOLATED', 'CROSS'], help='Margin mode: ISOLATED (default) or CROSS')
+    
+    # Trailing Stop arguments
+    parser.add_argument('--trailing', action='store_true', help='Enable Trailing Stop')
+    parser.add_argument('--trailing-start', type=float, default=0.02, help='Trailing start pct (e.g. 0.02 for 2%)')
+    parser.add_argument('--trailing-step', type=float, default=0.01, help='Trailing step pct (e.g. 0.01 for 1%)')
+    parser.add_argument('--compare-trailing', action='store_true', help='Run Trailing Stop Comparison')
     
     args = parser.parse_args()
     
@@ -1472,8 +1656,17 @@ def main():
         position_size_usd=args.size_usd,
         leverage=args.leverage,
         max_open_trades=args.max_positions,
-        timeframe=args.timeframe
+        timeframe=args.timeframe,
+        margin_mode=args.margin_mode,
+        use_trailing_stop=args.trailing,
+        trailing_start_pct=args.trailing_start,
+        trailing_step_pct=args.trailing_step
     )
+    
+    # Run Trailing Comparison
+    if args.compare_trailing:
+        run_trailing_comparison(df_test, config)
+        return
     
     # Test multiple max positions
     if args.max_positions_test:
@@ -2565,12 +2758,72 @@ def plot_backtest_trades(df: pd.DataFrame, trades: List[Trade], title: str = "Ba
     
     plt.tight_layout()
     
-    if save_path:
-        # Ensure directory exists
-        save_path = Path(save_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"💾 Trade plot saved to: {save_path}")
+    plt.show()  # Show the chart
+    plt.close()
+
+
+def run_trailing_comparison(df: pd.DataFrame, base_config: BacktestConfig):
+    """
+    Compare strategy performance WITH and WITHOUT Trailing Stop.
+    """
+    print("\n" + "="*60)
+    print("🔄 RUNNING TRAILING STOP COMPARISON")
+    print("="*60)
+    
+    results = {}
+    
+    # 1. Baseline (No Trailing)
+    print("\n🔹 Running Baseline (Fixed SL/TP)...")
+    base_config.use_trailing_stop = False
+    backtester_base = ThreeStageBacktester(base_config)
+    results['Baseline (Fixed SL/TP)'] = backtester_base.run_backtest(df, verbose=False)
+    
+    # 2. Trailing Stop
+    print(f"\n🔹 Running Trailing Stop (Start: {base_config.trailing_start_pct:.1%}, Step: {base_config.trailing_step_pct:.1%})...")
+    trailing_config = deepcopy(base_config)
+    trailing_config.use_trailing_stop = True
+    backtester_trail = ThreeStageBacktester(trailing_config)
+    results[f'Trailing ({trailing_config.trailing_start_pct:.0%}/{trailing_config.trailing_step_pct:.0%})'] = backtester_trail.run_backtest(df, verbose=False)
+    
+    # Print Comparison Table
+    print("\n" + "="*80)
+    print(f"{'METRIC':<25} | {'BASELINE':<20} | {'TRAILING STOP':<20} | {'DIFF':<10}")
+    print("-" * 80)
+    
+    # Helper to get value
+    def get_val(r, attr):
+        return getattr(r, attr)
+        
+    metrics = [
+        ('Final Capital ($)', 'equity_curve', lambda x: x[-1] if x else 0),
+        ('Total Return (%)', 'total_return', lambda x: x * 100),
+        ('Max Drawdown (%)', 'max_drawdown', lambda x: x * 100),
+        ('Win Rate (%)', 'win_rate', lambda x: x * 100),
+        ('Total Trades', 'total_trades', lambda x: x),
+        ('Profit Factor', 'profit_factor', lambda x: x),
+        ('Avg Trade ($)', 'avg_trade_pnl', lambda x: x),
+    ]
+    
+    base_res = results['Baseline (Fixed SL/TP)']
+    trail_res = list(results.values())[1]
+    
+    for label, attr, fmt_func in metrics:
+        if attr == 'equity_curve':
+            val_base = fmt_func(base_res.equity_curve)
+            val_trail = fmt_func(trail_res.equity_curve)
+        else:
+            val_base = fmt_func(getattr(base_res, attr))
+            val_trail = fmt_func(getattr(trail_res, attr))
+            
+        diff = val_trail - val_base
+        print(f"{label:<25} | {val_base:>18.2f} | {val_trail:>18.2f} | {diff:>+9.2f}")
+        
+    print("="*80)
+    
+    # Plot Comparison
+    lev_str = f"{base_config.leverage:.0f}x" if base_config.leverage > 1 else "1x"
+    plot_equity_curve(results, title=f"Trailing Stop Comparison (Lev {lev_str})", 
+                     save_path=str(DATA_DIR.parent / 'backtest_trailing_comparison.png'))
     
     plt.show()  # Show the chart
     plt.close()
