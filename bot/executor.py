@@ -142,10 +142,15 @@ class BinanceExecutor(ExchangeExecutor):
         size is in USDT
         """
         try:
-            # 1. Set Leverage
+            # 1. Set Leverage & Margin Type
             try:
                 self.client.futures_change_leverage(symbol=symbol, leverage=leverage)
             except: pass # Might already be set
+
+            try:
+                margin_type = self.config.exchange.margin_mode.upper() # ISOLATED or CROSS
+                self.client.futures_change_margin_type(symbol=symbol, marginType=margin_type)
+            except: pass # Might already be set or no change needed
             
             # 2. Convert USDT Size to Quantity
             price_tick = self.client.futures_symbol_ticker(symbol=symbol)

@@ -15,6 +15,7 @@ class ExchangeConfig(BaseModel):
     leverage: int = 20
     dry_run: bool = True  # Safety first! Default to simulation mode
     slippage: float = 0.0005  # 0.05% slippage
+    margin_mode: str = "ISOLATED"  # ISOLATED or CROSS
 
 class RiskConfig(BaseModel):
     max_open_positions: int = 5

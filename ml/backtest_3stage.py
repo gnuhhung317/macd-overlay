@@ -82,6 +82,11 @@ class BacktestConfig:
     use_trailing_stop: bool = False
     trailing_start_pct: float = 0.02  # Start trailing after 2% profit
     trailing_step_pct: float = 0.01   # Keep SL 1% away from peak
+    max_position_size_usd: float = 10000.0  # Max size per trade in USD (hard cap)
+    
+    # limit entry options
+    entry_pullback_pct: float = 0.0  # If > 0, place LIMIT order at (Price * (1 - pct)) instead of Market
+    entry_pullback_timeout: int = 3  # Cancel limit order if not filled after N bars
 
 
 @dataclass
@@ -183,20 +188,23 @@ class ThreeStageBacktester:
             print(f"⚠️ TP predictor not found at {tp_path}")
     
     def _prepare_features(self, row: pd.Series, feature_names: list, scaler) -> np.ndarray:
-        """Prepare features for prediction."""
-        X = pd.DataFrame()
-        for col in feature_names:
-            if col in row.index:
-                X[col] = [row[col]]
-            else:
-                X[col] = [0]
+        """Prepare features for prediction (Optimized)."""
+        # Fast extraction using reindex for Series
+        # This ensures all features are present in correct order
+        # Reshape to (1, n_features) for scikit-learn
+        vals = row.reindex(feature_names, fill_value=0).values.reshape(1, -1)
         
-        X = X.fillna(0).replace([np.inf, -np.inf], 0)
+        # Handle Inf/NaN efficiently with numpy (faster than dataframe replace)
+        vals = np.nan_to_num(vals, nan=0.0, posinf=0.0, neginf=0.0)
         
+        # Use scaler if available
         if scaler is not None:
-            X = scaler.transform(X)
+             # Most scalers work fine with numpy arrays
+             # To ensure column name compatibility if scaler was strict, we might need a DF,
+             # but usually numpy is fine and much faster.
+             return scaler.transform(vals)
         
-        return X
+        return vals
     
     def predict_entry(self, row: pd.Series) -> Tuple[bool, float]:
         """Stage 1: Predict if entry is good."""
@@ -238,6 +246,7 @@ class ThreeStageBacktester:
         self, 
         capital: float, 
         sl_pct: float, 
+        tp_pct: float,
         confidence: float,
         current_positions: Dict[str, float]
     ) -> float:
@@ -273,17 +282,21 @@ class ThreeStageBacktester:
         
         # Kelly criterion (optional)
         if self.config.use_kelly and confidence > 0.5:
-            # Estimate RR from model (assume 2:1 as baseline)
-            estimated_rr = 2.0
+            # Estimate RR from model
+            if sl_pct > 0 and tp_pct > 0:
+                estimated_rr = tp_pct / sl_pct
+            else:
+                estimated_rr = 2.0  # Fallback
+                
             p = confidence  # Win probability from Stage 1
             q = 1 - p
             b = estimated_rr
             
             # Kelly fraction
             kelly_f = (p * b - q) / b
-            kelly_f = max(0, min(kelly_f, 0.25))  # Cap at 25%
+            kelly_f = max(0, min(kelly_f, 0.25))  # Cap at 25% (safety)
             
-            # Use half-Kelly for safety
+            # Use fractional Kelly
             kelly_f *= self.config.kelly_fraction
             
             # Adjust risk based on Kelly
@@ -304,6 +317,9 @@ class ThreeStageBacktester:
         
         # Can't exceed available capital * leverage
         position_size = min(position_size, available_capital * self.config.leverage)
+        
+        # Hard cap on position size
+        position_size = min(position_size, self.config.max_position_size_usd)
         
         return max(0, position_size)
     
@@ -557,6 +573,7 @@ class ThreeStageBacktester:
         
         # ===== STEP 2: Process signals chronologically =====
         equity_timeline = [(df['timestamp'].min(), capital)]  # (timestamp, equity)
+        pending_orders = {}  # {order_id: {symbol, direction, limit_price, sl_pct, tp_pct, confidence, expiry_time}}
         
         for signal in all_signals:
             current_time = signal['timestamp']
@@ -638,43 +655,100 @@ class ThreeStageBacktester:
             # Stage 3: Predict TP
             tp_pct = self.predict_tp(row, sl_pct)
             
-            # Calculate position size based on AVAILABLE capital
-            if self.config.fixed_position_size:
-                margin_needed = self.config.position_size_usd
-                position_size = margin_needed * self.config.leverage
-                
-                # Check if we have enough available capital
-                if margin_needed > available_capital * 0.95:  # Keep 5% buffer
-                    if verbose and len(result.trades) < 10:
-                        print(f"  ⚠️ Skipping trade: insufficient capital (need ${margin_needed:.0f}, have ${available_capital:.0f})")
-                    continue
-            else:
-                # Risk-based sizing: Calculate risk based on TOTAL equity but limit by available capital
-                risk_amount = capital * self.config.risk_per_trade  # Risk on total equity
-                if sl_pct > 0:
-                    position_size = risk_amount / sl_pct * self.config.leverage
+            # --- LIMIT ENTRY LOGIC ---
+            use_limit_entry = self.config.entry_pullback_pct > 0
+            limit_filled = False
+            filled_row_idx = -1
+            
+            if use_limit_entry:
+                current_price = row['close']
+                if direction == 'LONG':
+                    limit_price = current_price * (1.0 - self.config.entry_pullback_pct)
                 else:
-                    position_size = risk_amount / 0.02 * self.config.leverage
+                    limit_price = current_price * (1.0 + self.config.entry_pullback_pct)
                 
-                # Apply max concentration limit
-                max_position = capital * self.config.max_concentration * self.config.leverage
-                position_size = min(position_size, max_position)
+                # Look ahead to see if filled within timeout
+                timeout = self.config.entry_pullback_timeout
+                
+                # Check up to N bars in future
+                for i in range(min(len(future_data), timeout)):
+                    future_row = future_data.iloc[i]
+                    
+                    if direction == 'LONG':
+                        if future_row['low'] <= limit_price:
+                            limit_filled = True
+                            filled_row_idx = i
+                            break
+                    else: # SHORT
+                        if future_row['high'] >= limit_price:
+                            limit_filled = True
+                            filled_row_idx = i
+                            break
+                
+                if limit_filled:
+                    # Proceed to enter at limit_price
+                    # We need to adjust future_data to start AFTER the fill
+                    # The trade simulation starts from the bar AFTER the fill?
+                    # simulate_trade normally takes 'future_data' starting from NEXT bar after signal.
+                    # If filled at index i (relative to future_data), then the trade actually starts managing from index i (or i+1?)
+                    
+                    # Logic: 
+                    # Signal at T=0. future_data starts at T=1, T=2...
+                    # If filled at T=1 (index 0), entry is at T=1.
+                    # We should simulate from T=1 onwards (including T=1 for high/low check? No, high/low already used for fill).
+                    # 'simulate_trade' iterates future_data to check for SL/TP.
+                    # If we enter at T=1, we should check SL/TP starting from T=1? 
+                    # Usually intraday SL/TP can happen same bar as entry.
+                    
+                    # For simplicity:
+                    # If filled at index `i`, we slice future_data from `i` onwards.
+                    # And use `limit_price` as entry_price.
+                    
+                    entry_price = limit_price
+                    
+                    # Sliced future data for simulation (from fill bar onwards)
+                    # We include the fill bar because price might hit SL/TP after filling in same bar
+                    trade_future_data = future_data.iloc[filled_row_idx:]
+                    
+                    if verbose:
+                        fill_time = trade_future_data.iloc[0]['timestamp'] if 'timestamp' in trade_future_data.columns else f"Bar +{filled_row_idx+1}"
+                        # print(f"  ✅ Limit Filled {symbol} at {limit_price:.4f} (Time: {fill_time})")
+                        
+                else:
+                    # Limit not filled within timeout
+                    if verbose and len(result.trades) < 5:
+                         print(f"  ⏳ Limit Timeout {symbol} {direction} at {limit_price:.4f} (Low: {future_data.iloc[0]['low'] if len(future_data)>0 else 'N/A'})")
+                    continue # Skip this trade completely
+            
+            else:
+                # Market Entry
+                # Use next candle's open price to avoid look-ahead bias
+                if len(future_data) > 0:
+                    entry_price = future_data.iloc[0]['open']
+                    trade_future_data = future_data # Use all future data
+                else:
+                    continue  # Skip if no future data
+            
+            
+            # --- POSITION SIZING & EXECUTION ---
+            
+            # Calculate position size using central logic
+            # Calculate total current margin used
+            open_positions_margin = {tid: open_positions[tid]['margin'] for tid in open_positions}
+            
+            position_size = self.calculate_position_size(
+                capital, sl_pct, tp_pct, confidence, open_positions_margin
+            )
+            
+            margin_needed = position_size / self.config.leverage
+                
+            # Ensure new position doesn't exceed available capital (redundant but safe)
+            if margin_needed > available_capital * 0.98:
+                position_size = (available_capital * 0.98) * self.config.leverage
                 margin_needed = position_size / self.config.leverage
-                
-                # Ensure new position doesn't exceed available capital
-                if margin_needed > available_capital * 0.95:
-                    position_size = (available_capital * 0.95) * self.config.leverage
-                    margin_needed = position_size / self.config.leverage
             
             if position_size <= 0 or margin_needed <= 0:
                 continue
-            
-            # ----- Simulate trade -----
-            # Use next candle's open price to avoid look-ahead bias
-            if len(future_data) > 0:
-                entry_price = future_data.iloc[0]['open']
-            else:
-                continue  # Skip if no future data
             
             # ⚠️ CRITICAL: Validate entry price before creating trade
             if entry_price <= 0 or entry_price > 1_000_000:  # Sanity check
@@ -683,7 +757,7 @@ class ThreeStageBacktester:
                 continue
                 
             trade = self.simulate_trade(
-                row, future_data, entry_price,
+                row, trade_future_data, entry_price,
                 sl_pct, tp_pct, direction, position_size
             )
             trade.confidence = confidence
@@ -1461,7 +1535,7 @@ def run_leverage_comparison(df: pd.DataFrame, base_config: BacktestConfig) -> Di
     """
     Compare different leverage levels (1x, 3x, 5x, 7x, 10x).
     """
-    leverage_levels = [1, 3, 5, 7, 10]
+    leverage_levels = [5,10,1517,20,23]
     results = {}
     
     print("\n" + "="*70)
@@ -1533,6 +1607,76 @@ def run_leverage_comparison(df: pd.DataFrame, base_config: BacktestConfig) -> Di
     return results
 
 
+def run_pullback_comparison(df: pd.DataFrame, base_config: BacktestConfig):
+    """
+    Compare strategy performance: Market Entry vs Pullback Limit Entry.
+    """
+    print("\n" + "="*60)
+    print("🔄 RUNNING PULLBACK ENTRY COMPARISON")
+    print("="*60)
+    
+    results = {}
+    
+    # 1. Market Entry (Baseline)
+    print("\n🔹 Running Market Entry (Baseline)...")
+    base_config.entry_pullback_pct = 0.0
+    backtester_market = ThreeStageBacktester(base_config)
+    results['Market Entry'] = backtester_market.run_backtest(df, verbose=False)
+    
+    # 2. Pullback Limit Entry
+    # Test a few pullback levels
+    pullback_levels = [0.005, 0.01, 0.02] # 0.5%, 1.0%, 2.0%
+    timeout = 10 # Increase timeout
+    
+    for pct in pullback_levels:
+        print(f"\n🔹 Running Pullback Entry (Limit: -{pct:.1%}, Timeout: {timeout} bars)...")
+        pullback_config = deepcopy(base_config)
+        pullback_config.entry_pullback_pct = pct
+        pullback_config.entry_pullback_timeout = timeout
+        
+        backtester_pullback = ThreeStageBacktester(pullback_config)
+        results[f'Limit -{pct:.1%}'] = backtester_pullback.run_backtest(df, verbose=False)
+    
+    # Print Comparison Table
+    print("\n" + "="*100)
+    print(f"{'METRIC':<25} | {'MARKET':<15} | {'LIMIT -0.5%':<15} | {'LIMIT -1.0%':<15} | {'DIFF (0.5%)':<10}")
+    print("-" * 100)
+    
+    metrics = [
+        ('Final Capital ($)', 'equity_curve', lambda x: x[-1] if x else 0),
+        ('Total Return (%)', 'total_return', lambda x: x * 100),
+        ('Max Drawdown (%)', 'max_drawdown', lambda x: x * 100),
+        ('Win Rate (%)', 'win_rate', lambda x: x * 100),
+        ('Total Trades', 'total_trades', lambda x: x),
+        ('Profit Factor', 'profit_factor', lambda x: x),
+        ('Avg Trade ($)', 'avg_trade_pnl', lambda x: x),
+    ]
+    
+    res_market = results['Market Entry']
+    res_limit_05 = results.get('Limit -0.5%', res_market) # Fallback
+    res_limit_10 = results.get('Limit -1.0%', res_market)
+    
+    for label, attr, fmt_func in metrics:
+        if attr == 'equity_curve':
+            val_m = fmt_func(res_market.equity_curve)
+            val_05 = fmt_func(res_limit_05.equity_curve)
+            val_10 = fmt_func(res_limit_10.equity_curve)
+        else:
+            val_m = fmt_func(getattr(res_market, attr))
+            val_05 = fmt_func(getattr(res_limit_05, attr))
+            val_10 = fmt_func(getattr(res_limit_10, attr))
+            
+        diff = val_05 - val_m
+        print(f"{label:<25} | {val_m:>15.2f} | {val_05:>15.2f} | {val_10:>15.2f} | {diff:>+10.2f}")
+        
+    print("="*100)
+    
+    # Plot Comparison
+    lev_str = f"{base_config.leverage:.0f}x" if base_config.leverage > 1 else "1x"
+    plot_equity_curve(results, title=f"Market vs Pullback Entry (Lev {lev_str})", 
+                     save_path=str(DATA_DIR.parent / 'backtest_pullback_comparison.png'))
+
+
 def main():
     """Main function to run backtest."""
     import argparse
@@ -1564,6 +1708,12 @@ def main():
     parser.add_argument('--trailing-start', type=float, default=0.02, help='Trailing start pct (e.g. 0.02 for 2%)')
     parser.add_argument('--trailing-step', type=float, default=0.01, help='Trailing step pct (e.g. 0.01 for 1%)')
     parser.add_argument('--compare-trailing', action='store_true', help='Run Trailing Stop Comparison')
+    parser.add_argument('--compare-kelly', action='store_true', help='Run Kelly vs Even Sizing Comparison')
+    parser.add_argument('--compare-pullback', action='store_true', help='Run Market vs Pullback Entry Comparison')
+    
+    # Pullback options
+    parser.add_argument('--entry-pullback', type=float, default=0.0, help='Pullback pct for limit entry (e.g. 0.005 for 0.5%)')
+    parser.add_argument('--entry-timeout', type=int, default=3, help='Timeout bars for limit entry')
     
     args = parser.parse_args()
     
@@ -1660,9 +1810,21 @@ def main():
         margin_mode=args.margin_mode,
         use_trailing_stop=args.trailing,
         trailing_start_pct=args.trailing_start,
-        trailing_step_pct=args.trailing_step
+        trailing_step_pct=args.trailing_step,
+        entry_pullback_pct=args.entry_pullback,
+        entry_pullback_timeout=args.entry_timeout
     )
     
+    # Run Comparison: Kelly vs Even
+    if args.compare_kelly:
+        run_kelly_comparison(df_test, config)
+        return
+
+    # Run Comparison: Pullback
+    if args.compare_pullback:
+        run_pullback_comparison(df_test, config)
+        return
+
     # Run Trailing Comparison
     if args.compare_trailing:
         run_trailing_comparison(df_test, config)
@@ -2827,6 +2989,74 @@ def run_trailing_comparison(df: pd.DataFrame, base_config: BacktestConfig):
     
     plt.show()  # Show the chart
     plt.close()
+
+
+def run_kelly_comparison(df: pd.DataFrame, base_config: BacktestConfig):
+    """
+    Compare strategy performance with EVEN Sizing vs KELLY Sizing.
+    """
+    print("\n" + "="*60)
+    print("🔄 RUNNING KELLY SIZING COMPARISON")
+    print("="*60)
+    
+    results = {}
+    
+    # 1. Even Sizing (Fixed Risk per Trade)
+    print("\n🔹 Running Even Sizing (Fixed Risk)...")
+    base_config.use_kelly = False
+    # Relax constraints for comparison to be visible
+    base_config.max_concentration = 1.0  # Allow up to 100% per trade (if risk allows)
+    # base_config.initial_capital = 10000 # Use larger capital to avoid small balance issues
+    
+    backtester_even = ThreeStageBacktester(base_config)
+    results['Even Sizing'] = backtester_even.run_backtest(df, verbose=False)
+    
+    # 2. Kelly Criterion
+    print(f"\n🔹 Running Kelly Criterion (Fraction: {base_config.kelly_fraction:.2f})...")
+    kelly_config = deepcopy(base_config)
+    kelly_config.use_kelly = True
+    kelly_config.max_concentration = 1.0  # Allow up to 100% per trade
+    
+    backtester_kelly = ThreeStageBacktester(kelly_config)
+    results['Kelly Sizing'] = backtester_kelly.run_backtest(df, verbose=False)
+    
+    # Print Comparison Table
+    print("\n" + "="*80)
+    print(f"{'METRIC':<25} | {'EVEN SIZING':<20} | {'KELLY SIZING':<20} | {'DIFF':<10}")
+    print("-" * 80)
+    
+    # Metrics to compare
+    metrics = [
+        ('Final Capital ($)', 'equity_curve', lambda x: x[-1] if x else 0),
+        ('Total Return (%)', 'total_return', lambda x: x * 100),
+        ('Max Drawdown (%)', 'max_drawdown', lambda x: x * 100),
+        ('Win Rate (%)', 'win_rate', lambda x: x * 100),
+        ('Total Trades', 'total_trades', lambda x: x),
+        ('Profit Factor', 'profit_factor', lambda x: x),
+        ('Avg Trade ($)', 'avg_trade_pnl', lambda x: x),
+    ]
+    
+    res_even = results['Even Sizing']
+    res_kelly = results['Kelly Sizing']
+    
+    for label, attr, fmt_func in metrics:
+        if attr == 'equity_curve':
+            val_even = fmt_func(res_even.equity_curve)
+            val_kelly = fmt_func(res_kelly.equity_curve)
+        else:
+            val_even = fmt_func(getattr(res_even, attr))
+            val_kelly = fmt_func(getattr(res_kelly, attr))
+            
+        diff = val_kelly - val_even
+        print(f"{label:<25} | {val_even:>18.2f} | {val_kelly:>18.2f} | {diff:>+9.2f}")
+        
+    print("="*80)
+    
+    # Plot Comparison
+    lev_str = f"{base_config.leverage:.0f}x" if base_config.leverage > 1 else "1x"
+    plot_equity_curve(results, title=f"Kelly vs Even Sizing Comparison (Lev {lev_str})", 
+                     save_path=str(DATA_DIR.parent / 'backtest_kelly_comparison.png'))
+    
 
 
 if __name__ == '__main__':
