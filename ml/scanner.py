@@ -30,7 +30,7 @@ class SmartScanner:
                 return None
         return self._engines[timeframe]
 
-    def scan(self, symbols: List[str], timeframe: str, lookback_days: int = 4) -> List[Dict[str, Any]]:
+    def scan(self, symbols: List[str], timeframe: str, lookback_days: int = 6) -> List[Dict[str, Any]]:
         """
         Scan a list of symbols for valid signals within the lookback period.
         """
