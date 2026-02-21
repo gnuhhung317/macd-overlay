@@ -1,4 +1,5 @@
 import pandas as pd
+from pathlib import Path
 from bot.signal_engine import SignalEngine
 from bot.position_manager import PositionManager
 from bot.executor import DryRunExecutor
@@ -6,6 +7,7 @@ from bot.db import DatabaseManager
 from bot.config import BotConfig
 from bot.data_provider import DataProvider
 import os
+import traceback
 
 # Create dummy config
 config = BotConfig()
@@ -45,34 +47,61 @@ class MockDataProvider(DataProvider):
         return 50000.0
 
 def test_dry_run():
-    print("🧪 Starting Dry Run Test...")
+    print("🧪 Starting Dry Run Test...", flush=True)
     
-    # Setup
+    # Simple setup
+    config = BotConfig()
+    config.exchange.dry_run = True
+    
     if os.path.exists("test_bot.db"):
         os.remove("test_bot.db")
-        
-    db = DatabaseManager(pd.Path("test_bot.db"))
+    db = DatabaseManager(Path("test_bot.db"))
+    
     executor = DryRunExecutor(config)
-    data_provider = MockDataProvider(config)
-    signal_engine = SignalEngine(config) # Will try to load real ML, might fail but logic should hold
+    data_provider = None # Not needed for execute_calculated_signal
+    signal_engine = None # Not needed for execute_calculated_signal
     
     pm = PositionManager(config, db, executor, signal_engine, data_provider)
     
     # Execution
-    print("👉 Processing Symbol with Mock Data (Expect Entry)...")
-    pm.process_symbol("BTCUSDT", "4h")
+    print("👉 Executing Calculated Signal (Expect Entry)...", flush=True)
+    signal_data = {
+        'symbol': 'BTCUSDT',
+        'type': 'LONG',
+        'timestamp': pd.Timestamp.now(),
+        'confidence': 0.85,
+        'status': '✅ GOOD ENTRY',
+        'signal_price': 50000.0,
+        'current_price': 50500.0,
+        'sl_pct': 0.02,
+        'tp_pct': 0.04,
+        'risk_reward': 2.0
+    }
     
-    # Verification
-    active_trades = pm.active_positions
-    if "BTCUSDT" in active_trades:
-        trade = active_trades["BTCUSDT"]
-        print(f"✅ Trade Successfully Created: {trade}")
-        print(f"   Direction: {trade['direction']}")
-        print(f"   Entry: {trade['entry_price']}")
-        print(f"   SL: {trade['sl_price']}")
-        print(f"   TP: {trade['tp_price']}")
-    else:
-        print("❌ No Trade Created! Check logic.")
+    try:
+        pm.execute_calculated_signal(signal_data, "4h")
+        
+        # Verification
+        if "BTCUSDT" in pm.active_positions:
+            trade = pm.active_positions["BTCUSDT"]
+            print(f"✅ Trade Successfully Created: {trade['symbol']} | Size: ${trade['size']:.2f}", flush=True)
+            
+            # Test CHASING filter
+            print("\n👉 Executing CHASING Signal (Expect Filter)...", flush=True)
+            del pm.active_positions["BTCUSDT"] # Reset
+            signal_data['status'] = '⚠️ CHASING'
+            pm.execute_calculated_signal(signal_data, "4h")
+            if "BTCUSDT" not in pm.active_positions:
+                print("✅ CHASING successfully filtered!", flush=True)
+            else:
+                print("❌ CHASING was NOT filtered!", flush=True)
+        else:
+            print("❌ No Trade Created! Check logs above.", flush=True)
+            
+    except Exception as e:
+        print(f"\n❌ Error during execution: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
 
     # Clean up
     if os.path.exists("test_bot.db"):

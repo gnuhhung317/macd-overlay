@@ -51,11 +51,12 @@ def resample_to_timeframe(df_1h: pd.DataFrame, timeframe: str) -> pd.DataFrame:
         '4h': '4h',
         '8h': '8h',
         '12h': '12h',
-        '1d': '1D'
+        '1d': '1D',
+        '1w': '1W',
     }
     
     if timeframe not in resample_map:
-        raise ValueError(f"Unsupported timeframe: {timeframe}. Use 1h, 4h, 8h, 12h, or 1d")
+        raise ValueError(f"Unsupported timeframe: {timeframe}. Use 1h, 4h, 8h, 12h, 1d, or 1w")
     
     df = df.set_index('timestamp')
     
@@ -83,7 +84,7 @@ def calculate_features_for_timeframe(df: pd.DataFrame, timeframe: str) -> pd.Dat
     df = calculate_features(df)
     
     # Add timeframe as feature (useful for multi-timeframe model)
-    tf_map = {'1h': 1, '4h': 4, '8h': 8, '12h': 12, '1d': 24}
+    tf_map = {'1h': 1, '4h': 4, '8h': 8, '12h': 12, '1d': 24, '1w': 168}
     df['timeframe_hours'] = tf_map.get(timeframe, 24)
     
     # Normalize some features by timeframe
@@ -193,7 +194,8 @@ def build_timeframe_dataset(
         '4h': 7,  # 2.25% TP, 1.125% SL
         '8h': 7,   # 2.7% TP, 1.35% SL
         '12h': 7.0,  # 3% TP, 1.5% SL
-        '1d': 7.0    # 3% TP, 1.5% SL
+        '1d': 7.0,   # 3% TP, 1.5% SL
+        '1w': 14.0   # 6% TP, 3% SL
     }
     scale = tf_scale.get(timeframe, 1.0)
     tp_pct = 0.03 * scale
@@ -254,7 +256,7 @@ def build_timeframe_dataset(
 
 def build_all_timeframes(symbols: list = None, limit_symbols: int = None):
     """Build datasets for all timeframes."""
-    timeframes = ['1h', '4h', '8h', '12h', '1d']
+    timeframes = ['1h', '4h', '8h', '12h', '1d', '1w']
     
     results = {}
     for tf in timeframes:
@@ -310,7 +312,7 @@ def compare_timeframe_performance(model_path: str = None):
     
     # Test on each timeframe
     results = {}
-    timeframes = ['1h', '4h', '8h', '12h', '1d']
+    timeframes = ['1h', '4h', '8h', '12h', '1d', '1w']
     
     for tf in timeframes:
         data_path = PROCESSED_DIR / f'features_{tf}_full.parquet'

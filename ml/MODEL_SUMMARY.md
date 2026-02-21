@@ -1,6 +1,6 @@
 # 📊 ML Model Summary - MACD Crossover Strategy
 
-> Generated: 2026-01-26 22:22
+> Generated: 2026-02-21 12:30
 
 ---
 
@@ -20,43 +20,43 @@ Hệ thống sử dụng 3-Stage ML để quyết định giao dịch:
 
 | Metric | Value |
 |--------|-------|
-| Tổng rows | 2,252,387 |
-| Crossover signals | 175,525 |
-| Số symbols | 531 |
-| Thời gian | 2020-01-01 → 2026-01-17 |
-| Win rate (raw) | 44.1% |
+| Tổng rows | 163,100 |
+| Crossover signals | 12,673 |
+| Số symbols | 49 |
+| Thời gian | 2021-01-01 → 2026-02-16 |
+| Win rate (raw) | 42.3% |
 
 ### 🎯 Entry Filter Accuracy
 
-**AUC Score: 0.612**
+**AUC Score: 0.675**
 
 | Threshold | Accuracy | Precision | Signals |
 |-----------|----------|-----------|---------|
-| 0.50 | 59.0% | 58.7% | 6,218 |
-| 0.60 | 56.9% | 77.1% | 647 |
-| 0.65 | 56.4% | 82.3% | 271 |
-| 0.70 | 56.2% | 84.5% | 174 |
-| 0.75 | 56.2% | 86.5% | 126 |
+| 0.50 | 64.1% | 67.5% | 418 |
+| 0.60 | 59.9% | 93.5% | 46 |
+| 0.65 | 58.8% | 100.0% | 13 |
+| 0.70 | 58.4% | 100.0% | 3 |
+| 0.75 | 58.3% | 100.0% | 1 |
 
 ### 📉 SL Predictor Accuracy
 
 | Metric | Value |
 |--------|-------|
-| SL thực tế (trung bình) | 5.21% |
-| SL thực tế (std dev) | ±2.46% |
-| SL range | 0.75% - 15.00% |
-| **MAE (sai số tuyệt đối)** | **0.59%** |
-| Sai số tương đối | 14.7% |
+| SL thực tế (trung bình) | 4.44% |
+| SL thực tế (std dev) | ±2.54% |
+| SL range | 1.00% - 14.98% |
+| **MAE (sai số tuyệt đối)** | **1.45%** |
+| Sai số tương đối | 65.5% |
 
 ### 📈 TP Predictor Accuracy
 
 | Metric | Value |
 |--------|-------|
-| TP thực tế (trung bình) | 10.80% |
-| TP thực tế (std dev) | ±5.58% |
-| TP range | 1.50% - 30.00% |
-| **MAE (sai số tuyệt đối)** | **1.21%** |
-| Sai số tương đối | 14.9% |
+| TP thực tế (trung bình) | 20.30% |
+| TP thực tế (std dev) | ±1.46% |
+| TP range | 20.00% - 30.00% |
+| **MAE (sai số tuyệt đối)** | **0.23%** |
+| Sai số tương đối | 1.0% |
 
 
 ---
@@ -66,43 +66,43 @@ Hệ thống sử dụng 3-Stage ML để quyết định giao dịch:
 
 | Metric | Value |
 |--------|-------|
-| Tổng rows | 1,124,323 |
-| Crossover signals | 86,296 |
-| Số symbols | 517 |
-| Thời gian | 2020-01-01 → 2026-01-17 |
-| Win rate (raw) | 46.0% |
+| Tổng rows | 817,161 |
+| Crossover signals | 63,096 |
+| Số symbols | 455 |
+| Thời gian | 2020-01-01 → 2026-02-16 |
+| Win rate (raw) | 44.0% |
 
 ### 🎯 Entry Filter Accuracy
 
-**AUC Score: 0.643**
+**AUC Score: 0.647**
 
 | Threshold | Accuracy | Precision | Signals |
 |-----------|----------|-----------|---------|
-| 0.50 | 60.2% | 59.5% | 5,635 |
-| 0.60 | 57.4% | 73.2% | 1,282 |
-| 0.65 | 56.1% | 80.1% | 598 |
-| 0.70 | 55.5% | 86.4% | 360 |
-| 0.75 | 54.9% | 91.1% | 202 |
+| 0.50 | 61.0% | 59.4% | 3,320 |
+| 0.60 | 58.3% | 70.8% | 675 |
+| 0.65 | 57.3% | 74.9% | 303 |
+| 0.70 | 56.8% | 83.8% | 136 |
+| 0.75 | 56.6% | 89.7% | 78 |
 
 ### 📉 SL Predictor Accuracy
 
 | Metric | Value |
 |--------|-------|
-| SL thực tế (trung bình) | 7.09% |
-| SL thực tế (std dev) | ±2.80% |
-| SL range | 0.75% - 15.00% |
-| **MAE (sai số tuyệt đối)** | **0.78%** |
-| Sai số tương đối | 16.6% |
+| SL thực tế (trung bình) | 5.79% |
+| SL thực tế (std dev) | ±3.10% |
+| SL range | 1.00% - 15.00% |
+| **MAE (sai số tuyệt đối)** | **1.99%** |
+| Sai số tương đối | 81.9% |
 
 ### 📈 TP Predictor Accuracy
 
 | Metric | Value |
 |--------|-------|
-| TP thực tế (trung bình) | 15.10% |
-| TP thực tế (std dev) | ±6.57% |
-| TP range | 1.50% - 30.00% |
-| **MAE (sai số tuyệt đối)** | **1.60%** |
-| Sai số tương đối | 16.2% |
+| TP thực tế (trung bình) | 20.82% |
+| TP thực tế (std dev) | ±2.33% |
+| TP range | 20.00% - 30.00% |
+| **MAE (sai số tuyệt đối)** | **0.56%** |
+| Sai số tương đối | 2.5% |
 
 
 ---
@@ -112,43 +112,43 @@ Hệ thống sử dụng 3-Stage ML để quyết định giao dịch:
 
 | Metric | Value |
 |--------|-------|
-| Tổng rows | 745,284 |
-| Crossover signals | 56,835 |
-| Số symbols | 490 |
-| Thời gian | 2020-01-01 → 2026-01-17 |
-| Win rate (raw) | 46.4% |
+| Tổng rows | 544,865 |
+| Crossover signals | 41,140 |
+| Số symbols | 455 |
+| Thời gian | 2020-01-01 → 2026-02-16 |
+| Win rate (raw) | 45.7% |
 
 ### 🎯 Entry Filter Accuracy
 
-**AUC Score: 0.654**
+**AUC Score: 0.656**
 
 | Threshold | Accuracy | Precision | Signals |
 |-----------|----------|-----------|---------|
-| 0.50 | 61.4% | 60.8% | 3,916 |
-| 0.60 | 59.2% | 73.8% | 1,239 |
-| 0.65 | 57.6% | 79.7% | 689 |
-| 0.70 | 56.2% | 84.8% | 361 |
-| 0.75 | 55.4% | 90.5% | 189 |
+| 0.50 | 61.3% | 59.2% | 2,738 |
+| 0.60 | 60.1% | 75.8% | 794 |
+| 0.65 | 58.5% | 83.7% | 405 |
+| 0.70 | 56.8% | 87.9% | 173 |
+| 0.75 | 55.7% | 91.2% | 57 |
 
 ### 📉 SL Predictor Accuracy
 
 | Metric | Value |
 |--------|-------|
-| SL thực tế (trung bình) | 8.38% |
-| SL thực tế (std dev) | ±3.00% |
-| SL range | 0.75% - 15.00% |
-| **MAE (sai số tuyệt đối)** | **0.95%** |
-| Sai số tương đối | 20.8% |
+| SL thực tế (trung bình) | 6.85% |
+| SL thực tế (std dev) | ±3.50% |
+| SL range | 1.00% - 15.00% |
+| **MAE (sai số tuyệt đối)** | **2.44%** |
+| Sai số tương đối | 92.8% |
 
 ### 📈 TP Predictor Accuracy
 
 | Metric | Value |
 |--------|-------|
-| TP thực tế (trung bình) | 18.27% |
-| TP thực tế (std dev) | ±7.04% |
-| TP range | 1.50% - 30.00% |
-| **MAE (sai số tuyệt đối)** | **1.89%** |
-| Sai số tương đối | 19.3% |
+| TP thực tế (trung bình) | 21.80% |
+| TP thực tế (std dev) | ±3.24% |
+| TP range | 20.00% - 30.00% |
+| **MAE (sai số tuyệt đối)** | **0.96%** |
+| Sai số tương đối | 4.2% |
 
 
 ---
@@ -158,43 +158,89 @@ Hệ thống sử dụng 3-Stage ML để quyết định giao dịch:
 
 | Metric | Value |
 |--------|-------|
-| Tổng rows | 360,864 |
-| Crossover signals | 27,603 |
-| Số symbols | 408 |
-| Thời gian | 2020-01-01 → 2026-01-17 |
-| Win rate (raw) | 45.3% |
+| Tổng rows | 263,723 |
+| Crossover signals | 20,606 |
+| Số symbols | 396 |
+| Thời gian | 2020-01-01 → 2026-02-16 |
+| Win rate (raw) | 44.4% |
 
 ### 🎯 Entry Filter Accuracy
 
-**AUC Score: 0.690**
+**AUC Score: 0.699**
 
 | Threshold | Accuracy | Precision | Signals |
 |-----------|----------|-----------|---------|
-| 0.50 | 64.4% | 61.8% | 2,073 |
-| 0.60 | 63.0% | 74.5% | 831 |
-| 0.65 | 60.8% | 78.9% | 497 |
-| 0.70 | 59.1% | 83.4% | 289 |
-| 0.75 | 57.5% | 85.1% | 148 |
+| 0.50 | 65.6% | 62.8% | 1,331 |
+| 0.60 | 63.5% | 74.2% | 524 |
+| 0.65 | 61.6% | 81.0% | 284 |
+| 0.70 | 59.8% | 87.1% | 139 |
+| 0.75 | 58.3% | 87.0% | 54 |
 
 ### 📉 SL Predictor Accuracy
 
 | Metric | Value |
 |--------|-------|
-| SL thực tế (trung bình) | 10.11% |
-| SL thực tế (std dev) | ±3.27% |
-| SL range | 0.75% - 15.00% |
-| **MAE (sai số tuyệt đối)** | **1.14%** |
-| Sai số tương đối | 30.6% |
+| SL thực tế (trung bình) | 8.43% |
+| SL thực tế (std dev) | ±3.89% |
+| SL range | 1.00% - 15.00% |
+| **MAE (sai số tuyệt đối)** | **3.15%** |
+| Sai số tương đối | 112.1% |
 
 ### 📈 TP Predictor Accuracy
 
 | Metric | Value |
 |--------|-------|
-| TP thực tế (trung bình) | 23.53% |
-| TP thực tế (std dev) | ±7.05% |
-| TP range | 1.50% - 30.00% |
-| **MAE (sai số tuyệt đối)** | **2.09%** |
-| Sai số tương đối | 23.9% |
+| TP thực tế (trung bình) | 24.79% |
+| TP thực tế (std dev) | ±4.24% |
+| TP range | 20.00% - 30.00% |
+| **MAE (sai số tuyệt đối)** | **1.44%** |
+| Sai số tương đối | 5.9% |
+
+
+---
+## ⏱️ Timeframe: 1W
+
+### 📈 Thống Kê Data
+
+| Metric | Value |
+|--------|-------|
+| Tổng rows | 8,574 |
+| Crossover signals | 575 |
+| Số symbols | 34 |
+| Thời gian | 2020-01-05 → 2026-02-22 |
+| Win rate (raw) | 43.4% |
+
+### 🎯 Entry Filter Accuracy
+
+**AUC Score: 0.712**
+
+| Threshold | Accuracy | Precision | Signals |
+|-----------|----------|-----------|---------|
+| 0.50 | 65.2% | 54.4% | 57 |
+| 0.60 | 69.6% | 67.9% | 28 |
+| 0.65 | 62.6% | 55.6% | 18 |
+| 0.70 | 61.7% | 55.6% | 9 |
+| 0.75 | 61.7% | 60.0% | 5 |
+
+### 📉 SL Predictor Accuracy
+
+| Metric | Value |
+|--------|-------|
+| SL thực tế (trung bình) | 7.55% |
+| SL thực tế (std dev) | ±4.21% |
+| SL range | 1.00% - 14.89% |
+| **MAE (sai số tuyệt đối)** | **3.14%** |
+| Sai số tương đối | 94.8% |
+
+### 📈 TP Predictor Accuracy
+
+| Metric | Value |
+|--------|-------|
+| TP thực tế (trung bình) | 30.74% |
+| TP thực tế (std dev) | ±3.53% |
+| TP range | 20.00% - 42.00% |
+| **MAE (sai số tuyệt đối)** | **0.34%** |
+| Sai số tương đối | 1.5% |
 
 
 ---
@@ -232,7 +278,8 @@ Hệ thống sử dụng 3-Stage ML để quyết định giao dịch:
 
 | Timeframe | Entry AUC | SL MAE | TP MAE | Recommend Threshold |
 |-----------|-----------|--------|--------|---------------------|
-| 4h | 0.612 | 0.59% | 1.21% | 0.65 |
-| 8h | 0.643 | 0.78% | 1.60% | 0.65 |
-| 12h | 0.654 | 0.95% | 1.89% | 0.65 |
-| 1d | 0.690 | 1.14% | 2.09% | 0.65 |
+| 4h | 0.675 | 1.45% | 0.23% | 0.65 |
+| 8h | 0.647 | 1.99% | 0.56% | 0.65 |
+| 12h | 0.656 | 2.44% | 0.96% | 0.65 |
+| 1d | 0.699 | 3.15% | 1.44% | 0.65 |
+| 1w | 0.712 | 3.14% | 0.34% | 0.65 |

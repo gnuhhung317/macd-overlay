@@ -8,11 +8,11 @@ from datetime import datetime
 
 ML_DIR = Path(__file__).parent
 MODELS_DIR = ML_DIR / 'models'
-DATA_DIR = ML_DIR.parent / 'data' / 'processed'
+DATA_DIR = ML_DIR.parent / 'bitget-data' / 'processed'
 
 def get_model_metrics():
     """Get metrics for all trained models"""
-    timeframes = ['4h', '8h', '12h', '1d']
+    timeframes = ['4h', '8h', '12h', '1d', '1w']
     results = []
     
     for tf in timeframes:
@@ -222,7 +222,7 @@ def test_model_accuracy(tf: str):
 
 def generate_markdown():
     """Generate comprehensive markdown summary"""
-    timeframes = ['4h', '8h', '12h', '1d']
+    timeframes = ['4h', '8h', '12h', '1d', '1w']
     
     md = []
     md.append("# 📊 ML Model Summary - MACD Crossover Strategy")

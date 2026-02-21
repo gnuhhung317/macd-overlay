@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 # Paths
 ML_DIR = Path(__file__).parent.parent
-DATA_DIR = ML_DIR.parent / 'data'
+DATA_DIR = ML_DIR.parent / 'bitget-data'
 PROCESSED_DIR = DATA_DIR / 'processed'
 MODELS_DIR = ML_DIR / 'models'
 

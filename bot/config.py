@@ -29,6 +29,7 @@ class StrategyConfig(BaseModel):
     entry_threshold: float = 0.65
     min_volume_usdt: float = 5.0  # Reduced to 5$ per user request
     cooldown_candles: int = 3
+    timeout_candles: int = 10
     require_fresh_crossover: bool = True
     min_rr_ratio: float = 1.0
 

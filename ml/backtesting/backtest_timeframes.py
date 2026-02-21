@@ -23,7 +23,7 @@ from backtest_3stage import ThreeStageBacktester, BacktestConfig, BacktestResult
 
 # Paths
 ML_DIR = Path(__file__).parent.parent
-DATA_DIR = ML_DIR.parent / 'data'
+DATA_DIR = ML_DIR.parent / 'bitget-data'
 PROCESSED_DIR = DATA_DIR / 'processed'
 MODELS_DIR = ML_DIR / 'models'
 RESULTS_DIR = ML_DIR / 'results'

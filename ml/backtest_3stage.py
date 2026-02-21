@@ -29,6 +29,7 @@ except ImportError:
     print("⚠️ mplfinance not installed. Install with: pip install mplfinance")
 import warnings
 warnings.filterwarnings('ignore')
+from config import SUPPORTED_TIMEFRAMES, get_timeframe_config
 
 DATA_DIR = Path(__file__).parent.parent / 'bitget-data'
 PROCESSED_DIR = DATA_DIR / 'processed'
@@ -87,6 +88,10 @@ class BacktestConfig:
     # limit entry options
     entry_pullback_pct: float = 0.0  # If > 0, place LIMIT order at (Price * (1 - pct)) instead of Market
     entry_pullback_timeout: int = 3  # Cancel limit order if not filled after N bars
+    
+    # Date filtering
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
 
 
 @dataclass
@@ -141,7 +146,7 @@ class ThreeStageBacktester:
     def _load_models(self):
         """Load all 3 ML models based on timeframe configuration."""
         # Determine model directory based on timeframe
-        if self.config.timeframe and self.config.timeframe in ['1d', '4h', '8h', '12h', '1h']:
+        if self.config.timeframe and self.config.timeframe in ['1d', '4h', '8h', '12h', '1h', '1w']:
             model_dir = MODEL_DIR / self.config.timeframe
             if not model_dir.exists():
                 print(f"⚠️ Models for {self.config.timeframe} not found, falling back to default models")
@@ -308,17 +313,19 @@ class ThreeStageBacktester:
         else:
             position_size = risk_amount / 0.02  # Default 2% SL
         
-        # Apply leverage
+        # ⚠️ FIX: Leverage should NOT be a multiplier for risk-based sizing.
+        # Risk-based sizing ALREADY calculates the necessary position size to lose 'risk_amount'
+        # if 'sl_pct' is hit. Leverage is simply the mechanism that allows this size.
+        # The true constraint is: position_size <= capital * leverage
         position_size *= self.config.leverage
-        
-        # Apply max concentration limit (on leveraged position)
+        # Apply max concentration limit
         max_position = capital * self.config.max_concentration * self.config.leverage
         position_size = min(position_size, max_position)
         
-        # Can't exceed available capital * leverage
+        # Hard cap on position size by leverage
         position_size = min(position_size, available_capital * self.config.leverage)
         
-        # Hard cap on position size
+        # Hard cap on position size in USD
         position_size = min(position_size, self.config.max_position_size_usd)
         
         return max(0, position_size)
@@ -1535,7 +1542,7 @@ def run_leverage_comparison(df: pd.DataFrame, base_config: BacktestConfig) -> Di
     """
     Compare different leverage levels (1x, 3x, 5x, 7x, 10x).
     """
-    leverage_levels = [5,10,1517,20,23]
+    leverage_levels = [5, 10, 15, 20, 25]
     results = {}
     
     print("\n" + "="*70)
@@ -1677,6 +1684,54 @@ def run_pullback_comparison(df: pd.DataFrame, base_config: BacktestConfig):
                      save_path=str(DATA_DIR.parent / 'backtest_pullback_comparison.png'))
 
 
+def run_timeout_comparison(df, base_config):
+    """Test standard vs different timeout periods (max_bars)."""
+    print("\n" + "="*70)
+    print(f"🔍 TIMEOUT OPTIMIZATION (max_bars) - Timeframe: {base_config.timeframe}")
+    print("="*70)
+    
+    # Test different max_bars settings
+    timeouts = [5, 8, 10, 12, 15, 20]
+    results = []
+    
+    # Run individual backtests
+    for bars in timeouts:
+        print(f"Testing max_bars = {bars}...", end=" ", flush=True)
+        config = deepcopy(base_config)
+        config.max_bars = bars
+        
+        tester = ThreeStageBacktester(config)
+        res = tester.run_backtest(df, verbose=False)
+        results.append(res)
+        print(f"Done: {res.total_trades} trades, {res.total_return*100:.1f}% return")
+    
+    # Print summary table
+    print("\n" + "="*100)
+    print(f"{'MAX BARS':<10} | {'TRADES':>8} | {'WIN%':>8} | {'RETURN':>10} | {'MAX DD':>10} | {'SHARPE':>10} | {'PF':>8}")
+    print("-" * 100)
+    
+    for i, bars in enumerate(timeouts):
+        res = results[i]
+        print(f"{bars:<10} | {res.total_trades:>8} | {res.win_rate*100:>7.1f}% | {res.total_return*100:>9.1f}% | {res.max_drawdown*100:>9.1f}% | {res.sharpe_ratio:>10.2f} | {res.profit_factor:>8.2f}")
+    print("="*100 + "\n")
+
+    # Generate plot for timeouts
+    plt.figure(figsize=(12, 6))
+    for i, bars in enumerate(timeouts):
+        res = results[i]
+        plt.plot(res.timestamps, res.equity_curve, label=f'Bars={bars}')
+    
+    plt.title(f"Timeout (max_bars) Optimization - {base_config.timeframe} (Lev {base_config.leverage}x)")
+    plt.xlabel("Date")
+    plt.ylabel("Capital (USD)")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    plot_path = DATA_DIR.parent / f'backtest_timeout_comparison_{base_config.timeframe}.png'
+    plt.savefig(plot_path)
+    print(f"📊 Comparison chart saved to: {plot_path}")
+
+
 def main():
     """Main function to run backtest."""
     import argparse
@@ -1710,15 +1765,22 @@ def main():
     parser.add_argument('--compare-trailing', action='store_true', help='Run Trailing Stop Comparison')
     parser.add_argument('--compare-kelly', action='store_true', help='Run Kelly vs Even Sizing Comparison')
     parser.add_argument('--compare-pullback', action='store_true', help='Run Market vs Pullback Entry Comparison')
+    parser.add_argument('--compare-timeframes', action='store_true', help='Run Multi-Timeframe Comparison')
     
     # Pullback options
     parser.add_argument('--entry-pullback', type=float, default=0.0, help='Pullback pct for limit entry (e.g. 0.005 for 0.5%)')
     parser.add_argument('--entry-timeout', type=int, default=3, help='Timeout bars for limit entry')
+    parser.add_argument('--compare-timeout', action='store_true', help='Run Timeout (max_bars) Optimization')
+    parser.add_argument('--max-bars', type=int, default=10, help='Max bars to hold trade (timeout)')
     
     args = parser.parse_args()
     
     # Load data based on timeframe
-    if args.data:
+    if args.compare_timeframes:
+        # Comparison mode handles its own data loading
+        df = None
+        data_path = None
+    elif args.data:
         data_path = Path(args.data)
     else:
         # Map timeframe to file
@@ -1727,7 +1789,8 @@ def main():
             '4h': 'features_4h_full.parquet', 
             '8h': 'features_8h_full.parquet',
             '12h': 'features_12h_full.parquet',
-            '1h': 'features_1h_full.parquet'
+            '1h': 'features_1h_full.parquet',
+            '1w': 'features_1w_full.parquet'
         }
         
         if args.timeframe and args.timeframe in timeframe_files:
@@ -1737,62 +1800,68 @@ def main():
             if args.timeframe:
                 print(f"⚠️ Timeframe {args.timeframe} not supported, using 1d data")
     
-    if not data_path.exists():
-        print(f"Data not found: {data_path}")
-        print("Available files:")
-        for tf, fname in timeframe_files.items():
-            fpath = PROCESSED_DIR / fname
-            status = "✓" if fpath.exists() else "✗"
-            print(f"  {status} {tf}: {fname}")
-        print("Run multi_timeframe_pipeline.py first!")
-        return
-    
-    df = pd.read_parquet(data_path)
-    print(f"Loaded {len(df):,} rows from {data_path.name}")
+    if args.compare_timeframes:
+        df = pd.DataFrame() # Dummy for initialization
+    else:
+        if not data_path.exists():
+            print(f"Data not found: {data_path}")
+            print("Available files:")
+            for tf, fname in timeframe_files.items():
+                fpath = PROCESSED_DIR / fname
+                status = "✓" if fpath.exists() else "✗"
+                print(f"  {status} {tf}: {fname}")
+            print("Run multi_timeframe_pipeline.py first!")
+            return
+        
+        df = pd.read_parquet(data_path)
+        print(f"Loaded {len(df):,} rows from {data_path.name}")
     
     # Filter data based on date range
-    if args.start or args.end:
-        try:
-            start = pd.to_datetime(args.start) if args.start else None
-            end = pd.to_datetime(args.end) if args.end else None
-        except Exception as e:
-            print(f"Invalid start/end date: {e}")
-            return
+    if not args.compare_timeframes:
+        if args.start or args.end:
+            try:
+                start = pd.to_datetime(args.start) if args.start else None
+                end = pd.to_datetime(args.end) if args.end else None
+            except Exception as e:
+                print(f"Invalid start/end date: {e}")
+                return
 
-        # Use entire dataset filtered by date range (don't split train/test)
-        df_test = df.copy()
-        if start is not None:
-            df_test = df_test[df_test['timestamp'] >= start]
-        if end is not None:
-            df_test = df_test[df_test['timestamp'] <= end]
+            # Use entire dataset filtered by date range (don't split train/test)
+            df_test = df.copy()
+            if start is not None:
+                df_test = df_test[df_test['timestamp'] >= start]
+            if end is not None:
+                df_test = df_test[df_test['timestamp'] <= end]
 
-        if df_test.empty:
-            print(f"No data in range {start} to {end}. Aborting.")
-            return
+            if df_test.empty:
+                print(f"No data in range {start} to {end}. Aborting.")
+                return
 
-        unique_symbols = df_test['symbol'].nunique() if 'symbol' in df_test.columns else 1
-        print(f"Test period: {len(df_test):,} rows across {unique_symbols} symbols")
-        print(f"Date range: {df_test['timestamp'].min()} to {df_test['timestamp'].max()}")
+            unique_symbols = df_test['symbol'].nunique() if 'symbol' in df_test.columns else 1
+            print(f"Test period: {len(df_test):,} rows across {unique_symbols} symbols")
+            print(f"Date range: {df_test['timestamp'].min()} to {df_test['timestamp'].max()}")
+        else:
+            # 🔧 FIX: Use chronological split for testing
+            print("📅 Using default test period (last 6 months chronologically)...")
+            df = df.sort_values('timestamp')  # Ensure chronological order
+            
+            # Use last 6 months for testing (more realistic than random 20%)
+            latest_date = df['timestamp'].max()
+            test_start_date = latest_date - pd.DateOffset(months=6)
+            
+            df_test = df[df['timestamp'] >= test_start_date].copy()
+            
+            # Fallback to last 20% if not enough recent data
+            if len(df_test) < 1000:  # Minimum threshold
+                print("⚠️ Not enough data in last 6 months, using last 20% of chronological data")
+                test_start_idx = int(len(df) * 0.8)
+                df_test = df.iloc[test_start_idx:].copy()
+            
+            unique_symbols = df_test['symbol'].nunique() if 'symbol' in df_test.columns else 1
+            print(f"✅ Test period: {len(df_test):,} rows across {unique_symbols} symbols")
+            print(f"Date range: {df_test['timestamp'].min()} to {df_test['timestamp'].max()}")
     else:
-        # 🔧 FIX: Use chronological split for testing
-        print("📅 Using default test period (last 6 months chronologically)...")
-        df = df.sort_values('timestamp')  # Ensure chronological order
-        
-        # Use last 6 months for testing (more realistic than random 20%)
-        latest_date = df['timestamp'].max()
-        test_start_date = latest_date - pd.DateOffset(months=6)
-        
-        df_test = df[df['timestamp'] >= test_start_date].copy()
-        
-        # Fallback to last 20% if not enough recent data
-        if len(df_test) < 1000:  # Minimum threshold
-            print("⚠️ Not enough data in last 6 months, using last 20% of chronological data")
-            test_start_idx = int(len(df) * 0.8)
-            df_test = df.iloc[test_start_idx:].copy()
-        
-        unique_symbols = df_test['symbol'].nunique() if 'symbol' in df_test.columns else 1
-        print(f"✅ Test period: {len(df_test):,} rows across {unique_symbols} symbols")
-        print(f"Date range: {df_test['timestamp'].min()} to {df_test['timestamp'].max()}")
+        df_test = None # Dummy
     
     # Configure backtest
     config = BacktestConfig(
@@ -1812,8 +1881,21 @@ def main():
         trailing_start_pct=args.trailing_start,
         trailing_step_pct=args.trailing_step,
         entry_pullback_pct=args.entry_pullback,
-        entry_pullback_timeout=args.entry_timeout
+        entry_pullback_timeout=args.entry_timeout,
+        start_date=args.start,
+        end_date=args.end,
+        max_bars=args.max_bars
     )
+    
+    # Run timeout comparison if requested
+    if args.compare_timeout:
+        run_timeout_comparison(df_test, config)
+        return
+    
+    # Run multi-timeframe comparison if requested
+    if args.compare_timeframes:
+        run_timeframe_comparison(config)
+        return
     
     # Run Comparison: Kelly vs Even
     if args.compare_kelly:
@@ -3057,6 +3139,96 @@ def run_kelly_comparison(df: pd.DataFrame, base_config: BacktestConfig):
     plot_equity_curve(results, title=f"Kelly vs Even Sizing Comparison (Lev {lev_str})", 
                      save_path=str(DATA_DIR.parent / 'backtest_kelly_comparison.png'))
     
+
+
+def run_timeframe_comparison(base_config: BacktestConfig):
+    """
+    Compare strategy performance across all supported timeframes.
+    """
+    print("\n" + "="*70)
+    print("🚀 RUNNING MULTI-TIMEFRAME COMPARISON")
+    print("="*70)
+    
+    results: Dict[str, BacktestResult] = {}
+    
+    # We use a copy of the config but override the timeframe
+    comparison_timeframes = [tf for tf in SUPPORTED_TIMEFRAMES if tf != '1h']
+    
+    for tf in comparison_timeframes:
+        print(f"\n🔹 Testing Timeframe: {tf.upper()}...")
+        
+        data_path = PROCESSED_DIR / f'features_{tf}_full.parquet'
+        if not data_path.exists():
+            print(f"   ⚠️ Data not found for {tf}, skipping.")
+            continue
+            
+        try:
+            df = pd.read_parquet(data_path)
+            
+            # Filter for test period
+            df = df.sort_values('timestamp')
+            
+            if base_config.start_date or base_config.end_date:
+                df_test = df.copy()
+                if base_config.start_date:
+                    start_dt = pd.to_datetime(base_config.start_date)
+                    df_test = df_test[df_test['timestamp'] >= start_dt]
+                if base_config.end_date:
+                    end_dt = pd.to_datetime(base_config.end_date)
+                    df_test = df_test[df_test['timestamp'] <= end_dt]
+                
+                if df_test.empty:
+                    print(f"   ⚠️ No data in range {base_config.start_date} to {base_config.end_date}, skipping.")
+                    continue
+            else:
+                # Default: last 6 months or 20%
+                latest_date = df['timestamp'].max()
+                test_start_date = latest_date - pd.DateOffset(months=6)
+                df_test = df[df['timestamp'] >= test_start_date].copy()
+                
+                if len(df_test) < 500:
+                    test_start_idx = int(len(df) * 0.8)
+                    df_test = df.iloc[test_start_idx:].copy()
+            
+            # Setup config for this timeframe
+            tf_config = get_timeframe_config(tf)
+            config = deepcopy(base_config)
+            config.timeframe = tf
+            config.max_bars = tf_config.max_bars
+            
+            # Create backtester and run
+            backtester = ThreeStageBacktester(config)
+            result = backtester.run_backtest(df_test, verbose=False)
+            results[tf] = result
+            
+            print(f"   ✅ Done: {result.total_trades} trades, {result.total_return:.1%} return")
+            
+        except Exception as e:
+            print(f"   ❌ Error testing {tf}: {e}")
+            
+    if not results:
+        print("No results to compare!")
+        return
+        
+    # Print Comparison Table
+    print("\n" + "="*100)
+    print(f"{'TIMEFRAME':<12} | {'TRADES':>8} | {'WIN%':>8} | {'RETURN':>12} | {'MAX DD':>10} | {'SHARPE':>8} | {'PF':>8}")
+    print("-" * 100)
+    
+    for tf in comparison_timeframes:
+        if tf not in results: continue
+        res = results[tf]
+        print(f"{tf.upper():<12} | {res.total_trades:>8} | {res.win_rate:>7.1%} | {res.total_return:>11.1%} | {res.max_drawdown:>9.1%} | {res.sharpe_ratio:>8.2f} | {res.profit_factor:>8.2f}")
+        
+    print("="*100)
+    
+    # Plot Comparison
+    lev_str = f"{base_config.leverage:.0f}x" if base_config.leverage > 1 else "1x"
+    plot_equity_curve(results, title=f"Timeframe Comparison (Lev {lev_str})", 
+                     save_path=str(DATA_DIR.parent / 'backtest_timeframe_comparison_advanced.png'))
+    
+    print(f"\n📊 Comparison chart saved to: {DATA_DIR.parent / 'backtest_timeframe_comparison_advanced.png'}")
+    plt.show()
 
 
 if __name__ == '__main__':

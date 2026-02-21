@@ -225,8 +225,8 @@ class PositionManager:
         position_size = risk_amount / sl_pct
         
         # 4. Apply Limits
-        # Leverage - Removed: Size shouldn't be multiplied by leverage here! 
-        # position_size = position_size * self.config.exchange.leverage
+        # ⚠️ High Risk: Multiply size by leverage to match backtest behavior
+        position_size = position_size * self.config.exchange.leverage
         
         # Max Concentration limit (applied to the leveraged position size)
         max_position = capital * self.config.risk.max_concentration * self.config.exchange.leverage
@@ -285,6 +285,7 @@ class PositionManager:
         Execute a signal that was already calculated by the SmartScanner.
         Logs to DB first, then checks if actionable.
         """
+        print(f"DEBUG: execute_calculated_signal for {signal_data['symbol']}")
         symbol = signal_data['symbol']
         timestamp = signal_data['timestamp']
         
@@ -317,9 +318,14 @@ class PositionManager:
         if symbol in self.active_positions:
             return
 
-        # Skip if status is TOO LATE or CHASING (configurable?)
-        if "TOO LATE" in signal_data['status']:
+        # 3. Filter Entry Zone: Only enter if price is in a favorable area
+        allowed_zones = ["GOOD ENTRY", "DISCOUNT", "DEEP MERGE"]
+        # print(f"DEBUG: Checking {symbol} zone '{signal_data['status']}' against {allowed_zones}")
+        if not any(zone in signal_data['status'] for zone in allowed_zones):
+            # Block CHASING and TOO LATE
+            print(f"🚫 {symbol} filtered by Entry Zone: {signal_data['status']}")
             return
+        # print(f"DEBUG: {symbol} passed zone filter")
 
         # Convert Scanner format to internal Analysis format
         analysis = {

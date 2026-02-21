@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 # Supported timeframes
-SUPPORTED_TIMEFRAMES = ['1h', '4h', '8h', '12h', '1d']
+SUPPORTED_TIMEFRAMES = ['1h', '4h', '8h', '12h', '1d', '1w']
 
 @dataclass
 class TimeframeConfig:
@@ -76,6 +76,13 @@ TIMEFRAME_CONFIGS: Dict[str, TimeframeConfig] = {
         max_bars=10,  # 10 days
         entry_threshold=0.60,
         default_leverage=5.0,
+    ),
+    '1w': TimeframeConfig(
+        name='1w',
+        resample_from='1d',  # Resample from 1d or 1h? Let's use 1h to match others, or 1d to be faster
+        max_bars=4,   # 4 weeks (about 1 month)
+        entry_threshold=0.60,
+        default_leverage=2.0,
     ),
 }
 
