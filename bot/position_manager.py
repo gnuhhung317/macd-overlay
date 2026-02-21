@@ -225,10 +225,10 @@ class PositionManager:
         position_size = risk_amount / sl_pct
         
         # 4. Apply Limits
-        # Leverage
-        position_size = position_size * self.config.exchange.leverage
+        # Leverage - Removed: Size shouldn't be multiplied by leverage here! 
+        # position_size = position_size * self.config.exchange.leverage
         
-        # Max Concentration matches backtest: capital * max_concentration * leverage
+        # Max Concentration limit (applied to the leveraged position size)
         max_position = capital * self.config.risk.max_concentration * self.config.exchange.leverage
         position_size = min(position_size, max_position)
         
