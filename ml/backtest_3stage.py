@@ -655,7 +655,7 @@ class ThreeStageBacktester:
                     available_capital += pos['margin'] + pos['trade'].pnl
                     result.trades.append(pos['trade'])
                     del open_positions[tid]
-                    if verbose: print(f"  💀 Local Liquidation: {pos['trade'].symbol} at {current_time}")
+                    # if verbose: print(f"  💀 Local Liquidation: {pos['trade'].symbol} at {current_time}")
 
                 # Global Liquidation Check
                 mtm_equity = capital + (floating_pnl_total if self.config.margin_mode == 'CROSS' else 0)

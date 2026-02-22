@@ -539,13 +539,41 @@ def main():
     """Main function to create time-based equity curve with mark-to-market."""
     
     parser = argparse.ArgumentParser(description="Enhanced Time-Based Equity Curve Plotter")
+    
+    # Matching arguments from backtest_3stage.py
+    parser.add_argument('--data', type=str, default=None, help='Path to data file')
+    parser.add_argument('--capital', type=float, default=100.0, help='Initial capital')
+    parser.add_argument('--risk', type=float, default=0.01, help='Risk per trade (0.01 = 1%)')
+    parser.add_argument('--threshold', type=float, default=0.65, help='Entry confidence threshold')
+    parser.add_argument('--fee', type=float, default=0.001, help='Fee rate (0.001 = 0.1%)')
+    parser.add_argument('--slippage', type=float, default=0.0005, help='Slippage (0.0005 = 0.05%)')
+    parser.add_argument('--kelly', action='store_true', help='Use Kelly Criterion')
+    parser.add_argument('--fixed-size', action='store_true', help='Use fixed position size')
+    parser.add_argument('--size-usd', type=float, default=1000, help='Fixed position size in USD')
+    parser.add_argument('--leverage', type=float, default=20.0, help='Leverage multiplier (e.g. 1, 3, 5, 7, 10, 20)')
+    parser.add_argument('--max-positions', type=int, default=10, help='Max open positions (default: 10)')
+    
+    # Trailing Stop arguments
+    parser.add_argument('--trailing', action='store_true', help='Enable Trailing Stop')
+    parser.add_argument('--trailing-start', type=float, default=0.1, help='Trailing start pct (e.g. 0.02 for 2%)')
+    parser.add_argument('--trailing-step', type=float, default=0.05, help='Trailing step pct (e.g. 0.01 for 1%)')
+    
+    # Pullback options
+    parser.add_argument('--entry-pullback', type=float, default=0.0, help='Pullback pct for limit entry (e.g. 0.005 for 0.5%)')
+    parser.add_argument('--entry-timeout', type=int, default=3, help='Timeout bars for limit entry')
+    parser.add_argument('--max-bars', type=int, default=10, help='Max bars to hold trade (timeout)')
+    
+    # Scanner Filter arguments
+    parser.add_argument('--use-scanner', action='store_true', help='Enable SmartScanner Entry Zone filtering')
+    parser.add_argument('--scanner-mae', type=float, default=0.04, help='Max Adverse Excursion for zone (default: 0.04)')
+    parser.add_argument('--scanner-mfe', type=float, default=0.12, help='Max Favorable Excursion for zone (default: 0.12)')
+    parser.add_argument('--scanner-lookback', type=int, default=6, help='Lookback days for scanner entry (default: 6)')
+    
     parser.add_argument("--start", type=str, default='2026-01-01', help="Analysis start date (YYYY-MM-DD)")
     parser.add_argument("--end", type=str, default='2026-03-16', help="Analysis end date (YYYY-MM-DD)")
     parser.add_argument("--timeframe", type=str, default='1d', help="Timeframe (1d, 4h, etc.)")
-    parser.add_argument("--leverage", type=int, default=20, help="Leverage to use")
     parser.add_argument("--margin-mode", type=str, default='ISOLATED', choices=['ISOLATED', 'CROSS'], help="Margin mode")
-    parser.add_argument("--capital", type=float, default=100.0, help="Initial capital")
-    parser.add_argument("--warmup", type=int, default=6, help="Warm-up months for indicators")
+    parser.add_argument("--warmup", type=int, default=0, help="Warm-up months for indicators")
     parser.add_argument("--reset-capital", action="store_true", help="Reset capital to initial on start date (for direct comparison)")
     
     args = parser.parse_args()
@@ -558,7 +586,7 @@ def main():
     leverage = args.leverage
     initial_capital = args.capital
     margin_mode = args.margin_mode
-    use_kelly = False
+    use_kelly = args.kelly
     
     print(f"🚀 Creating Enhanced Time-Based Equity Curve (Mark-to-Market)")
     print(f"   Analysis Period: {backtest_start} to {backtest_end}")
@@ -575,6 +603,9 @@ def main():
     if not data_path.exists():
         # Fallback to standard path if features_tf_full doesn't exist
         data_path = Path(__file__).parent.parent / 'bitget-data' / 'processed' / f'features_{timeframe}.parquet'
+        
+    if args.data:
+        data_path = Path(args.data)
         
     if not data_path.exists():
         print(f"❌ Data file not found: {data_path}")
@@ -607,13 +638,31 @@ def main():
     # Configure backtest
     config = BacktestConfig(
         initial_capital=initial_capital,
-        risk_per_trade=0.01,  # 1% risk per trade
-        entry_threshold=0.65,
+        risk_per_trade=args.risk,
+        entry_threshold=args.threshold,
+        fee_rate=args.fee,
+        slippage=args.slippage,
         leverage=leverage,
         timeframe=timeframe,
         margin_mode=margin_mode,
-        use_kelly=use_kelly,  # Use variable
-        require_fresh_crossover_after_exit=True  # Disable for faster processing
+        use_kelly=use_kelly,
+        fixed_position_size=args.fixed_size,
+        position_size_usd=args.size_usd,
+        max_open_trades=args.max_positions,
+        require_fresh_crossover_after_exit=True,
+        # Trailing Stop arguments
+        use_trailing_stop=args.trailing,
+        trailing_start_pct=args.trailing_start,
+        trailing_step_pct=args.trailing_step,
+        # Pullback options
+        entry_pullback_pct=args.entry_pullback,
+        entry_pullback_timeout=args.entry_timeout,
+        max_bars=args.max_bars,
+        # Scanner options
+        use_scanner_filter=args.use_scanner,
+        scanner_mae=args.scanner_mae,
+        scanner_mfe=args.scanner_mfe,
+        scanner_lookback_days=args.scanner_lookback
     )
     
     # Create backtester

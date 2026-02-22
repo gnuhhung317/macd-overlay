@@ -351,6 +351,12 @@ class PositionManager:
             print("❌ Insufficient Balance")
             return
 
+        # Pseudo-ISOLATED: Override SL to 0.99/leverage so we simulate isolated liquidation
+        if self.config.exchange.margin_mode.upper() == "ISOLATED":
+            pseudo_iso_sl = 0.99 / self.config.exchange.leverage
+            analysis['sl'] = pseudo_iso_sl
+            print(f"🛡️ Pseudo-ISOLATED Mode: Overriding ML SL to {pseudo_iso_sl:.2%} (1/leverage)")
+
         sl_pct = analysis['sl'] if analysis['sl'] > 0 else 0.01
         
         final_size = self._calculate_position_size(balance, sl_pct, analysis['confidence'])

@@ -149,6 +149,11 @@ class BinanceExecutor(ExchangeExecutor):
 
             try:
                 margin_type = self.config.exchange.margin_mode.upper() # ISOLATED or CROSS
+                
+                # Pseudo-ISOLATED: Override ISOLATED to CROSS on the exchange
+                if margin_type == "ISOLATED":
+                    margin_type = "CROSS"
+                    
                 self.client.futures_change_margin_type(symbol=symbol, marginType=margin_type)
             except: pass # Might already be set or no change needed
             
