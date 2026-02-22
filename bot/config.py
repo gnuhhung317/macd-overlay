@@ -33,6 +33,10 @@ class StrategyConfig(BaseModel):
     require_fresh_crossover: bool = True
     min_rr_ratio: float = 1.0
     allowed_zones: List[str] = ["DEEP MERGE"] # Optimal setting from Grid Search
+    
+    # Trailing Stop settings
+    trailing_stop_callback: float = 0.0 # e.g. 5.0 for 5%. 0.0 means disabled
+    trailing_stop_activation_pct: float = 0.0 # e.g. 0.1 for 10% profit.
 
 class TelegramConfig(BaseModel):
     enabled: bool = False

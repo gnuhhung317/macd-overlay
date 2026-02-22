@@ -5,3 +5,5 @@ venv/
 bot_config.json
 ml/models/*
 *.db
+*.csv
+*.png

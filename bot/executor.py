@@ -10,8 +10,8 @@ class ExchangeExecutor(ABC):
         pass
 
     @abstractmethod
-    def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float) -> Dict[str, Any]:
-        """Place market order with TP/SL"""
+    def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float, trailing_callback: float = 0.0, activation_price: float = 0.0) -> Dict[str, Any]:
+        """Place market order with TP/SL and optional Trailing Stop"""
         pass
 
     @abstractmethod
@@ -38,8 +38,11 @@ class DryRunExecutor(ExchangeExecutor):
     def get_balance(self) -> float:
         return self.balance
 
-    def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float) -> Dict[str, Any]:
+    def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float, trailing_callback: float = 0.0, activation_price: float = 0.0) -> Dict[str, Any]:
         print(f"⚠️ [DRY RUN] Placing {side} {symbol} | Size: {size} | Lev: {leverage}x | SL: {sl_price} | TP: {tp_price}")
+        if trailing_callback > 0:
+            act_str = f" | Act: {activation_price}" if activation_price > 0 else ""
+            print(f"⚠️ [DRY RUN] Placing TRAILING STOP for {symbol} | Callback: {trailing_callback}%{act_str}")
         return {
             "order_id": f"dry_run_{symbol}_{side}",
             "status": "filled",
@@ -73,7 +76,7 @@ class BitgetExecutor(ExchangeExecutor):
         # Placeholder for real API call
         return 0.0
 
-    def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float) -> Dict[str, Any]:
+    def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float, trailing_callback: float = 0.0, activation_price: float = 0.0) -> Dict[str, Any]:
         # Placeholder
         raise NotImplementedError("Real Bitget execution not yet fully implemented")
 
@@ -136,9 +139,9 @@ class BinanceExecutor(ExchangeExecutor):
             print(f"❌ Error getting balance: {e}")
             return 0.0
 
-    def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float) -> Dict[str, Any]:
+    def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float, trailing_callback: float = 0.0, activation_price: float = 0.0) -> Dict[str, Any]:
         """
-        Place Market Order + SL/TP
+        Place Market Order + SL/TP + Optional Trailing Stop
         size is in USDT
         """
         try:
@@ -202,8 +205,25 @@ class BinanceExecutor(ExchangeExecutor):
                 closePosition=True
             )
             
-            print(f"✅ Order & SL/TP Placed for {symbol}")
+            print(f"✅ Order & Standard SL/TP Placed for {symbol}")
             
+            # 5. Place Native Trailing Stop (Reduce Only) if configured
+            if trailing_callback > 0:
+                print(f"🚀 Placing TRAILING_STOP_MARKET for {symbol} (Callback {trailing_callback}%)")
+                ts_kwargs = {
+                    'symbol': symbol,
+                    'side': sl_side,
+                    'type': 'TRAILING_STOP_MARKET',
+                    'quantity': quantity,
+                    'callbackRate': trailing_callback,
+                    'reduceOnly': True
+                }
+                if activation_price > 0:
+                    ts_kwargs['activationPrice'] = round(activation_price, price_prec)
+                    
+                ts_order = self.client.futures_create_order(**ts_kwargs)
+                print(f"✅ Trailing Stop Placed (AlgoID: {ts_order.get('algoId', 'Unknown')})")
+
             return {
                 "order_id": order['orderId'],
                 "status": order['status'],

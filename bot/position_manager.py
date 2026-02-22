@@ -380,6 +380,17 @@ class PositionManager:
             sl_price = current_price * (1 + analysis['sl'])
             tp_price = current_price * (1 - analysis['tp'])
 
+        # Calculate Trailing Stop Parameters
+        trailing_callback = self.config.strategy.trailing_stop_callback
+        activation_price = 0.0
+        
+        if trailing_callback > 0 and self.config.strategy.trailing_stop_activation_pct > 0:
+            act_pct = self.config.strategy.trailing_stop_activation_pct
+            if direction == "LONG":
+                activation_price = current_price * (1 + act_pct)
+            else:
+                activation_price = current_price * (1 - act_pct)
+
         # 2. Execute Order
         try:
             order_result = self.executor.place_order(
@@ -388,7 +399,9 @@ class PositionManager:
                 size=final_size,
                 leverage=self.config.exchange.leverage,
                 sl_price=sl_price,
-                tp_price=tp_price
+                tp_price=tp_price,
+                trailing_callback=trailing_callback,
+                activation_price=activation_price
             )
             
             # 3. Save to DB

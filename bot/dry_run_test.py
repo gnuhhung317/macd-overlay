@@ -49,19 +49,33 @@ class MockDataProvider(DataProvider):
 def test_dry_run():
     print("🧪 Starting Dry Run Test...", flush=True)
     
-    # Simple setup
+    # Setup Dry Run Config
     config = BotConfig()
-    config.exchange.dry_run = True
+    config.exchange.dry_run = True  # Force Dry Run
+    config.strategy.entry_threshold = 0.5 # Lower threshold to ensure signals for testing
+    config.strategy.allowed_zones = ["DEEP MERGE", "DISCOUNT", "GOOD ENTRY"] # Open it up
+    
+    # Enable Trailing Stop for testing
+    config.strategy.trailing_stop_callback = 5.0
+    config.strategy.trailing_stop_activation_pct = 0.10
     
     if os.path.exists("test_bot.db"):
         os.remove("test_bot.db")
     db = DatabaseManager(Path("test_bot.db"))
     
     executor = DryRunExecutor(config)
-    data_provider = None # Not needed for execute_calculated_signal
-    signal_engine = None # Not needed for execute_calculated_signal
     
-    pm = PositionManager(config, db, executor, signal_engine, data_provider)
+    class MockDataProvider:
+        def get_current_price(self, symbol):
+            return 60000.0 if symbol == "BTCUSDT" else 1.0
+            
+    pm = PositionManager(
+        config=config, 
+        db=db, 
+        executor=executor, 
+        signal_engine=None, # Only testing PositionManager's execution part
+        data_provider=MockDataProvider()
+    )
     
     # Execution
     print("👉 Executing Calculated Signal (Expect Entry)...", flush=True)
