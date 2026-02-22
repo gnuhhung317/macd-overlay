@@ -78,7 +78,6 @@ class BacktestConfig:
     liquidation_threshold: float = 0.80  # Liquidation at 80% margin loss
     timeframe: Optional[str] = None  # e.g., '1d', '4h', '12h' - if set, filter df by 'timeframe' column
     require_fresh_crossover_after_exit: bool = True  # Require a fresh MACD crossover after a trade exit before allowing a new entry for the same symbol
-    require_fresh_crossover_after_exit: bool = True  # Require a fresh MACD crossover after a trade exit before allowing a new entry for the same symbol
     margin_mode: str = 'ISOLATED'  # 'ISOLATED' or 'CROSS'
     use_trailing_stop: bool = False
     trailing_start_pct: float = 0.02  # Start trailing after 2% profit
@@ -89,6 +88,13 @@ class BacktestConfig:
     entry_pullback_pct: float = 0.0  # If > 0, place LIMIT order at (Price * (1 - pct)) instead of Market
     entry_pullback_timeout: int = 3  # Cancel limit order if not filled after N bars
     
+    # scanner entry zone options
+    use_scanner_filter: bool = False  # If True, filter trades using SmartScanner Entry Zone logic
+    scanner_mae: float = 0.00  # Max Adverse Excursion for zone calculation
+    scanner_mfe: float = 0.12  # Max Favorable Excursion for zone calculation
+    scanner_lookback_days: int = 6  # Wait up to N days for a good entry zone
+    allowed_zones: List[str] = field(default_factory=lambda: [ "DEEP MERGE"])
+
     # Date filtering
     start_date: Optional[str] = None
     end_date: Optional[str] = None
@@ -247,6 +253,37 @@ class ThreeStageBacktester:
         
         return np.clip(tp_pct, 0.01, 0.30)  # 1% - 30%
     
+    def analyze_entry_zone(self, is_long: bool, signal_price: float, current_price: float) -> str:
+        """
+        Determine if the current price is in a good entry zone relative to the signal price.
+        Logic ported from ml/scanner.py.
+        """
+        MAE = self.config.scanner_mae
+        MFE = self.config.scanner_mfe
+        
+        status = "UNKNOWN"
+        
+        if is_long:
+            limit_price = signal_price * (1 - MAE)
+            profit_limit = signal_price * (1 + MFE * 0.5)
+            
+            if current_price < limit_price: status = "DEEP MERGE" 
+            elif limit_price <= current_price <= signal_price: status = "DISCOUNT" 
+            elif signal_price < current_price <= signal_price * 1.01: status = "GOOD ENTRY" 
+            elif current_price > profit_limit: status = "TOO LATE" 
+            else: status = "CHASING" 
+        else:
+            limit_price = signal_price * (1 + MAE)
+            profit_limit = signal_price * (1 - MFE * 0.5)
+            
+            if current_price > limit_price: status = "DEEP MERGE"
+            elif signal_price <= current_price <= limit_price: status = "DISCOUNT"
+            elif signal_price * 0.99 <= current_price < signal_price: status = "GOOD ENTRY"
+            elif current_price < profit_limit: status = "TOO LATE"
+            else: status = "CHASING"
+            
+        return status
+
     def calculate_position_size(
         self, 
         capital: float, 
@@ -474,6 +511,13 @@ class ThreeStageBacktester:
                 trade.exit_time = row.get('timestamp', datetime.now())
                 break
         
+        # If the loop finished without hitting SL/TP/TIMEOUT (i.e. ran out of historical data at the end of the dataset)
+        if not trade.exit_reason and trade.bars_held > 0:
+            # Force exit at the last seen close price
+            trade.exit_price = close * (1 - self.config.slippage if direction == 'LONG' else 1 + self.config.slippage)
+            trade.exit_reason = 'END_OF_DATA'
+            trade.exit_time = row.get('timestamp', datetime.now())
+        
         # Calculate PnL with leverage
         if trade.exit_price > 0 and trade.entry_price > 0:
             if direction == 'LONG':
@@ -511,295 +555,239 @@ class ThreeStageBacktester:
     
     def run_backtest(self, df: pd.DataFrame, verbose: bool = True) -> BacktestResult:
         """
-        Run full backtest on historical data with REALISTIC capital constraints.
-        
-        Key features:
-        - Process signals chronologically across ALL symbols
-        - Track open positions and their margin usage over time
-        - Properly constrain capital (can't open new trades if margin exhausted)
-        - Track equity curve by time, not just by trade close
-        
-        Args:
-            df: DataFrame with OHLCV, features, and crossover signals
-            verbose: Print progress
+        Run full backtest using TIME-STEPPED simulation with a PENDING POOL.
+        This closely matches live bot behavior.
         """
         result = BacktestResult()
         capital = self.config.initial_capital
-        available_capital = capital  # Capital available for new positions
+        available_capital = capital
         
-        # Track open positions: {trade_id: {'trade': Trade, 'margin': float, 'exit_time': datetime}}
-        open_positions: Dict[int, Dict] = {}
+        # Track positions and signals
+        open_positions: Dict[int, Dict] = {}  # tid -> {trade, margin, exit_time}
+        pending_pool: List[Dict] = []         # List of signals waiting for entry
         trade_counter = 0
+        last_exit: Dict[str, Tuple[datetime, bool]] = {} # symbol -> (exit_time, is_long)
 
-        # Track last exits per symbol so we can require a fresh crossover before re-entry
-        last_exit: Dict[str, Tuple[datetime, bool]] = {}  # symbol -> (exit_time, is_long)
-        
-        # Optional: filter dataframe by timeframe if configured
-        if self.config.timeframe is not None:
-            if 'timeframe' in df.columns:
-                df = df[df['timeframe'] == self.config.timeframe].copy()
-            else:
-                if verbose:
-                    print(f"⚠️ timeframe '{self.config.timeframe}' specified but no timeframe column found; continuing with full data")
-
-        # ===== STEP 1: Collect all crossover signals across all symbols =====
-        all_signals = []
-        
+        # 1. Pre-process: Group data and signals by symbol and time
         symbols = df['symbol'].unique() if 'symbol' in df.columns else ['UNKNOWN']
+        df_by_symbol = {s: df[df['symbol'] == s].sort_values('timestamp').reset_index(drop=True) for s in symbols}
         
-        for symbol in symbols:
-            df_symbol = df[df['symbol'] == symbol].sort_values('timestamp').reset_index(drop=True)
-            
-            # Find crossover signals
-            crossover_mask = (df_symbol['macd_cross_up'] == 1) | (df_symbol['macd_cross_down'] == 1)
-            
-            for idx in df_symbol[crossover_mask].index:
-                # Skip if too close to end
-                if idx >= len(df_symbol) - self.config.max_bars:
-                    continue
-                
-                row = df_symbol.iloc[idx]
-                future_data = df_symbol.iloc[idx + 1: idx + 1 + self.config.max_bars]
-                
-                if len(future_data) == 0:
-                    continue
-                
-                all_signals.append({
-                    'timestamp': row['timestamp'],
+        # Pre-process signals
+        signals_by_time = {}
+        for symbol, df_s in df_by_symbol.items():
+            mask = (df_s['macd_cross_up'] == 1) | (df_s['macd_cross_down'] == 1)
+            for _, row in df_s[mask].iterrows():
+                ts = row['timestamp']
+                if ts not in signals_by_time: signals_by_time[ts] = []
+                signals_by_time[ts].append({
                     'symbol': symbol,
                     'row': row,
-                    'future_data': future_data,
-                    'is_long': row.get('macd_cross_up', 0) == 1
+                    'is_long': row['macd_cross_up'] == 1,
+                    'signal_price': row['close'],
+                    'timestamp': ts
                 })
+
+        # Pre-process price maps with ffill for robust real-time check
+        if verbose: print("  Preparing synchronized price maps (Open, Low, High, Close)...")
+        # Use pivot_table with ffill to handle gaps
+        open_map = df.pivot_table(index='timestamp', columns='symbol', values='open').fillna(method='ffill')
+        low_map = df.pivot_table(index='timestamp', columns='symbol', values='low').fillna(method='ffill')
+        high_map = df.pivot_table(index='timestamp', columns='symbol', values='high').fillna(method='ffill')
+        close_map = df.pivot_table(index='timestamp', columns='symbol', values='close').fillna(method='ffill')
         
-        # Sort signals by timestamp (chronological order)
-        all_signals.sort(key=lambda x: x['timestamp'])
+        idx_map = {}        # {(symbol, timestamp): row_index} mapping for slicing
+        for symbol, df_s in df_by_symbol.items():
+            for idx, row in enumerate(df_s.itertuples()):
+                idx_map[(symbol, row.timestamp)] = idx
         
         if verbose:
-            print(f"Found {len(all_signals)} crossover signals across {len(symbols)} symbols")
+            print(f"  Pre-indexed {len(df_by_symbol)} symbols and {len(signals_by_time)} signal timestamps.")
+
+        # 2. Get all unique timestamps for simulation
+        all_timestamps = sorted(df['timestamp'].unique())
+        equity_timeline = [(all_timestamps[0], capital)]
         
-        # ===== STEP 2: Process signals chronologically =====
-        equity_timeline = [(df['timestamp'].min(), capital)]  # (timestamp, equity)
-        pending_orders = {}  # {order_id: {symbol, direction, limit_price, sl_pct, tp_pct, confidence, expiry_time}}
-        
-        for signal in all_signals:
-            current_time = signal['timestamp']
-            row = signal['row']
-            future_data = signal['future_data']
-            symbol = signal['symbol']
-            is_long = signal['is_long']
-            
-            # ----- Close expired positions and update capital -----
-            closed_trade_ids = []
-            for trade_id, pos in open_positions.items():
-                if pos['exit_time'] <= current_time:
-                    # Position has closed
+        # 3. Main Time-Stepped Loop
+        if verbose:
+            print(f"🚀 Starting Optimized Time-Stepped Backtest: {len(all_timestamps)} steps...")
+
+        for current_time in all_timestamps:
+            # --- REAL-TIME MTM EQUITY & LIQUIDATION CHECK ---
+            if open_positions:
+                floating_pnl_total = 0.0
+                liquidated_ids = []
+                
+                for tid, pos in open_positions.items():
                     trade = pos['trade']
+                    symbol = trade.symbol
                     
-                    # ⚠️ Skip invalid trades
-                    if trade.exit_reason == 'INVALID_PRICE':
-                        closed_trade_ids.append(trade_id)
-                        continue
+                    # Robust Price Lookup using Ffilled Maps
+                    if symbol in low_map.columns:
+                        worst_price = low_map.at[current_time, symbol] if trade.direction == 'LONG' else high_map.at[current_time, symbol]
+                    else:
+                        worst_price = trade.entry_price
                     
-                    # ⚠️ Additional validation before updating capital
-                    if abs(trade.pnl) > pos['margin'] * 100:  # Extreme PnL - cap it
-                        if verbose:
-                            print(f"⚠️ Capping extreme PnL: {trade.pnl:.2f} -> {np.clip(trade.pnl, -pos['margin'] * 10, pos['margin'] * 20):.2f}")
-                        trade.pnl = np.clip(trade.pnl, -pos['margin'] * 10, pos['margin'] * 20)
+                    if trade.direction == 'LONG':
+                        pnl_pct = (worst_price - trade.entry_price) / trade.entry_price
+                    else:
+                        pnl_pct = (trade.entry_price - worst_price) / trade.entry_price
                     
-                    capital += trade.pnl
-                    available_capital += pos['margin'] + trade.pnl  # Return margin + PnL
-                    result.trades.append(trade)
-                    closed_trade_ids.append(trade_id)
+                    floating_pnl = trade.position_size * pnl_pct
+                    margin = trade.position_size / self.config.leverage
+                    
+                    # Local Liquidation
+                    if floating_pnl < -margin * self.config.liquidation_threshold:
+                        if self.config.margin_mode == 'ISOLATED':
+                            trade.exit_price = worst_price
+                            trade.exit_time = current_time
+                            trade.pnl = -margin
+                            trade.exit_reason = 'LIQUIDATED'
+                            liquidated_ids.append(tid)
+                            continue 
+                        else:
+                            floating_pnl = -margin
+                    
+                    floating_pnl_total += floating_pnl
+                
+                for tid in liquidated_ids:
+                    pos = open_positions[tid]
+                    capital += pos['trade'].pnl
+                    available_capital += pos['margin'] + pos['trade'].pnl
+                    result.trades.append(pos['trade'])
+                    del open_positions[tid]
+                    if verbose: print(f"  💀 Local Liquidation: {pos['trade'].symbol} at {current_time}")
 
-                    # Record last exit for symbol so we require a fresh crossover before re-entry
-                    last_exit[trade.symbol] = (trade.exit_time or current_time, trade.direction == 'LONG')
-            
-            # Remove closed positions
-            for tid in closed_trade_ids:
-                del open_positions[tid]
-            
-            # Record equity at this timestamp (after closing positions)
-            if closed_trade_ids:
-                equity_timeline.append((current_time, capital))
-            
-            # ----- Check if we can open new position -----
-            
-            # Skip shorts if not allowed
-            if not is_long and not self.config.allow_shorts:
-                continue
-            direction = 'LONG' if is_long else 'SHORT'
-
-            # If configured, require a fresh MACD crossover after the last exit for this symbol
-            if self.config.require_fresh_crossover_after_exit and symbol in last_exit:
-                last_exit_time, _ = last_exit[symbol]
-                if current_time <= last_exit_time:
-                    # Still waiting for a fresh crossover after the last exit
-                    if verbose and len(result.trades) < 10:
-                        print(f"  ⏳ Skipping {symbol} at {current_time}: waiting for fresh MACD crossover after last exit at {last_exit_time}")
-                    continue
-                else:
-                    # Fresh crossover seen (current signal is after the exit) — clear marker and allow
-                    del last_exit[symbol]
-            
-            # Stage 1: Entry Filter
-            should_enter, confidence = self.predict_entry(row)
-            if not should_enter:
-                continue
-            
-            # Check max open trades
-            if len(open_positions) >= self.config.max_open_trades:
-                continue
-            
-            # Check if we already have position in this symbol
-            symbols_in_position = {pos['trade'].symbol for pos in open_positions.values()}
-            if symbol in symbols_in_position:
-                continue  # Don't open multiple positions in same symbol
-            
-            # Stage 2: Predict SL
-            sl_pct = self.predict_sl(row)
-            
-            # Stage 3: Predict TP
-            tp_pct = self.predict_tp(row, sl_pct)
-            
-            # --- LIMIT ENTRY LOGIC ---
-            use_limit_entry = self.config.entry_pullback_pct > 0
-            limit_filled = False
-            filled_row_idx = -1
-            
-            if use_limit_entry:
-                current_price = row['close']
-                if direction == 'LONG':
-                    limit_price = current_price * (1.0 - self.config.entry_pullback_pct)
-                else:
-                    limit_price = current_price * (1.0 + self.config.entry_pullback_pct)
-                
-                # Look ahead to see if filled within timeout
-                timeout = self.config.entry_pullback_timeout
-                
-                # Check up to N bars in future
-                for i in range(min(len(future_data), timeout)):
-                    future_row = future_data.iloc[i]
-                    
-                    if direction == 'LONG':
-                        if future_row['low'] <= limit_price:
-                            limit_filled = True
-                            filled_row_idx = i
-                            break
-                    else: # SHORT
-                        if future_row['high'] >= limit_price:
-                            limit_filled = True
-                            filled_row_idx = i
-                            break
-                
-                if limit_filled:
-                    # Proceed to enter at limit_price
-                    # We need to adjust future_data to start AFTER the fill
-                    # The trade simulation starts from the bar AFTER the fill?
-                    # simulate_trade normally takes 'future_data' starting from NEXT bar after signal.
-                    # If filled at index i (relative to future_data), then the trade actually starts managing from index i (or i+1?)
-                    
-                    # Logic: 
-                    # Signal at T=0. future_data starts at T=1, T=2...
-                    # If filled at T=1 (index 0), entry is at T=1.
-                    # We should simulate from T=1 onwards (including T=1 for high/low check? No, high/low already used for fill).
-                    # 'simulate_trade' iterates future_data to check for SL/TP.
-                    # If we enter at T=1, we should check SL/TP starting from T=1? 
-                    # Usually intraday SL/TP can happen same bar as entry.
-                    
-                    # For simplicity:
-                    # If filled at index `i`, we slice future_data from `i` onwards.
-                    # And use `limit_price` as entry_price.
-                    
-                    entry_price = limit_price
-                    
-                    # Sliced future data for simulation (from fill bar onwards)
-                    # We include the fill bar because price might hit SL/TP after filling in same bar
-                    trade_future_data = future_data.iloc[filled_row_idx:]
-                    
+                # Global Liquidation Check
+                mtm_equity = capital + (floating_pnl_total if self.config.margin_mode == 'CROSS' else 0)
+                if mtm_equity <= 0:
                     if verbose:
-                        fill_time = trade_future_data.iloc[0]['timestamp'] if 'timestamp' in trade_future_data.columns else f"Bar +{filled_row_idx+1}"
-                        # print(f"  ✅ Limit Filled {symbol} at {limit_price:.4f} (Time: {fill_time})")
-                        
-                else:
-                    # Limit not filled within timeout
-                    if verbose and len(result.trades) < 5:
-                         print(f"  ⏳ Limit Timeout {symbol} {direction} at {limit_price:.4f} (Low: {future_data.iloc[0]['low'] if len(future_data)>0 else 'N/A'})")
-                    continue # Skip this trade completely
+                        print(f"💀 GLOBAL LIQUIDATION at {current_time} (Mode: {self.config.margin_mode}, MTM Equity: ${mtm_equity:.2f})")
+                    # Break simulation and cleanup result.trades
+                    self._handle_global_liquidation(result, current_time, [], [])
+                    break
+
+            # A. Close expired positions
+            closed_any = False
+            closed_ids = []
+            for tid, pos in open_positions.items():
+                if pos['exit_time'] <= current_time:
+                    trade = pos['trade']
+                    capital += trade.pnl
+                    available_capital += pos['margin'] + trade.pnl
+                    result.trades.append(trade)
+                    closed_ids.append(tid)
+                    last_exit[trade.symbol] = (trade.exit_time or current_time, trade.direction == 'LONG')
+                    closed_any = True
             
-            else:
-                # Market Entry
-                # Use next candle's open price to avoid look-ahead bias
-                if len(future_data) > 0:
-                    entry_price = future_data.iloc[0]['open']
-                    trade_future_data = future_data # Use all future data
-                else:
-                    continue  # Skip if no future data
+            for tid in closed_ids: del open_positions[tid]
+            if closed_any: equity_timeline.append((current_time, capital))
+
+            # B. Add new signals to Pending Pool
+            if current_time in signals_by_time:
+                for sig in signals_by_time[current_time]:
+                    should_enter, confidence = self.predict_entry(sig['row'])
+                    if should_enter:
+                        sig['confidence'] = confidence
+                        sig['expiry'] = current_time + pd.Timedelta(days=self.config.scanner_lookback_days)
+                        pending_pool.append(sig)
+
+            # C. Clean Up Pending Pool (Expired signals)
+            pending_pool = [s for s in pending_pool if s['expiry'] > current_time]
             
-            
-            # --- POSITION SIZING & EXECUTION ---
-            
-            # Calculate position size using central logic
-            # Calculate total current margin used
-            open_positions_margin = {tid: open_positions[tid]['margin'] for tid in open_positions}
-            
-            position_size = self.calculate_position_size(
-                capital, sl_pct, tp_pct, confidence, open_positions_margin
-            )
-            
-            margin_needed = position_size / self.config.leverage
+            # D. Identify Candidates from Pending Pool (Good Entry Zones)
+            candidates = []
+            if current_time not in low_map.index: continue
+
+            for sig in pending_pool:
+                symbol = sig['symbol']
+                if symbol not in low_map.columns: continue
                 
-            # Ensure new position doesn't exceed available capital (redundant but safe)
-            if margin_needed > available_capital * 0.98:
-                position_size = (available_capital * 0.98) * self.config.leverage
-                margin_needed = position_size / self.config.leverage
-            
-            if position_size <= 0 or margin_needed <= 0:
-                continue
-            
-            # ⚠️ CRITICAL: Validate entry price before creating trade
-            if entry_price <= 0 or entry_price > 1_000_000:  # Sanity check
-                if verbose and len(result.trades) < 10:
-                    print(f"⚠️ Invalid entry price ${entry_price:.2f} for {symbol} at {current_time} - skipping")
-                continue
+                # Check for existing position
+                if any(p['trade'].symbol == symbol for p in open_positions.values()):
+                    continue
                 
-            trade = self.simulate_trade(
-                row, trade_future_data, entry_price,
-                sl_pct, tp_pct, direction, position_size
-            )
-            trade.confidence = confidence
-            
-            # ----- Track open position -----
-            trade_counter += 1
-            open_positions[trade_counter] = {
-                'trade': trade,
-                'margin': margin_needed,
-                'exit_time': trade.exit_time or (current_time + pd.Timedelta(days=self.config.max_bars))
-            }
-            
-            # Deduct margin from available capital
-            available_capital -= margin_needed
-            
-            if verbose and len(result.trades) % 100 == 0 and len(result.trades) > 0:
-                print(f"  Processed {len(result.trades)} trades... Capital: ${capital:,.2f}, "
-                      f"Available: ${available_capital:,.2f}, Open: {len(open_positions)}")
+                # Check for fresh crossover requirement
+                if self.config.require_fresh_crossover_after_exit and symbol in last_exit:
+                    last_exit_time, _ = last_exit[symbol]
+                    if current_time <= last_exit_time: continue
+                    else: del last_exit[symbol]
+
+                price_now = open_map.at[current_time, symbol]
+                
+                if self.config.use_scanner_filter:
+                    zone = self.analyze_entry_zone(sig['is_long'], sig['signal_price'], price_now)
+                    if zone not in self.config.allowed_zones: continue
+                
+                # Valid candidate
+                candidates.append({
+                    'signal': sig,
+                    'price': price_now
+                })
+
+            # E. Prioritize Candidates by Confidence
+            candidates.sort(key=lambda x: x['signal']['confidence'], reverse=True)
+
+            # F. Open Positions
+            for cand in candidates:
+                if len(open_positions) >= self.config.max_open_trades: break
+                
+                sig = cand['signal']
+                row_sig = sig['row']
+                entry_price = cand['price']
+                
+                sl_pct = self.predict_sl(row_sig)
+                tp_pct = self.predict_tp(row_sig, sl_pct)
+                direction = 'LONG' if sig['is_long'] else 'SHORT'
+                
+                # Future data starting from current_time to end of max_bars
+                df_s = df_by_symbol[sig['symbol']]
+                current_idx = idx_map[(sig['symbol'], current_time)]
+                future_data = df_s.iloc[current_idx : current_idx + self.config.max_bars + 1]
+                
+                # Calculate size
+                open_margins = {tid: open_positions[tid]['margin'] for tid in open_positions}
+                size = self.calculate_position_size(capital, sl_pct, tp_pct, sig['confidence'], open_margins)
+                margin = size / self.config.leverage
+                
+                if size <= 0 or margin > available_capital * 0.98: continue
+
+                trade = self.simulate_trade(row_sig, future_data, entry_price, sl_pct, tp_pct, direction, size)
+                trade.confidence = sig['confidence']
+                
+                trade_counter += 1
+                open_positions[trade_counter] = {
+                    'trade': trade,
+                    'margin': margin,
+                    'exit_time': trade.exit_time or (current_time + pd.Timedelta(days=self.config.max_bars))
+                }
+                available_capital -= margin
+                
+                # Remove from pool once entered
+                pending_pool = [s for s in pending_pool if s['symbol'] != sig['symbol']]
+                
+                if verbose and len(result.trades) < 5:
+                    print(f"  ✅ Entry: {sig['symbol']} at {entry_price:.4f} (Conf: {sig['confidence']:.2%})")
+
+            # Progress log
+            if verbose and all_timestamps.index(current_time) % 50 == 0 and len(result.trades) > 0:
+                 float_pnl = 0.0
+                 if self.config.margin_mode == 'CROSS':
+                     for tid, pos in open_positions.items():
+                         t = pos['trade']
+                         if t.symbol in low_map.columns:
+                             wp = low_map.at[current_time, t.symbol] if t.direction == 'LONG' else high_map.at[current_time, t.symbol]
+                             pp = (wp - t.entry_price) / t.entry_price if t.direction == 'LONG' else (t.entry_price - wp) / t.entry_price
+                             float_pnl += t.position_size * pp
+                 
+                 display_equity = capital + float_pnl
+                 print(f"  [{current_time}] Equity(MTM): ${display_equity:,.2f}, Pool: {len(pending_pool)}, Open: {len(open_positions)}")
+
+        # 4. Final Cleanup
+        for _, pos in open_positions.items():
+            result.trades.append(pos['trade'])
         
-        # ===== STEP 3: Close remaining open positions =====
-        for trade_id, pos in open_positions.items():
-            trade = pos['trade']
-            capital += trade.pnl
-            result.trades.append(trade)
-        
-        # ===== STEP 4: Build Mark-to-Market equity curve =====
         self._calculate_mtm_equity(df, result)
-        
-        if verbose:
-            print(f"  Total trades executed: {len(result.trades)}")
-            print(f"  Final capital: ${result.equity_curve[-1] if result.equity_curve else capital:,.2f}")
-        
-        # Calculate summary metrics using the new equity curve
         self._calculate_metrics(result)
-        
         return result
 
     def _calculate_mtm_equity(self, df: pd.DataFrame, result: BacktestResult):
@@ -856,57 +844,33 @@ class ThreeStageBacktester:
                     # Trade is closed, don't add to remaining
                     continue
                 
-                # Trade is Open -> Calculate Floating PnL using WORST PRICE (Low/High)
+                # --- MTM PnL CALCULATION ---
                 symbol = trade.symbol
-                if symbol in close_map.columns:
-                    # Determine Worst Case Price for this candle
-                    if trade.direction == 'LONG':
-                        # For Long, worst case is the Low of the candle
-                        worst_price = low_map.at[ts, symbol]
-                    else:
-                        # For Short, worst case is the High of the candle
-                        worst_price = high_map.at[ts, symbol]
+                if symbol in low_map.columns:
+                    worst_price = low_map.at[ts, symbol] if trade.direction == 'LONG' else high_map.at[ts, symbol]
                     
                     if pd.isna(worst_price):
-                        worst_price = trade.entry_price # Fallback
+                        worst_price = trade.entry_price
                         
-                    if trade.entry_price > 0:
-                        if trade.direction == 'LONG':
-                            pnl_pct = (worst_price - trade.entry_price) / trade.entry_price
-                        else:
-                            pnl_pct = (trade.entry_price - worst_price) / trade.entry_price
-                            
-                        # Apply Leverage and Size
-                        position_size = trade.position_size # Leveraged size
-                        
-                        # Calculate raw PnL
-                        floating_pnl = position_size * pnl_pct
-                        
-                        # ⚠️ IMPORTANT: Cap loss at Margin (Liquidation logic)
-                        margin = position_size / self.config.leverage
-                        if floating_pnl < -margin * self.config.liquidation_threshold:
-                            floating_pnl = -margin # Liquidated locally in time
-                        
-                        floating_pnl_total += floating_pnl
+                    pnl_pct = (worst_price - trade.entry_price) / trade.entry_price if trade.direction == 'LONG' else (trade.entry_price - worst_price) / trade.entry_price
+                    floating_pnl = trade.position_size * pnl_pct
+                    floating_pnl_total += floating_pnl
                 
                 remaining_active.append(trade)
             
             active_trades = remaining_active
             
-        # Total Equity = Cash + Floating PnL (Worst Case)
-            total_equity = current_capital + floating_pnl_total
+            # --- ACCOUNT VALUE CALCULATION ---
+            # Total Equity
+            # CROSS: Cash + Floating PnL
+            # ISOLATED: Cash (Floating loss doesn't affect other trades)
+            total_equity = current_capital + (floating_pnl_total if self.config.margin_mode == 'CROSS' else 0)
             
-            # --- GLOBAL LIQUIDATION CHECK (Cross Margin) ---
+            # The simulation loop should have already caught GLOBAL LIQUIDATION.
+            # Here we just record the values for the result object.
             if total_equity <= 0:
-                print(f"💀 GLOBAL LIQUIDATION at {ts} (Equity: ${total_equity:.2f})")
                 total_equity = 0
-                equity_curve.append(0)
-                timestamps.append(ts)
-                
-                # Update result to reflect death
-                self._handle_global_liquidation(result, ts, equity_curve, timestamps)
-                return
-
+            
             equity_curve.append(total_equity)
             timestamps.append(ts)
             
@@ -1463,7 +1427,7 @@ def run_max_positions_comparison(df: pd.DataFrame, base_config: BacktestConfig) 
     """
     Compare different max open positions (7, 10, 15, 20).
     """
-    max_positions = [11,12,13,14]
+    max_positions = [7,8,9,10]
     results = {}
     
     print("\n" + "="*80)
@@ -1473,19 +1437,8 @@ def run_max_positions_comparison(df: pd.DataFrame, base_config: BacktestConfig) 
     for max_pos in max_positions:
         print(f"\n🔄 Testing Max Positions = {max_pos}...")
         
-        config = BacktestConfig(
-            initial_capital=base_config.initial_capital,
-            risk_per_trade=base_config.risk_per_trade,
-            entry_threshold=base_config.entry_threshold,
-            fee_rate=base_config.fee_rate,
-            slippage=base_config.slippage,
-            fixed_position_size=base_config.fixed_position_size,
-            position_size_usd=base_config.position_size_usd,
-            leverage=base_config.leverage,
-            max_open_trades=max_pos,
-            timeframe=base_config.timeframe,
-            require_fresh_crossover_after_exit=base_config.require_fresh_crossover_after_exit
-        )
+        config = deepcopy(base_config)
+        config.max_open_trades = max_pos
         
         backtester = ThreeStageBacktester(config)
         result = backtester.run_backtest(df, verbose=False)
@@ -1554,18 +1507,8 @@ def run_leverage_comparison(df: pd.DataFrame, base_config: BacktestConfig) -> Di
         print(f"Testing {lev}x Leverage...")
         print("="*70)
         
-        config = BacktestConfig(
-            initial_capital=base_config.initial_capital,
-            risk_per_trade=base_config.risk_per_trade,
-            entry_threshold=base_config.entry_threshold,
-            fee_rate=base_config.fee_rate,
-            slippage=base_config.slippage,
-            fixed_position_size=base_config.fixed_position_size,
-            position_size_usd=base_config.position_size_usd,
-            leverage=lev,
-            timeframe=base_config.timeframe,
-            require_fresh_crossover_after_exit=base_config.require_fresh_crossover_after_exit
-        )
+        config = deepcopy(base_config)
+        config.leverage = lev
         
         backtester = ThreeStageBacktester(config)
         result = backtester.run_backtest(df, verbose=False)
@@ -1739,10 +1682,10 @@ def main():
     parser = argparse.ArgumentParser(description='3-Stage ML Backtest')
     parser.add_argument('--data', type=str, default=None, help='Path to data file')
     parser.add_argument('--capital', type=float, default=100, help='Initial capital')
-    parser.add_argument('--risk', type=float, default=0.01, help='Risk per trade (0.01 = 1%)')
+    parser.add_argument('--risk', type=float, default=0.01, help='Risk per trade (0.01 = 1%%)')
     parser.add_argument('--threshold', type=float, default=0.65, help='Entry confidence threshold')
-    parser.add_argument('--fee', type=float, default=0.001, help='Fee rate (0.001 = 0.1%)')
-    parser.add_argument('--slippage', type=float, default=0.0005, help='Slippage (0.0005 = 0.05%)')
+    parser.add_argument('--fee', type=float, default=0.001, help='Fee rate (0.001 = 0.1%%)')
+    parser.add_argument('--slippage', type=float, default=0.0005, help='Slippage (0.0005 = 0.05%%)')
     parser.add_argument('--kelly', action='store_true', help='Use Kelly Criterion')
     parser.add_argument('--fixed-size', action='store_true', help='Use fixed position size')
     parser.add_argument('--size-usd', type=float, default=1000, help='Fixed position size in USD')
@@ -1760,18 +1703,24 @@ def main():
     
     # Trailing Stop arguments
     parser.add_argument('--trailing', action='store_true', help='Enable Trailing Stop')
-    parser.add_argument('--trailing-start', type=float, default=0.02, help='Trailing start pct (e.g. 0.02 for 2%)')
-    parser.add_argument('--trailing-step', type=float, default=0.01, help='Trailing step pct (e.g. 0.01 for 1%)')
+    parser.add_argument('--trailing-start', type=float, default=0.1, help='Trailing start pct (e.g. 0.02 for 2%%)')
+    parser.add_argument('--trailing-step', type=float, default=0.05, help='Trailing step pct (e.g. 0.01 for 1%%)')
     parser.add_argument('--compare-trailing', action='store_true', help='Run Trailing Stop Comparison')
     parser.add_argument('--compare-kelly', action='store_true', help='Run Kelly vs Even Sizing Comparison')
     parser.add_argument('--compare-pullback', action='store_true', help='Run Market vs Pullback Entry Comparison')
     parser.add_argument('--compare-timeframes', action='store_true', help='Run Multi-Timeframe Comparison')
     
     # Pullback options
-    parser.add_argument('--entry-pullback', type=float, default=0.0, help='Pullback pct for limit entry (e.g. 0.005 for 0.5%)')
+    parser.add_argument('--entry-pullback', type=float, default=0.0, help='Pullback pct for limit entry (e.g. 0.005 for 0.5%%)')
     parser.add_argument('--entry-timeout', type=int, default=3, help='Timeout bars for limit entry')
     parser.add_argument('--compare-timeout', action='store_true', help='Run Timeout (max_bars) Optimization')
     parser.add_argument('--max-bars', type=int, default=10, help='Max bars to hold trade (timeout)')
+    
+    # Scanner Filter arguments
+    parser.add_argument('--use-scanner', action='store_true', help='Enable SmartScanner Entry Zone filtering')
+    parser.add_argument('--scanner-mae', type=float, default=0.04, help='Max Adverse Excursion for zone (default: 0.04)')
+    parser.add_argument('--scanner-mfe', type=float, default=0.12, help='Max Favorable Excursion for zone (default: 0.12)')
+    parser.add_argument('--scanner-lookback', type=int, default=6, help='Lookback days for scanner entry (default: 6)')
     
     args = parser.parse_args()
     
@@ -1884,7 +1833,11 @@ def main():
         entry_pullback_timeout=args.entry_timeout,
         start_date=args.start,
         end_date=args.end,
-        max_bars=args.max_bars
+        max_bars=args.max_bars,
+        use_scanner_filter=args.use_scanner,
+        scanner_mae=args.scanner_mae,
+        scanner_mfe=args.scanner_mfe,
+        scanner_lookback_days=args.scanner_lookback
     )
     
     # Run timeout comparison if requested
@@ -1940,20 +1893,20 @@ def main():
                          save_path=str(DATA_DIR.parent / f'backtest_equity_{lev_str}.png'))
         
         # Plot trades (limited by --plot-trades parameter) - for single symbol view
-        plot_backtest_trades(df_test, result.trades, 
-                           title=f'Backtest Trades ({lev_str})',
-                           save_path=str(DATA_DIR.parent / 'output' / f'backtest_trades_{lev_str}.png'),
-                           trade_limit='50')  # Fixed limit for single symbol view
+        # plot_backtest_trades(df_test, result.trades, 
+        #                    title=f'Backtest Trades ({lev_str})',
+        #                    save_path=str(DATA_DIR.parent / 'output' / f'backtest_trades_{lev_str}.png'),
+        #                    trade_limit='50')  # Fixed limit for single symbol view
         
         # Plot ALL trades timeline (always show all trades timeline)
-        plot_all_trades_timeline(result.trades,
-                               title=f'All Trades Timeline ({lev_str} Leverage)',
-                               save_path=str(DATA_DIR.parent / f'output/all_trades_timeline_{lev_str}.png'))
+        # plot_all_trades_timeline(result.trades,
+        #                        title=f'All Trades Timeline ({lev_str} Leverage)',
+        #                        save_path=str(DATA_DIR.parent / f'output/all_trades_timeline_{lev_str}.png'))
         
         # Plot ALL trades summary across all symbols
-        plot_all_trades_summary(result.trades,
-                              title=f'All Trades Summary ({lev_str} Leverage)', 
-                              save_path=str(DATA_DIR.parent / f'output/backtest_all_trades_{lev_str}.png'))
+        #plot_all_trades_summary(result.trades,
+        #                       title=f'All Trades Summary ({lev_str} Leverage)', 
+        #                       save_path=str(DATA_DIR.parent / f'output/backtest_all_trades_{lev_str}.png'))
         
         # Determine number of individual trade charts to create
         if args.plot_trades == 'all':
@@ -2795,7 +2748,7 @@ def plot_backtest_trades(df: pd.DataFrame, trades: List[Trade], title: str = "Ba
     if df.empty or not trades:
         print("⚠️ No data or trades to plot")
         return
-
+    
     # Limit trades if requested (use last N trades by exit_time)
     if trade_limit is not None and trade_limit != 'all':
         try:

@@ -319,7 +319,7 @@ class PositionManager:
             return
 
         # 3. Filter Entry Zone: Only enter if price is in a favorable area
-        allowed_zones = ["GOOD ENTRY", "DISCOUNT", "DEEP MERGE"]
+        allowed_zones = self.config.strategy.allowed_zones
         # print(f"DEBUG: Checking {symbol} zone '{signal_data['status']}' against {allowed_zones}")
         if not any(zone in signal_data['status'] for zone in allowed_zones):
             # Block CHASING and TOO LATE

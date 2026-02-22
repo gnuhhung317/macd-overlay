@@ -256,7 +256,8 @@ def build_timeframe_dataset(
 
 def build_all_timeframes(symbols: list = None, limit_symbols: int = None):
     """Build datasets for all timeframes."""
-    timeframes = ['1h', '4h', '8h', '12h', '1d', '1w']
+    # timeframes = ['1h', '4h', '8h', '12h', '1d', '1w']
+    timeframes = ['4h', '8h', '12h', '1d', '1w']
     
     results = {}
     for tf in timeframes:

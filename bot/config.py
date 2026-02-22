@@ -32,6 +32,7 @@ class StrategyConfig(BaseModel):
     timeout_candles: int = 10
     require_fresh_crossover: bool = True
     min_rr_ratio: float = 1.0
+    allowed_zones: List[str] = ["DEEP MERGE"] # Optimal setting from Grid Search
 
 class TelegramConfig(BaseModel):
     enabled: bool = False

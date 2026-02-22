@@ -34,10 +34,19 @@ def create_daily_equity_curve(df, backtester, start_date, end_date, price_data):
         print("❌ No trades found!")
         return None, None, None
     
+    # NEW: Filter trades to only include those starting after start_date
+    # This matches backtest_3stage.py's behavior when --start is used.
+    original_trade_count = len(result.trades)
+    analysis_start_ts = pd.to_datetime(start_date).tz_localize(None)
+    result.trades = [t for t in result.trades if t.entry_time.replace(tzinfo=None) >= analysis_start_ts]
+    
+    if len(result.trades) != original_trade_count:
+        print(f"   💡 Filtered to {len(result.trades)} trades starting after {start_date} (from {original_trade_count} total)")
+
     print(f"\n📊 Backtest Complete:")
     print(f"   Total Trades: {len(result.trades)}")
-    print(f"   Total Return: {result.total_return:.1%}")
-    print(f"   Final Equity: ${result.equity_curve[-1]:,.2f}")
+    # Note: result.total_return and final_capital might still reflect original run, 
+    # but create_time_based_equity_mtm will use the filtered list.
     
     # Create time-based equity curve with mark-to-market
     daily_equity = create_time_based_equity_mtm(
@@ -526,29 +535,50 @@ def print_time_based_stats(daily_equity_df, trades, benchmark_df=None):
     print("="*80)
 
 def main():
+    import argparse
     """Main function to create time-based equity curve with mark-to-market."""
     
+    parser = argparse.ArgumentParser(description="Enhanced Time-Based Equity Curve Plotter")
+    parser.add_argument("--start", type=str, default='2026-01-01', help="Analysis start date (YYYY-MM-DD)")
+    parser.add_argument("--end", type=str, default='2026-03-16', help="Analysis end date (YYYY-MM-DD)")
+    parser.add_argument("--timeframe", type=str, default='1d', help="Timeframe (1d, 4h, etc.)")
+    parser.add_argument("--leverage", type=int, default=20, help="Leverage to use")
+    parser.add_argument("--margin-mode", type=str, default='ISOLATED', choices=['ISOLATED', 'CROSS'], help="Margin mode")
+    parser.add_argument("--capital", type=float, default=100.0, help="Initial capital")
+    parser.add_argument("--warmup", type=int, default=6, help="Warm-up months for indicators")
+    parser.add_argument("--reset-capital", action="store_true", help="Reset capital to initial on start date (for direct comparison)")
+    
+    args = parser.parse_args()
+
     # Configuration
-    backtest_start = '2020-01-01'  # Analysis period
-    backtest_end = '2026-01-31'
-    warm_up_months = 6  # Months before analysis start for indicators
-    timeframe = '1d'
-    leverage = 1
-    initial_capital = 100
-    use_kelly = False  # ⚠️ Disable Kelly with leverage for safety
+    backtest_start = args.start
+    backtest_end = args.end
+    warm_up_months = args.warmup
+    timeframe = args.timeframe
+    leverage = args.leverage
+    initial_capital = args.capital
+    margin_mode = args.margin_mode
+    use_kelly = False
     
     print(f"🚀 Creating Enhanced Time-Based Equity Curve (Mark-to-Market)")
     print(f"   Analysis Period: {backtest_start} to {backtest_end}")
     print(f"   Warm-up Period: {warm_up_months} months")
     print(f"   Timeframe: {timeframe}")
     print(f"   Leverage: {leverage}x")
+    print(f"   Margin Mode: {margin_mode}")
     print(f"   Capital: ${initial_capital:,.2f}")
-    print(f"   Kelly Criterion: {'Enabled' if use_kelly else 'Disabled'}")
+    if args.reset_capital:
+        print(f"   ⚠️  Capital WILL BE RESET TO ${initial_capital:,.2f} on {backtest_start}")
     
     # Load data
-    data_path = Path(__file__).parent.parent / 'data' / 'processed' / 'features_1d_full.parquet'
+    data_path = Path(__file__).parent.parent / 'bitget-data' / 'processed' / f'features_{timeframe}_full.parquet'
+    if not data_path.exists():
+        # Fallback to standard path if features_tf_full doesn't exist
+        data_path = Path(__file__).parent.parent / 'bitget-data' / 'processed' / f'features_{timeframe}.parquet'
+        
     if not data_path.exists():
         print(f"❌ Data file not found: {data_path}")
+        print(f"Run 'python ml/sync_and_rebuild.py --timeframe {timeframe}' first.")
         return
     
     print(f"\n📂 Loading data with warm-up period...")
@@ -581,6 +611,7 @@ def main():
         entry_threshold=0.65,
         leverage=leverage,
         timeframe=timeframe,
+        margin_mode=margin_mode,
         use_kelly=use_kelly,  # Use variable
         require_fresh_crossover_after_exit=True  # Disable for faster processing
     )
@@ -598,49 +629,59 @@ def main():
     
     # Run enhanced backtest with mark-to-market
     result, daily_equity_df, benchmark_df = create_daily_equity_curve(
-        df_with_warmup, backtester, backtest_start_dt, backtest_end_dt, price_data
+        df_with_warmup, backtester, backtest_start, backtest_end, price_data
     )
     
-    if result is None:
-        print("❌ Backtest failed!")
-        return
+    if daily_equity_df is not None:
+        # If reset-capital is enabled, normalize the daily_equity
+        if args.reset_capital:
+            # Find the capital on start_date
+            analysis_start_ts = pd.to_datetime(backtest_start).tz_localize(None)
+            
+            # Use normalize() to compare only dates if they are Timestamps
+            daily_equity_df['date_dt'] = pd.to_datetime(daily_equity_df['date']).dt.tz_localize(None).dt.normalize()
+            mask = daily_equity_df['date_dt'] == analysis_start_ts.normalize()
+            
+            if mask.any():
+                actual_capital_at_start = daily_equity_df.loc[mask, 'equity'].values[0]
+                ratio = initial_capital / actual_capital_at_start
+                daily_equity_df['equity'] *= ratio
+                daily_equity_df['realized_equity'] *= ratio
+                print(f"   🔄 Data normalized: Resetting capital to ${initial_capital} on {backtest_start}")
+            
+            # Clean up temp column
+            daily_equity_df = daily_equity_df.drop(columns=['date_dt'])
+
+        # Print enhanced statistics
+        print_time_based_stats(daily_equity_df, result.trades, benchmark_df)
+        
+        # Plot enhanced equity curve
+        print(f"\n📈 Creating enhanced time-based equity curve plot...")
+        fig = plot_time_based_equity(
+            daily_equity_df, 
+            result.trades,
+            benchmark_df,
+            title=f'3-Stage ML Strategy ({margin_mode}, {leverage}x leverage)'
+        )
+        
+        # Save enhanced results
+        filename_suffix = f"{timeframe}_{leverage}x_{margin_mode.lower()}"
+        if args.reset_capital: filename_suffix += "_reset"
+        save_path = Path(__file__).parent / f'time_equity_{filename_suffix}.png'
+        fig.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
+        print(f"💾 Enhanced chart saved: {save_path.name}")
+        
+        # Save comprehensive data
+        csv_path = save_path.with_suffix('.csv')
+        daily_equity_df.to_csv(csv_path, index=False)
+        print(f"� Mark-to-market data saved: {csv_path.name}")
     
-    # Print enhanced statistics
-    print_time_based_stats(daily_equity_df, result.trades, benchmark_df)
-    
-    # Plot enhanced equity curve
-    print(f"\n📈 Creating enhanced time-based equity curve plot...")
-    fig = plot_time_based_equity(
-        daily_equity_df, 
-        result.trades,
-        benchmark_df,
-        title=f'3-Stage ML Strategy - Mark-to-Market Analysis ({timeframe}, {leverage}x leverage)'
-    )
-    
-    # Save enhanced results
-    save_path = Path(__file__).parent / f'time_equity_curve_mtm_{timeframe}_{leverage}x.png'
-    fig.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
-    print(f"💾 Enhanced chart saved: {save_path.name}")
-    
-    # Save comprehensive data
-    csv_path = save_path.with_suffix('.csv')
-    daily_equity_df.to_csv(csv_path, index=False)
-    print(f"💾 Mark-to-market data saved: {csv_path.name}")
-    
-    # Save benchmark data
     if benchmark_df is not None and not benchmark_df.empty:
-        benchmark_path = save_path.parent / f'benchmark_data_{timeframe}.csv'
+        benchmark_path = Path(__file__).parent / f'benchmark_data_{timeframe}.csv'
         benchmark_df.to_csv(benchmark_path, index=False)
-        print(f"💾 Benchmark data saved: {benchmark_path.name}")
+        print(f"� Benchmark data saved: {benchmark_path.name}")
     
-    print(f"\n✅ Analysis complete! Key improvements:")
-    print(f"   📊 Mark-to-market accounting for accurate risk metrics")
-    print(f"   🚀 Vectorized calculations (no nested loops)")
-    print(f"   📅 {warm_up_months}-month warm-up period for indicators")
-    print(f"   📐 Log returns for stable calculations")
-    print(f"   🎯 Realistic buy & hold benchmark")
-    print(f"   📈 Enhanced risk metrics (Sharpe, Sortino, Calmar)")
-    
+    print(f"\n✅ Analysis complete!")
     plt.show()
 
 if __name__ == '__main__':
