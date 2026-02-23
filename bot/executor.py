@@ -154,11 +154,14 @@ class BinanceExecutor(ExchangeExecutor):
                 margin_type = self.config.exchange.margin_mode.upper() # ISOLATED or CROSS
                 
                 # Pseudo-ISOLATED: Override ISOLATED to CROSS on the exchange
-                if margin_type == "ISOLATED":
-                    margin_type = "CROSS"
+                if margin_type == "ISOLATED" or margin_type == "CROSS":
+                    margin_type = "CROSSED" # Binance API expects "CROSSED"
                     
                 self.client.futures_change_margin_type(symbol=symbol, marginType=margin_type)
-            except: pass # Might already be set or no change needed
+            except Exception as e:
+                # Ignore "No need to change margin type" (err code -4046)
+                if "-4046" not in str(e):
+                    print(f"⚠️ Could not change margin type to {margin_type} for {symbol}: {e}")
             
             # 2. Convert USDT Size to Quantity
             price_tick = self.client.futures_symbol_ticker(symbol=symbol)

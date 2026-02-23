@@ -285,10 +285,28 @@ class PositionManager:
         Execute a signal that was already calculated by the SmartScanner.
         Logs to DB first, then checks if actionable.
         """
-        print(f"DEBUG: execute_calculated_signal for {signal_data['symbol']}")
+        print(f"DEBUG: execute_calculated_signal for {signal_data['symbol']} at {signal_data['timestamp']}")
         symbol = signal_data['symbol']
         timestamp = signal_data['timestamp']
         
+        # 0. Check Fresh Crossover to prevent re-entering a past signal
+        if self.config.strategy.require_fresh_crossover:
+            last_exit = self.db.get_last_trade_exit(symbol)
+            if last_exit:
+                if isinstance(timestamp, str):
+                    crossover_time = pd.Timestamp(timestamp).to_pydatetime()
+                else:
+                    crossover_time = timestamp
+                
+                # Make naive for comparison
+                if getattr(crossover_time, 'tzinfo', None) is not None:
+                     crossover_time = crossover_time.replace(tzinfo=None)
+                safe_last_exit = last_exit.replace(tzinfo=None) if getattr(last_exit, 'tzinfo', None) is not None else last_exit
+                     
+                if crossover_time <= safe_last_exit:
+                    print(f"⏳ Skipping {symbol}: Signal timestamp {crossover_time} is older than last exit {safe_last_exit}")
+                    return
+
         # 1. Log to DB (if new)
         # Check deduplication
         if not self.db.check_signal_exists(symbol, timeframe, timestamp):

@@ -61,6 +61,9 @@ class SmartScanner:
                 
                 if df.empty or len(df) < 50: continue
                 
+                # Capture live price before dropping the incomplete candle
+                live_price = df['close'].iloc[-1]
+                
                 # Drop incomplete candle
                 df = df.iloc[:-1].copy()
                 current_price = df['close'].iloc[-1]
@@ -125,7 +128,7 @@ class SmartScanner:
                 
                 # 7. Entry Zone Analysis
                 cross_price = row['close']
-                status = self.analyze_entry_zone(is_up, cross_price, current_price)
+                status = self.analyze_entry_zone(is_up, cross_price, live_price, timeframe)
                 
                 # Check for "Already Pumped" (Max Favorable Excursion)
                 # Ensure we don't enter if price already went > 3% in favorable direction
@@ -160,7 +163,7 @@ class SmartScanner:
                     'confidence': float(confidence), # Ensure float
                     'status': status,
                     'signal_price': float(cross_price), # Ensure float
-                    'current_price': float(current_price), # Ensure float
+                    'current_price': float(live_price), # Use live price for display
                     'sl_pct': float(prediction.get('sl_pct', 0.02)),
                     'tp_pct': float(prediction.get('tp_pct', 0.04)),
                     'risk_reward': float(prediction.get('risk_reward', 0.0)),
@@ -198,12 +201,25 @@ class SmartScanner:
             return None
         return obj
 
-    def analyze_entry_zone(self, is_long: bool, signal_price: float, current_price: float) -> str:
+    def analyze_entry_zone(self, is_long: bool, signal_price: float, current_price: float, timeframe: str) -> str:
         """
         Determine if the current price is in a good entry zone relative to the signal price.
         """
-        MAE = 0.04 # Max Adverse Excursion (Stop Loss proxy)
-        MFE = 0.12 # Max Favorable Excursion (Take Profit proxy)
+        AVG_MAE_STATS = {
+            '4h': 0.035,
+            '8h': 0.045,
+            '12h': 0.055,
+            '1d': 0.065
+        }
+        AVG_MFE_STATS = {
+            '4h': 0.11,
+            '8h': 0.14,
+            '12h': 0.16,
+            '1d': 0.22
+        }
+        
+        MAE = AVG_MAE_STATS.get(timeframe, 0.04) # Max Adverse Excursion (Stop Loss proxy)
+        MFE = AVG_MFE_STATS.get(timeframe, 0.12) # Max Favorable Excursion (Take Profit proxy)
         
         status = "UNKNOWN"
         

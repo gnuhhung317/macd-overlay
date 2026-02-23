@@ -127,18 +127,33 @@ class DatabaseManager:
         """Log a signal prediction"""
         with self._get_conn() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
-            INSERT INTO signals (symbol, timeframe, confidence, sl_pct, tp_pct, action, raw_data)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (
-                signal_data['symbol'],
-                signal_data['timeframe'],
-                signal_data.get('confidence'),
-                signal_data.get('sl_pct'),
-                signal_data.get('tp_pct'),
-                signal_data.get('action'),
-                json.dumps(signal_data.get('raw_data', {}), cls=NumpyEncoder)
-            ))
+            if 'timestamp' in signal_data:
+                cursor.execute("""
+                INSERT INTO signals (symbol, timeframe, timestamp, confidence, sl_pct, tp_pct, action, raw_data)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    signal_data['symbol'],
+                    signal_data['timeframe'],
+                    signal_data['timestamp'],
+                    signal_data.get('confidence'),
+                    signal_data.get('sl_pct'),
+                    signal_data.get('tp_pct'),
+                    signal_data.get('action'),
+                    json.dumps(signal_data.get('raw_data', {}), cls=NumpyEncoder)
+                ))
+            else:
+                cursor.execute("""
+                INSERT INTO signals (symbol, timeframe, confidence, sl_pct, tp_pct, action, raw_data)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    signal_data['symbol'],
+                    signal_data['timeframe'],
+                    signal_data.get('confidence'),
+                    signal_data.get('sl_pct'),
+                    signal_data.get('tp_pct'),
+                    signal_data.get('action'),
+                    json.dumps(signal_data.get('raw_data', {}), cls=NumpyEncoder)
+                ))
             
     def get_last_signal(self, symbol: str, timeframe: str) -> Optional[Dict[str, Any]]:
         """Get the most recent signal for a symbol/timeframe"""

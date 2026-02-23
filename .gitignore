@@ -7,3 +7,5 @@ ml/models/*
 *.db
 *.csv
 *.png
+ml/*.png
+ml/*.csv

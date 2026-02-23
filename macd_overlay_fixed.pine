@@ -1,0 +1,36 @@
+//@version=5
+indicator("MACD Overlay (True MACD)", overlay=true, precision=2)
+
+// Input parameters
+fast_length = input.int(12, title="Fast Length")
+slow_length = input.int(26, title="Slow Length")
+signal_length = input.int(9, title="Signal Length")
+sma_length = input.int(89, title="SMA Length")
+
+// 1. Calculate the standard MACD
+macd_line = ta.ema(close, fast_length) - ta.ema(close, slow_length)
+signal_line = ta.ema(macd_line, signal_length)
+
+// Determine the trend from the standard MACD crossover
+is_macd_bullish = macd_line > signal_line
+is_macd_bearish = macd_line < signal_line
+
+// 2. We still want to plot the moving averages on the chart (Overlay = True)
+// But we color them based on the TRUE MACD crossover
+fast_ma = ta.ema(close, fast_length)
+slow_ma = ta.ema(close, slow_length)
+
+color_bullish = color.new(color.green, 0)
+color_bearish = color.new(color.red, 0)
+fill_bullish = color.new(color.green, 70)
+fill_bearish = color.new(color.red, 70)
+
+p_fast = plot(fast_ma, color=is_macd_bullish ? color_bullish : color_bearish, title="Fast EMA", linewidth=2)
+p_slow = plot(slow_ma, color=is_macd_bullish ? color_bullish : color_bearish, title="Slow EMA", linewidth=2)
+
+// Fill between the EMA lines using MACD true trend direction
+fill(p_fast, p_slow, color=is_macd_bullish ? fill_bullish : fill_bearish, title="MACD Trend Fill")
+
+// 3. Plot the 89 SMA as in original script
+sma_val = ta.sma(close, sma_length)
+plot(sma_val, color=sma_val > sma_val[1] ? color.green : color.red, title="89 SMA", linewidth=2)

@@ -92,8 +92,8 @@ class BacktestConfig:
     use_scanner_filter: bool = False  # If True, filter trades using SmartScanner Entry Zone logic
     scanner_mae: float = 0.00  # Max Adverse Excursion for zone calculation
     scanner_mfe: float = 0.12  # Max Favorable Excursion for zone calculation
-    scanner_lookback_days: int = 6  # Wait up to N days for a good entry zone
-    allowed_zones: List[str] = field(default_factory=lambda: [ "DEEP MERGE"])
+    scanner_lookback_days: int = 4  # Wait up to N days for a good entry zone
+    allowed_zones: List[str] = field(default_factory=lambda: [ "DISCOUNT", "GOOD ENTRY","DEEP MERGE"])
 
     # Date filtering
     start_date: Optional[str] = None

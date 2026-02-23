@@ -28,16 +28,19 @@ PERIODS = {
 # Define Zone Configurations
 ZONE_CONFIGS = {
     "ALL": ["GOOD ENTRY", "DISCOUNT", "DEEP MERGE"],
+    "GOOD_DEEP": ["GOOD ENTRY", "DEEP MERGE"],
+    "GOOD_DISCOUNT": ["GOOD ENTRY", "DISCOUNT"],
     "GOOD_ONLY": ["GOOD ENTRY"],
+    "DISCOUNT_ONLY": ["DISCOUNT"],
     "DISCOUNT_DEEP": ["DISCOUNT", "DEEP MERGE"],
     "DEEP_ONLY": ["DEEP MERGE"]
 }
 
-def run_stability_grid_search(leverage=20, margin_mode='ISOLATED', timeframe='1d', offsets=[0, 2, 4, 6, 8]):
-    print(f"🚀 Starting Multi-Start Grid Search (Leverage: {leverage}x, Mode: {margin_mode}, TF: {timeframe}, Offsets: {offsets})")
+def run_stability_grid_search(args, offsets=[0, 2, 4, 6, 8]):
+    print(f"🚀 Starting Multi-Start Grid Search (Leverage: {args.leverage}x, Mode: {args.margin_mode}, TF: {args.timeframe}, Offsets: {offsets})")
     
     # Load data once to speed up
-    data_path = Path(__file__).parent.parent / 'bitget-data' / 'processed' / f'features_{timeframe}_full.parquet'
+    data_path = Path(__file__).parent.parent / 'bitget-data' / 'processed' / f'features_{args.timeframe}_full.parquet'
     if not data_path.exists():
         print(f"❌ Data not found: {data_path}")
         return
@@ -47,7 +50,11 @@ def run_stability_grid_search(leverage=20, margin_mode='ISOLATED', timeframe='1d
     
     all_results = []
     
-    for p_name, (start_dt, end_dt) in PERIODS.items():
+    periods_to_run = PERIODS.copy()
+    if getattr(args, 'start', None) and getattr(args, 'end', None):
+        periods_to_run = {f"Custom ({args.start} to {args.end})": (args.start, args.end)}
+        
+    for p_name, (start_dt, end_dt) in periods_to_run.items():
         print(f"\n--- Testing Period: {p_name} ({start_dt} to {end_dt}) ---")
         
         start_ts = pd.to_datetime(start_dt)
@@ -69,12 +76,26 @@ def run_stability_grid_search(leverage=20, margin_mode='ISOLATED', timeframe='1d
                 if df_period.empty: continue
                 
                 config = BacktestConfig(
-                    initial_capital=100,
-                    leverage=leverage,
-                    margin_mode=margin_mode,
-                    use_scanner_filter=True,
+                    initial_capital=args.capital,
+                    risk_per_trade=args.risk,
+                    entry_threshold=args.threshold,
+                    fee_rate=args.fee,
+                    slippage=args.slippage,
+                    leverage=args.leverage,
+                    timeframe=args.timeframe,
+                    margin_mode=args.margin_mode,
+                    use_kelly=args.kelly,
+                    fixed_position_size=args.fixed_size,
+                    position_size_usd=args.size_usd,
+                    max_open_trades=args.max_positions,
+                    use_trailing_stop=args.trailing,
+                    trailing_start_pct=args.trailing_start,
+                    trailing_step_pct=args.trailing_step,
+                    use_scanner_filter=args.use_scanner,
+                    scanner_mae=args.scanner_mae,
+                    scanner_mfe=args.scanner_mfe,
+                    scanner_lookback_days=args.scanner_lookback,
                     allowed_zones=zones,
-                    timeframe=timeframe,
                     start_date=current_start.strftime("%Y-%m-%d"),
                     end_date=end_dt
                 )
@@ -108,14 +129,14 @@ def run_stability_grid_search(leverage=20, margin_mode='ISOLATED', timeframe='1d
             
     # Save Report
     report_df = pd.DataFrame(all_results)
-    report_path = Path(__file__).parent.parent / 'output' / f'grid_search_{timeframe}_{leverage}x_{margin_mode}.md'
+    report_path = Path(__file__).parent.parent / 'output' / f'grid_search_{args.timeframe}_{args.leverage}x_{args.margin_mode}.md'
     report_path.parent.mkdir(parents=True, exist_ok=True)
     
     with open(report_path, 'w', encoding='utf-8') as f:
         f.write(f"# Grid Search Stability Report\n\n")
-        f.write(f"- **Leverage**: {leverage}x\n")
-        f.write(f"- **Margin Mode**: {margin_mode}\n")
-        f.write(f"- **Timeframe**: {timeframe}\n\n")
+        f.write(f"- **Leverage**: {args.leverage}x\n")
+        f.write(f"- **Margin Mode**: {args.margin_mode}\n")
+        f.write(f"- **Timeframe**: {args.timeframe}\n\n")
         f.write(report_df.to_markdown(index=False))
         
     print(f"\n✅ Grid Search complete! Report saved to: {report_path}")
@@ -124,9 +145,28 @@ def run_stability_grid_search(leverage=20, margin_mode='ISOLATED', timeframe='1d
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
+    parser.add_argument('--capital', type=float, default=100.0)
+    parser.add_argument('--risk', type=float, default=0.01)
+    parser.add_argument('--threshold', type=float, default=0.65)
+    parser.add_argument('--fee', type=float, default=0.001)
+    parser.add_argument('--slippage', type=float, default=0.0005)
+    parser.add_argument('--kelly', action='store_true')
+    parser.add_argument('--fixed-size', action='store_true')
+    parser.add_argument('--size-usd', type=float, default=1000)
     parser.add_argument("--leverage", type=float, default=20)
+    parser.add_argument("--max-positions", type=int, default=10)
     parser.add_argument("--margin-mode", type=str, default="ISOLATED", choices=["ISOLATED", "CROSS"])
     parser.add_argument("--timeframe", type=str, default="1d")
+    parser.add_argument('--trailing', action='store_true')
+    parser.add_argument('--trailing-start', type=float, default=0.1)
+    parser.add_argument('--trailing-step', type=float, default=0.05)
+    parser.add_argument('--use-scanner', action='store_true')
+    parser.add_argument('--scanner-mae', type=float, default=0.04)
+    parser.add_argument('--scanner-mfe', type=float, default=0.12)
+    parser.add_argument('--scanner-lookback', type=int, default=6)
+    parser.add_argument("--start", type=str, default=None)
+    parser.add_argument("--end", type=str, default=None)
+    parser.add_argument("--warmup", type=int, default=0)
     args = parser.parse_args()
     
-    run_stability_grid_search(args.leverage, args.margin_mode, args.timeframe)
+    run_stability_grid_search(args)

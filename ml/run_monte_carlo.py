@@ -92,8 +92,8 @@ def run_baseline_backtest(args):
         scanner_mae=args.scanner_mae,
         scanner_mfe=args.scanner_mfe,
         scanner_lookback_days=args.scanner_lookback,
-        global_cb_pct=args.global_cb,
-        global_cb_cooldown=args.global_cb_cooldown
+        # global_cb_pct=args.global_cb,
+        # global_cb_cooldown=args.global_cb_cooldown
     )
     
     # Create backtester and run

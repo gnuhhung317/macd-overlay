@@ -148,10 +148,10 @@ class Bot:
                 if min_tf_minutes == float('inf'): min_tf_minutes = 240 # Default 4h
                 
                 # Calculate seconds until next candle
-                now = datetime.utcnow()
-                minutes_since_epoch = int(now.timestamp() / 60)
+                current_ts = int(time.time())
+                minutes_since_epoch = current_ts // 60
                 next_candle_minutes = (minutes_since_epoch // min_tf_minutes + 1) * min_tf_minutes
-                seconds_until_close = (next_candle_minutes * 60) - int(now.timestamp())
+                seconds_until_close = (next_candle_minutes * 60) - current_ts
                 
                 # Add a small buffer (e.g. 15s) to ensure data is ready
                 sleep_time = max(10, seconds_until_close + 15)

@@ -570,7 +570,7 @@ def main():
     parser.add_argument('--scanner-lookback', type=int, default=6, help='Lookback days for scanner entry (default: 6)')
     
     parser.add_argument("--start", type=str, default='2026-01-01', help="Analysis start date (YYYY-MM-DD)")
-    parser.add_argument("--end", type=str, default='2026-03-16', help="Analysis end date (YYYY-MM-DD)")
+    parser.add_argument("--end", type=str, default='2026-02-23', help="Analysis end date (YYYY-MM-DD)")
     parser.add_argument("--timeframe", type=str, default='1d', help="Timeframe (1d, 4h, etc.)")
     parser.add_argument("--margin-mode", type=str, default='ISOLATED', choices=['ISOLATED', 'CROSS'], help="Margin mode")
     parser.add_argument("--warmup", type=int, default=0, help="Warm-up months for indicators")
