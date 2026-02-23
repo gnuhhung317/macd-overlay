@@ -160,7 +160,7 @@ if __name__ == "__main__":
     parser.add_argument('--trailing', action='store_true')
     parser.add_argument('--trailing-start', type=float, default=0.1)
     parser.add_argument('--trailing-step', type=float, default=0.05)
-    parser.add_argument('--use-scanner', action='store_true')
+    parser.add_argument('--use-scanner', action='store_true',default=True)
     parser.add_argument('--scanner-mae', type=float, default=0.04)
     parser.add_argument('--scanner-mfe', type=float, default=0.12)
     parser.add_argument('--scanner-lookback', type=int, default=6)

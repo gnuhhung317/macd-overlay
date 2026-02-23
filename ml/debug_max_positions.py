@@ -1,134 +1,81 @@
-#!/usr/bin/env python3
-"""Debug max positions test - why are all results identical?"""
-# -*- coding: utf-8 -*-
-
 import pandas as pd
-from pathlib import Path
-import sys
-import io
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-
 from backtest_3stage import ThreeStageBacktester, BacktestConfig
+from plot_time_equity import create_daily_equity_curve
+from pathlib import Path
 
-# Load data  
-data_path = Path('..') / 'data' / 'processed' / 'features_1d_full.parquet'
-df = pd.read_parquet(data_path)
+def main():
+    data_path = Path('../bitget-data/processed/features_1d_full.parquet')
+    if not data_path.exists():
+        data_path = Path('bitget-data/processed/features_1d_full.parquet')
+        
+    df = pd.read_parquet(data_path)
 
-# Filter to recent period
-df_recent = df[(df['timestamp'] >= '2025-11-01') & (df['timestamp'] <= '2026-01-31')].copy()
-print(f'Dataset: {len(df_recent):,} rows')
-print(f'Symbols: {df_recent["symbol"].nunique()}')
+    config = BacktestConfig(
+        initial_capital=100.0,
+        timeframe='1d',
+        margin_mode='ISOLATED',
+        leverage=20.0,
+        risk_per_trade=0.01,
+        entry_threshold=0.6,
+        max_open_trades=10,
+        use_scanner_filter=True,
+        use_trailing_stop=True,
+        trailing_start_pct=0.1,  # Default from plot_time_equity.py
+        trailing_step_pct=0.05   # Default from plot_time_equity.py
+    )
 
-# Count crossover signals per day
-df_recent['date'] = df_recent['timestamp'].dt.date
-cross_up = df_recent[df_recent['macd_cross_up'] == 1].groupby('date').size()
-cross_down = df_recent[df_recent['macd_cross_down'] == 1].groupby('date').size()
-total_per_day = (cross_up.add(cross_down, fill_value=0)).astype(int)
+    bt = ThreeStageBacktester(config)
 
-print(f'\n📊 Crossover signals per day:')
-print(f'  Max: {total_per_day.max()}')
-print(f'  Mean: {total_per_day.mean():.1f}')
-print(f'  Days with >5 signals: {(total_per_day > 5).sum()}')
-print(f'  Days with >10 signals: {(total_per_day > 10).sum()}')
-print(f'\nTop 10 days with most signals:')
-print(total_per_day.sort_values(ascending=False).head(10))
+    df_warmup = df[(df['timestamp'] >= '2026-01-05') & (df['timestamp'] <= '2026-02-23')].copy()
 
-# Now test backtest with verbose mode
-print("\n" + "="*80)
-print("🔍 DEBUG: Running backtest with max_positions=7 and VERBOSE mode")
-print("="*80)
+    price_columns = ['timestamp', 'close']
+    if 'symbol' in df_warmup.columns:
+        price_columns.insert(0, 'symbol')
+    if 'open' in df_warmup.columns:
+        price_columns.extend(['open', 'high', 'low'])
+    price_data = df_warmup[price_columns].copy()
 
-config = BacktestConfig(
-    initial_capital=100,
-    risk_per_trade=0.01,
-    entry_threshold=0.65,
-    fee_rate=0.001,
-    slippage=0.0005,
-    leverage=5.0,
-    max_open_trades=7,
-    timeframe='1d'
-)
+    print("Running backtest...")
+    result, daily_equity_df, _ = create_daily_equity_curve(df_warmup, bt, '2026-01-05', '2026-02-23', price_data)
 
-backtester = ThreeStageBacktester(config)
+    print(f"Total trades: {len(result.trades)}")
 
-# Patch to track open positions at each signal
-original_run = backtester.run_backtest
-def debug_run(df, verbose=True):
-    """Debug wrapper to track position state"""
-    result = original_run(df, verbose=verbose)
-    
-    # Analyze trades
-    print(f"\n📈 Analysis of {len(result.trades)} trades:")
-    
-    # Group trades by entry time to see concurrent entries
-    from collections import defaultdict
-    trades_by_date = defaultdict(list)
+    # Reproduce Plotter's counting logic
+    trade_events = []
     for t in result.trades:
-        trades_by_date[t.entry_time.date()].append(t)
-    
-    # Find days with multiple entries
-    multi_entry_days = [(d, len(ts)) for d, ts in trades_by_date.items() if len(ts) > 1]
-    multi_entry_days.sort(key=lambda x: -x[1])
-    
-    print(f"\n📅 Days with multiple trade entries:")
-    for d, count in multi_entry_days[:10]:
-        print(f"  {d}: {count} trades")
-    
-    # Check max concurrent positions
-    from datetime import timedelta
-    all_positions = []
-    for t in result.trades:
-        all_positions.append((t.entry_time, 'OPEN', t.symbol))
+        trade_events.append({'date': t.entry_time.date(), 'type': 'entry', 'id': id(t), 'symbol': t.symbol})
         if t.exit_time:
-            all_positions.append((t.exit_time, 'CLOSE', t.symbol))
+            trade_events.append({'date': t.exit_time.date(), 'type': 'exit', 'id': id(t), 'symbol': t.symbol})
+            
+    trade_df = pd.DataFrame(trade_events)
     
-    all_positions.sort()
+    open_positions_track = {}
+    max_count = 0
+    max_date = None
     
-    concurrent = 0
-    max_concurrent = 0
-    max_concurrent_time = None
-    for time, action, symbol in all_positions:
-        if action == 'OPEN':
-            concurrent += 1
-        else:
-            concurrent -= 1
-        if concurrent > max_concurrent:
-            max_concurrent = concurrent
-            max_concurrent_time = time
-    
-    print(f"\n🔢 Max concurrent positions: {max_concurrent}")
-    print(f"   At time: {max_concurrent_time}")
-    
-    return result
+    for date in pd.date_range('2026-01-05', '2026-02-23', freq='D'):
+        current_date = date.date()
+        day_events = trade_df[trade_df['date'] == current_date] if not trade_df.empty else pd.DataFrame()
+        
+        for _, event in day_events.iterrows():
+            if event['type'] == 'entry':
+                open_positions_track[event['id']] = event['symbol']
+            elif event['type'] == 'exit':
+                if event['id'] in open_positions_track:
+                    del open_positions_track[event['id']]
+        
+        count = len(open_positions_track)
+        if count > max_count:
+            max_count = count
+            max_date = current_date
+            
+        if current_date == pd.to_datetime('2026-02-15').date():
+            print(f"\nCalculated open positions on {current_date} directly: {count}")
+            for tid, sym in open_positions_track.items():
+                t = next(x for x in result.trades if id(x) == tid)
+                print(f'   - {sym} Entry: {t.entry_time.date()} Exit: {t.exit_time.date() if t.exit_time else "None"} Reason: {t.exit_reason}')
 
-result = debug_run(df_recent)
+    print(f"\nMaximum open positions at any time point was {max_count} on {max_date}")
 
-print("\n" + "="*80)
-print("🔍 Now testing with max_positions=20")
-print("="*80)
-
-config20 = BacktestConfig(
-    initial_capital=100,
-    risk_per_trade=0.01,
-    entry_threshold=0.65,
-    fee_rate=0.001,
-    slippage=0.0005,
-    leverage=5.0,
-    max_open_trades=20,
-    timeframe='1d'
-)
-
-backtester20 = ThreeStageBacktester(config20)
-result20 = debug_run(df_recent)
-
-print("\n" + "="*80)
-print("🤔 COMPARISON")
-print("="*80)
-print(f"Max 7 positions: {result.total_trades} trades, {result.total_return:.1%} return")
-print(f"Max 20 positions: {result20.total_trades} trades, {result20.total_return:.1%} return")
-
-if result.total_trades == result20.total_trades:
-    print("\n⚠️ Same number of trades! Possible causes:")
-    print("1. Not enough concurrent signals (entry_threshold=0.65 filters most)")
-    print("2. Capital constraint kicks in before max positions")
-    print("3. Same-symbol rule prevents multiple entries")
+if __name__ == '__main__':
+    main()

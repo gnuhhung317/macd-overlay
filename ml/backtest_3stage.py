@@ -93,7 +93,7 @@ class BacktestConfig:
     scanner_mae: float = 0.00  # Max Adverse Excursion for zone calculation
     scanner_mfe: float = 0.12  # Max Favorable Excursion for zone calculation
     scanner_lookback_days: int = 4  # Wait up to N days for a good entry zone
-    allowed_zones: List[str] = field(default_factory=lambda: [ "DISCOUNT", "GOOD ENTRY","DEEP MERGE"])
+    allowed_zones: List[str] = field(default_factory=lambda: [ "DISCOUNT", "GOOD ENTRY"])
 
     # Date filtering
     start_date: Optional[str] = None
@@ -699,6 +699,12 @@ class ThreeStageBacktester:
             if current_time not in low_map.index: continue
 
             for sig in pending_pool:
+                # 🛑 FIX LOOK-AHEAD BIAS: Strict "Next Candle" Entry Rule
+                # If signal timestamp is >= current time, the candle hasn't closed yet.
+                # We can ONLY enter on the candle(s) AFTER the signal is confirmed.
+                if sig['timestamp'] >= current_time:
+                    continue
+
                 symbol = sig['symbol']
                 if symbol not in low_map.columns: continue
                 
