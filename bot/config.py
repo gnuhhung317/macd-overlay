@@ -35,8 +35,8 @@ class StrategyConfig(BaseModel):
     allowed_zones: List[str] = ["DEEP MERGE"] # Optimal setting from Grid Search
     
     # Trailing Stop settings
-    trailing_stop_callback: float = 0.0 # e.g. 5.0 for 5%. 0.0 means disabled
-    trailing_stop_activation_pct: float = 0.0 # e.g. 0.1 for 10% profit.
+    trailing_stop_callback: float = 0.0 # e.g. 2.0 for 2%. 0.0 means disabled
+    trailing_stop_activation_pct: float = 0.1 # e.g. 0.01 for 1% profit = 20% ROI at 20x.
 
 class TelegramConfig(BaseModel):
     enabled: bool = False

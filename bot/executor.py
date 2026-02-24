@@ -39,7 +39,8 @@ class DryRunExecutor(ExchangeExecutor):
         return self.balance
 
     def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float, trailing_callback: float = 0.0, activation_price: float = 0.0) -> Dict[str, Any]:
-        print(f"⚠️ [DRY RUN] Placing {side} {symbol} | Size: {size} | Lev: {leverage}x | SL: {sl_price} | TP: {tp_price}")
+        display_tp = "None (Trailing Stop)" if trailing_callback > 0 else tp_price
+        print(f"⚠️ [DRY RUN] Placing {side} {symbol} | Size: {size} | Lev: {leverage}x | SL: {sl_price} | TP: {display_tp}")
         if trailing_callback > 0:
             act_str = f" | Act: {activation_price}" if activation_price > 0 else ""
             print(f"⚠️ [DRY RUN] Placing TRAILING STOP for {symbol} | Callback: {trailing_callback}%{act_str}")
@@ -121,11 +122,30 @@ class BinanceExecutor(ExchangeExecutor):
             return self.symbol_info[symbol]['quantityPrecision']
         return 3 # Default fallback
 
+    def _get_tick_size(self, symbol: str) -> float:
+        """Get minimum price movement (tickSize) for symbol"""
+        if symbol in self.symbol_info:
+            for f in self.symbol_info[symbol].get('filters', []):
+                if f.get('filterType') == 'PRICE_FILTER':
+                    return float(f.get('tickSize', 0.0))
+        return 0.0
+
     def _get_price_precision(self, symbol: str) -> int:
         """Get price precision for symbol"""
         if symbol in self.symbol_info:
             return self.symbol_info[symbol]['pricePrecision']
         return 2 # Default fallback
+
+    def format_price(self, symbol: str, price: float) -> float:
+        """Format price to perfectly align with exchange tickSize"""
+        tick_size = self._get_tick_size(symbol)
+        precision = self._get_price_precision(symbol)
+        
+        if tick_size <= 0:
+            return round(price, precision)
+            
+        ticks = round(price / tick_size)
+        return round(ticks * tick_size, precision)
 
     def get_balance(self) -> float:
         """Get USDT Balance"""
@@ -187,7 +207,6 @@ class BinanceExecutor(ExchangeExecutor):
             )
             
             # 4. Place SL & TP (Reduce Only)
-            price_prec = self._get_price_precision(symbol)
             
             # SL
             sl_side = SIDE_SELL if side.upper() == 'LONG' else SIDE_BUY
@@ -195,20 +214,22 @@ class BinanceExecutor(ExchangeExecutor):
                 symbol=symbol,
                 side=sl_side,
                 type='STOP_MARKET',
-                stopPrice=round(sl_price, price_prec),
+                stopPrice=self.format_price(symbol, sl_price),
                 closePosition=True
             )
             
             # TP
-            self.client.futures_create_order(
-                symbol=symbol,
-                side=sl_side,
-                type='TAKE_PROFIT_MARKET',
-                stopPrice=round(tp_price, price_prec),
-                closePosition=True
-            )
-            
-            print(f"✅ Order & Standard SL/TP Placed for {symbol}")
+            if trailing_callback <= 0:
+                self.client.futures_create_order(
+                    symbol=symbol,
+                    side=sl_side,
+                    type='TAKE_PROFIT_MARKET',
+                    stopPrice=self.format_price(symbol, tp_price),
+                    closePosition=True
+                )
+                print(f"✅ Order & Standard SL/TP Placed for {symbol}")
+            else:
+                print(f"✅ Order & Standard SL Placed for {symbol} (TP skipped due to Trailing Stop)")
             
             # 5. Place Native Trailing Stop (Reduce Only) if configured
             if trailing_callback > 0:
@@ -222,7 +243,7 @@ class BinanceExecutor(ExchangeExecutor):
                     'reduceOnly': True
                 }
                 if activation_price > 0:
-                    ts_kwargs['activationPrice'] = round(activation_price, price_prec)
+                    ts_kwargs['activatePrice'] = self.format_price(symbol, activation_price)
                     
                 ts_order = self.client.futures_create_order(**ts_kwargs)
                 print(f"✅ Trailing Stop Placed (AlgoID: {ts_order.get('algoId', 'Unknown')})")

@@ -15,6 +15,7 @@ from typing import List, Dict, Optional
 
 # Import backtest module
 from backtest_3stage import ThreeStageBacktester, BacktestConfig
+from analyze_peaks import analyze_peaks, filter_significant_peaks
 
 def create_daily_equity_curve(df, backtester, start_date, end_date, price_data):
     """
@@ -51,7 +52,9 @@ def create_daily_equity_curve(df, backtester, start_date, end_date, price_data):
     # Create time-based equity curve with mark-to-market
     daily_equity = create_time_based_equity_mtm(
         result.trades, start_date, end_date, 
-        backtester.config.initial_capital, price_data
+        backtester.config.initial_capital, price_data,
+        leverage=backtester.config.leverage,
+        actual_daily_positions=result.daily_open_positions
     )
     
     # Create benchmark data
@@ -59,10 +62,11 @@ def create_daily_equity_curve(df, backtester, start_date, end_date, price_data):
     
     return result, daily_equity, benchmark_data
 
-def create_time_based_equity_mtm(trades, start_date, end_date, initial_capital, price_data):
+def create_time_based_equity_mtm(trades, start_date, end_date, initial_capital, price_data, leverage=20.0, actual_daily_positions=None):
     """
     Create daily equity curve with mark-to-market (floating PnL).
     This properly tracks unrealized gains/losses for open positions.
+    In ISOLATED margin, each position's max loss is capped at its margin.
     """
     # Convert trades to DataFrame for efficient processing
     trade_events = []
@@ -126,24 +130,27 @@ def create_time_based_equity_mtm(trades, start_date, end_date, initial_capital, 
         current_date = date.date()
         
         # Process trade events for this date
+        # ⚠️ CRITICAL: Process EXITS before ENTRIES to keep position count accurate
         day_events = trade_df[trade_df['date'] == current_date] if not trade_df.empty else pd.DataFrame()
         
         daily_realized_pnl = 0
         
-        for _, event in day_events.iterrows():
-            if event['type'] == 'entry':
-                # Add new position
+        # First: process all exits
+        if not day_events.empty:
+            for _, event in day_events[day_events['type'] == 'exit'].iterrows():
+                if event['trade_id'] in open_positions:
+                    del open_positions[event['trade_id']]
+                daily_realized_pnl += event['realized_pnl']
+        
+        # Then: process all entries
+        if not day_events.empty:
+            for _, event in day_events[day_events['type'] == 'entry'].iterrows():
                 open_positions[event['trade_id']] = {
                     'position_size': event['position_size'],
                     'direction': event['direction'],
                     'entry_price': event['entry_price'],
                     'symbol': event['symbol']
                 }
-            elif event['type'] == 'exit':
-                # Close position and realize PnL
-                if event['trade_id'] in open_positions:
-                    del open_positions[event['trade_id']]
-                daily_realized_pnl += event['realized_pnl']
         
         # Update realized equity
         realized_equity += daily_realized_pnl
@@ -191,9 +198,9 @@ def create_time_based_equity_mtm(trades, start_date, end_date, initial_capital, 
                 else:  # SHORT 
                     pos_pnl = pos['position_size'] * (-price_change_pct)
                 
-                # ⚠️ Final safety check - cap extreme PnL 
-                max_reasonable_pnl = pos['position_size'] * 50  # Max 5000% gain/loss
-                pos_pnl = np.clip(pos_pnl, -max_reasonable_pnl, max_reasonable_pnl)
+                # ⚠️ ISOLATED margin cap: max loss = margin = position_size / leverage
+                margin = pos['position_size'] / leverage
+                pos_pnl = max(pos_pnl, -margin)  # Can't lose more than margin
                 
                 floating_pnl += pos_pnl
         
@@ -216,8 +223,8 @@ def create_time_based_equity_mtm(trades, start_date, end_date, initial_capital, 
                 else:
                     print(f"   {pos['symbol']}: No price data for {current_date}")
         
-        # Total equity = realized + floating
-        total_equity = realized_equity + floating_pnl
+        # Total equity = realized + floating (can't go below 0 in real trading)
+        total_equity = max(realized_equity + floating_pnl, 0)
         
         # Calculate daily return using log returns (more stable)
         if len(daily_equity) > 0:
@@ -233,8 +240,25 @@ def create_time_based_equity_mtm(trades, start_date, end_date, initial_capital, 
             'floating_pnl': floating_pnl,
             'daily_realized_pnl': daily_realized_pnl,
             'daily_return': daily_return,
-            'open_positions_count': len(open_positions)
+            'open_positions_count': actual_daily_positions.get(date, len(open_positions)) if actual_daily_positions else len(open_positions)
         })
+        
+        # 🔥 Account blown — ONLY when REALIZED equity (closed trades) <= 0
+        # In ISOLATED margin, floating losses don't blow account — each position
+        # is independent and can only lose its own margin. The account is only 
+        # truly blown when all margin has been lost through actual liquidations.
+        if realized_equity <= 0:
+            for remaining_date in date_range[date_range > date]:
+                daily_equity.append({
+                    'date': remaining_date,
+                    'equity': 0,
+                    'realized_equity': 0,
+                    'floating_pnl': 0,
+                    'daily_realized_pnl': 0,
+                    'daily_return': 0,
+                    'open_positions_count': 0
+                })
+            break
     
     return pd.DataFrame(daily_equity)
 
@@ -533,6 +557,38 @@ def print_time_based_stats(daily_equity_df, trades, benchmark_df=None):
     print("\n⚠️  Note: This analysis includes mark-to-market (floating PnL)")
     print("   which provides accurate drawdown and risk metrics.")
     print("="*80)
+    
+    # ── Peak-to-Drawdown Analysis ────────────────────────────────────
+    try:
+        all_peaks = analyze_peaks(daily_equity_df)
+        sig_peaks = filter_significant_peaks(all_peaks, min_gain_pct=10.0)
+        
+        if len(sig_peaks) >= 3:
+            dd_vals = sig_peaks['dd_depth']
+            dur_vals = sig_peaks['dd_duration_days']
+            rec_vals = sig_peaks['recovery_days'].dropna()
+            deep_pct = (dd_vals > 20).mean() * 100
+            
+            print(f"\n{'='*80}")
+            print(f"🏔️  PEAK-TO-DRAWDOWN ANALYSIS ({len(sig_peaks)} significant peaks)")
+            print(f"{'='*80}")
+            print(f"\n   After each new ATH (>10% gain):")
+            print(f"     Median DD:      {dd_vals.median():.1f}%")
+            print(f"     Mean DD:        {dd_vals.mean():.1f}%")
+            print(f"     Worst DD:       {dd_vals.max():.1f}%")
+            print(f"     DD > 20%:       {deep_pct:.0f}% of peaks")
+            print(f"     Time to trough: {dur_vals.median():.0f} days (median)")
+            if len(rec_vals) > 0:
+                print(f"     Recovery time:  {rec_vals.median():.0f} days (median)")
+            never = sig_peaks['recovery_days'].isna().sum()
+            if never > 0:
+                print(f"     Never recovered: {never} peaks")
+            
+            print(f"\n   💡 After ATH: expect ~{dd_vals.median():.0f}% DD in ~{dur_vals.median():.0f}d, "
+                  f"recover ~{rec_vals.median():.0f}d" if len(rec_vals) > 0 else "")
+            print(f"{'='*80}")
+    except Exception:
+        pass  # Peak analysis is optional, don't break main output
 
 def main():
     import argparse
@@ -716,19 +772,21 @@ def main():
         # Save enhanced results
         filename_suffix = f"{timeframe}_{leverage}x_{margin_mode.lower()}"
         if args.reset_capital: filename_suffix += "_reset"
-        save_path = Path(__file__).parent / f'time_equity_{filename_suffix}.png'
+        results_dir = Path(__file__).parent / 'results'
+        results_dir.mkdir(exist_ok=True)
+        save_path = results_dir / f'time_equity_{filename_suffix}.png'
         fig.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
         print(f"💾 Enhanced chart saved: {save_path.name}")
         
         # Save comprehensive data
         csv_path = save_path.with_suffix('.csv')
         daily_equity_df.to_csv(csv_path, index=False)
-        print(f"� Mark-to-market data saved: {csv_path.name}")
+        print(f"📊 Mark-to-market data saved: {csv_path.name}")
     
     if benchmark_df is not None and not benchmark_df.empty:
-        benchmark_path = Path(__file__).parent / f'benchmark_data_{timeframe}.csv'
+        benchmark_path = results_dir / f'benchmark_data_{timeframe}.csv'
         benchmark_df.to_csv(benchmark_path, index=False)
-        print(f"� Benchmark data saved: {benchmark_path.name}")
+        print(f"📊 Benchmark data saved: {benchmark_path.name}")
     
     print(f"\n✅ Analysis complete!")
     plt.show()

@@ -1,0 +1,18 @@
+[
+  {
+    "name": "LOSING_STREAK_FILTER",
+    "condition": "consecutive_losses >= 30",
+    "action": "PAUSE_AND_REDUCE",
+    "detail": "After 30+ losing days, reduce position size 50%",
+    "lift": 4.28707684215734,
+    "p_value": 0.0
+  },
+  {
+    "name": "EQUITY_MOMENTUM_FILTER",
+    "condition": "equity_change_7d < -0.1196",
+    "action": "PAUSE_TRADING",
+    "detail": "Pause new entries when 7d equity change < -11.96%",
+    "lift": 1.7846334692922325,
+    "p_value": 6.741448964512757e-138
+  }
+]
