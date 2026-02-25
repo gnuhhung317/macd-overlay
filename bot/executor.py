@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 from datetime import datetime
 from .config import BotConfig
+import traceback
 
 class ExchangeExecutor(ABC):
     @abstractmethod
@@ -96,7 +97,7 @@ class CCXTExecutor(ExchangeExecutor):
             self.client.load_markets()
             print(f"[Executor] Initialized CCXT Executor for {exchange_id.upper()} (Real Trading)")
         except Exception as e:
-            print(f"⚠️ Error loading markets for {exchange_id}: {e}")
+            print(f"⚠️ Error loading markets for {exchange_id}: {e}\n{traceback.format_exc()}")
 
     def _get_ccxt_symbol(self, symbol: str) -> str:
         # e.g. BTCUSDT -> BTC/USDT:USDT (futures) or BTC/USDT
@@ -115,7 +116,7 @@ class CCXTExecutor(ExchangeExecutor):
                 return float(balance['USDT']['free'])
             return 0.0
         except Exception as e:
-            print(f"❌ Error getting balance via CCXT: {e}")
+            print(f"❌ Error getting balance via CCXT: {e}\n{traceback.format_exc()}")
             return 0.0
 
     def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float, trailing_callback: float = 0.0, activation_price: float = 0.0) -> Dict[str, Any]:
@@ -176,15 +177,20 @@ class CCXTExecutor(ExchangeExecutor):
             
             print(f"✅ Order & Standard SL/TP Placed for {ccxt_symbol}")
 
+            # Ensure we return a valid dict even if some fields are None
+            avg_price = order.get('average')
+            if avg_price is None:
+                avg_price = ticker.get('last', 0.0)
+
             return {
                 "order_id": order.get('id', 'unknown'),
                 "status": order.get('status', 'open'),
-                "filled_price": float(order.get('average', ticker['last'])),
+                "filled_price": float(avg_price),
                 "timestamp": datetime.now()
             }
             
         except Exception as e:
-            print(f"❌ CCXT Execution Error: {e}")
+            print(f"❌ CCXT Execution Error: {e}\n{traceback.format_exc()}")
             return {}
 
     def cancel_order(self, symbol: str, order_id: str) -> bool:
@@ -213,7 +219,7 @@ class CCXTExecutor(ExchangeExecutor):
                     return True
             return True
         except Exception as e:
-            print(f"❌ Error closing position via CCXT: {e}")
+            print(f"❌ Error closing position via CCXT: {e}\n{traceback.format_exc()}")
             return False
 
     def get_open_positions(self) -> list:
@@ -235,7 +241,7 @@ class CCXTExecutor(ExchangeExecutor):
                     })
             return active_positions
         except Exception as e:
-            print(f"❌ Error fetching positions via CCXT: {e}")
+            print(f"❌ Error fetching positions via CCXT: {e}\n{traceback.format_exc()}")
             return []
 
 try:
@@ -262,7 +268,7 @@ class BinanceExecutor(ExchangeExecutor):
             for s in info['symbols']:
                 self.symbol_info[s['symbol']] = s
         except Exception as e:
-            print(f"⚠️ Error fetching exchange info: {e}")
+            print(f"⚠️ Error fetching exchange info: {e}\n{traceback.format_exc()}")
 
     def _get_precision(self, symbol: str) -> int:
         """Get quantity precision for symbol"""
@@ -304,7 +310,7 @@ class BinanceExecutor(ExchangeExecutor):
                     return float(b['availableBalance'])
             return 0.0
         except Exception as e:
-            print(f"❌ Error getting balance: {e}")
+            print(f"❌ Error getting balance: {e}\n{traceback.format_exc()}")
             return 0.0
 
     def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float, trailing_callback: float = 0.0, activation_price: float = 0.0) -> Dict[str, Any]:
@@ -404,7 +410,7 @@ class BinanceExecutor(ExchangeExecutor):
             }
             
         except Exception as e:
-            print(f"❌ Execution Error: {e}")
+            print(f"❌ Execution Error: {e}\n{traceback.format_exc()}")
             return {}
 
     def cancel_order(self, symbol: str, order_id: str) -> bool:
@@ -441,7 +447,7 @@ class BinanceExecutor(ExchangeExecutor):
             return True
             
         except Exception as e:
-            print(f"❌ Error closing position: {e}")
+            print(f"❌ Error closing position: {e}\n{traceback.format_exc()}")
             return False
 
     def get_open_positions(self) -> list:
@@ -471,7 +477,7 @@ class BinanceExecutor(ExchangeExecutor):
                     })
             return active_positions
         except Exception as e:
-            print(f"❌ Error fetching positions: {e}")
+            print(f"❌ Error fetching positions: {e}\n{traceback.format_exc()}")
             return []
 
 def get_executor(config: BotConfig) -> ExchangeExecutor:

@@ -2,6 +2,7 @@ import pandas as pd
 from typing import Dict, List, Any
 import time
 from datetime import datetime
+import traceback
 from .config import BotConfig
 from .db import DatabaseManager
 from .executor import ExchangeExecutor
@@ -130,7 +131,7 @@ class PositionManager:
                     print(f"⌛ {symbol} TIMEOUT ({bars_held:.1f} bars > {timeout})")
                     
             except Exception as e:
-                print(f"⚠️ Error checking timeout for {symbol}: {e}")
+                print(f"⚠️ Error checking timeout for {symbol}: {e}\n{traceback.format_exc()}")
                 
         if exit_reason:
             print(f"🛑 {symbol} {exit_reason}! Price: {current_price} (SL: {sl_price}, TP: {tp_price})")
@@ -431,6 +432,10 @@ class PositionManager:
                 activation_price=activation_price
             )
             
+            if not order_result or 'order_id' not in order_result:
+                print(f"❌ Order placement failed for {symbol}")
+                return
+
             # 3. Save to DB
             trade_record = {
                 "symbol": symbol,
@@ -467,7 +472,7 @@ class PositionManager:
                 self.notifier.send_message(msg)
             
         except Exception as e:
-            print(f"❌ Execution Failed: {e}")
+            print(f"❌ Execution Failed: {e}\n{traceback.format_exc()}")
 
     def sync_positions(self):
         """
@@ -515,4 +520,4 @@ class PositionManager:
             # We skip this for now to avoid importing random trades.
             
         except Exception as e:
-            print(f"❌ Sync Error: {e}")
+            print(f"❌ Sync Error: {e}\n{traceback.format_exc()}")
