@@ -82,8 +82,7 @@ class DataProvider:
     def get_current_price(self, symbol: str) -> float:
         """Get realtime price (ticker)"""
         try:
-            ticker = self.processor.client.futures_symbol_ticker(symbol=symbol)
-            return float(ticker['price'])
+            return self.processor.get_current_price(symbol)
         except Exception as e:
             print(f"Error fetching price for {symbol}: {e}")
             return 0.0
@@ -91,11 +90,7 @@ class DataProvider:
     def get_funding_rate(self, symbol: str) -> float:
         """Get current funding rate"""
         try:
-            # client.futures_funding_rate returns list, we want the latest
-            funding = self.processor.client.futures_funding_rate(symbol=symbol, limit=1)
-            if funding:
-                return float(funding[-1]['fundingRate'])
-            return 0.0
+            return self.processor.get_current_funding_rate(symbol)
         except Exception as e:
             # Fallback or silent error
             return 0.0

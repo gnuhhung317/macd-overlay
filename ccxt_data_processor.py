@@ -173,6 +173,16 @@ class CCXTDataProcessor(BinanceDataProcessor):
         
         return df_resampled
 
+    def get_current_price(self, symbol: str) -> float:
+        """Get current market price via CCXT"""
+        try:
+            ccxt_symbol = self._get_ccxt_symbol(symbol)
+            ticker = self.client.fetch_ticker(ccxt_symbol)
+            return float(ticker['last'])
+        except Exception as e:
+            print(f"Error fetching price for {symbol}: {e}")
+            return 0.0
+
     def get_current_funding_rate(self, symbol):
         if not self.use_futures:
             return 0.0

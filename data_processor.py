@@ -450,7 +450,19 @@ class BinanceDataProcessor:
             avg_interval = sum(intervals) / len(intervals)
         else:
             avg_interval = 0
-        
+            
+    def get_current_price(self, symbol: str) -> float:
+        """Get current market price for symbol"""
+        try:
+            if self.use_futures:
+                ticker = self.client.futures_symbol_ticker(symbol=symbol)
+            else:
+                ticker = self.client.get_symbol_ticker(symbol=symbol)
+            return float(ticker['price'])
+        except Exception as e:
+            print(f"Error fetching price for {symbol}: {e}")
+            return 0.0
+
     def get_current_funding_rate(self, symbol):
         """
         Lấy funding rate hiện tại cho symbol

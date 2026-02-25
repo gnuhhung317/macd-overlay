@@ -369,11 +369,20 @@ class PositionManager:
             print("❌ Insufficient Balance")
             return
 
-        # Pseudo-ISOLATED: Override SL to 0.99/leverage so we simulate isolated liquidation
+        # Pseudo-ISOLATED: Cap SL at 0.99/leverage so we simulate isolated liquidation
         if self.config.exchange.margin_mode.upper() == "ISOLATED":
             pseudo_iso_sl = 0.99 / self.config.exchange.leverage
-            analysis['sl'] = pseudo_iso_sl
-            print(f"🛡️ Pseudo-ISOLATED Mode: Overriding ML SL to {pseudo_iso_sl:.2%} (1/leverage)")
+            ml_sl = analysis.get('sl', pseudo_iso_sl)
+            
+            if ml_sl <= 0:
+                ml_sl = pseudo_iso_sl # Fallback if ML didn't provide one
+                
+            analysis['sl'] = min(ml_sl, pseudo_iso_sl)
+            
+            if analysis['sl'] == pseudo_iso_sl:
+                print(f"🛡️ Pseudo-ISOLATED Mode: Capping ML SL at liquidation risk: {pseudo_iso_sl:.2%} (1/leverage)")
+            else:
+                print(f"🛡️ Pseudo-ISOLATED Mode: Using ML SL {ml_sl:.2%} (Safer than {pseudo_iso_sl:.2%})")
 
         sl_pct = analysis['sl'] if analysis['sl'] > 0 else 0.01
         

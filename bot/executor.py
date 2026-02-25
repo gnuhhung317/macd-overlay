@@ -80,7 +80,8 @@ class CCXTExecutor(ExchangeExecutor):
             'secret': config.exchange.api_secret,
             'enableRateLimit': True,
             'options': {
-                'defaultType': 'swap' # assume futures
+                'defaultType': 'swap', # assume futures
+                'positionMode': False  # Force One-Way / Unilateral mode
             }
         }
         if config.exchange.password:
@@ -145,17 +146,26 @@ class CCXTExecutor(ExchangeExecutor):
                 print(f"❌ Calculated quantity is 0 for {ccxt_symbol}")
                 return {}
 
-            ccxt_side = side.lower()
+            ccxt_side = 'buy' if side.upper() == 'LONG' else 'sell'
             
             print(f"🚀 Placing {side} {ccxt_symbol}: Qty {quantity} @ Market via CCXT")
             
-            # Unified SL/TP params in CCXT
+            # Set SL/TP params using unified CCXT structure for better exchange compatibility
             params = {
-                'stopLossPrice': self.client.price_to_precision(ccxt_symbol, sl_price),
-                'takeProfitPrice': self.client.price_to_precision(ccxt_symbol, tp_price)
+                'stopLoss': {
+                    'triggerPrice': self.client.price_to_precision(ccxt_symbol, sl_price)
+                },
+                'takeProfit': {
+                    'triggerPrice': self.client.price_to_precision(ccxt_symbol, tp_price)
+                }
             }
             
-            # Create Market Order
+            # Bitget Hack: Forced tradeSide='open' is required even in One-Way mode 
+            # to bypass the 40774 "unilateral pos side mismatch" error.
+            if self.config.exchange.name.lower() == 'bitget':
+                params['tradeSide'] = 'open'
+                
+            # Create Market Order (Entry) with SL/TP attached
             order = self.client.create_order(
                 symbol=ccxt_symbol,
                 type='market',
