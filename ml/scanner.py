@@ -40,11 +40,14 @@ class SmartScanner:
             return []
 
         signals = []
-        # fetch_start = "10 days ago UTC" # Minimal fetch for speed - TOO SHORT for 1d/12h
         # We need at least 100 candles for InferenceEngine + lookback
         # 1d: 100 days. 12h: 50 days. 4h: 17 days.
-        # UPDATE: 200 days is borderline for 200 SMA on 1d. Using 400 days for safety to match Dashboard.
-        fetch_start = "400 days ago UTC" # Safe buffer for all timeframes
+        tf_days = {
+            '15m': 2, '30m': 3, '1h': 5, '2h': 10,
+            '4h': 20, '6h': 30, '8h': 40, '12h': 60, '1d': 120
+        }
+        buffer_days = tf_days.get(timeframe, 100)
+        fetch_start = f"{lookback_days + buffer_days} days ago UTC" # Dynamic buffer based on timeframe
         
         # Get current prices for all symbols efficiently if possible, 
         # but processor might do it one by one.
