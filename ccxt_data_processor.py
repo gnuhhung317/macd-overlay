@@ -58,10 +58,10 @@ class CCXTDataProcessor(BinanceDataProcessor):
         # basic parser for "30 days ago UTC"
         if "days ago" in time_str:
             days = int(time_str.split()[0])
-            ms = self.client.milliseconds() - (days * 24 * 60 * 60 * 1000)
+            ms = int(time.time() * 1000) - (days * 24 * 60 * 60 * 1000)
             return ms
         elif "now" in time_str:
-            return self.client.milliseconds()
+            return int(time.time() * 1000)
         return None
 
     def get_historical_data(self, symbol='BTCUSDT', interval='1h', start_date=None, end_date=None):
@@ -71,6 +71,21 @@ class CCXTDataProcessor(BinanceDataProcessor):
         
         # Format symbol for CCXT (e.g. BTC/USDT:USDT for futures on some exchanges, but CCXT often handles BTC/USDT)
         ccxt_symbol = self._get_ccxt_symbol(symbol)
+        
+        # Fallback mapping for unsupported timeframes
+        fallback_map = {
+            'bitget': {
+                '8h': '4h'
+            }
+        }
+        
+        target_interval = interval
+        fetch_interval = interval
+        resample_needed = False
+        
+        if self.client.id in fallback_map and interval in fallback_map[self.client.id]:
+            fetch_interval = fallback_map[self.client.id][interval]
+            resample_needed = True
         
         since = None
         if start_date:
@@ -91,7 +106,8 @@ class CCXTDataProcessor(BinanceDataProcessor):
             for attempt in range(max_retries):
                 try:
                     # fetchohlcv returns [timestamp, open, high, low, close, volume]
-                    klines = self.client.fetch_ohlcv(ccxt_symbol, timeframe=interval, since=current_since, limit=limit)
+                    klines = self.client.fetch_ohlcv(ccxt_symbol, timeframe=fetch_interval, since=current_since, limit=limit)
+                    # print(klines)
                     success = True
                     break
                 except Exception as e:
@@ -131,7 +147,31 @@ class CCXTDataProcessor(BinanceDataProcessor):
             df[col] = df[col].astype(float)
             
         df = df.sort_values('timestamp').reset_index(drop=True)
+        
+        if resample_needed and not df.empty:
+            df = self._resample_ohlcv(df, target_interval)
+            
         return df
+
+    def _resample_ohlcv(self, df: pd.DataFrame, target_interval: str) -> pd.DataFrame:
+        """Resamples OHLCV dataframe to a higher timeframe"""
+        freq = target_interval.replace('m', 'min').replace('d', 'D')
+        
+        df_resampled = df.set_index('timestamp').resample(freq).agg({
+            'open': 'first',
+            'high': 'max',
+            'low': 'min',
+            'close': 'last',
+            'volume': 'sum',
+            'close_time': 'last',
+            'quote_volume': 'sum',
+            'trades': 'sum',
+            'taker_buy_base': 'sum',
+            'taker_buy_quote': 'sum',
+            'ignore': 'last'
+        }).dropna().reset_index()
+        
+        return df_resampled
 
     def get_current_funding_rate(self, symbol):
         if not self.use_futures:
