@@ -30,6 +30,7 @@ except ImportError:
 import warnings
 warnings.filterwarnings('ignore')
 from config import SUPPORTED_TIMEFRAMES, get_timeframe_config
+from market_breadth import BreadthEngine, CircuitBreakerConfig
 
 DATA_DIR = Path(__file__).parent.parent / 'bitget-data'
 PROCESSED_DIR = DATA_DIR / 'processed'
@@ -82,6 +83,12 @@ class BacktestConfig:
     use_trailing_stop: bool = False
     trailing_start_pct: float = 0.02  # Start trailing after 2% profit
     trailing_step_pct: float = 0.01   # Keep SL 1% away from peak
+    
+    # Portfolio Trailing options
+    use_portfolio_trailing: bool = False
+    portfolio_trailing_start_pct: float = 0.30  # Start trailing after 30% floating profit
+    portfolio_trailing_step_pct: float = 0.15   # Close all if floating profit drops 15% from its peak
+    
     max_position_size_usd: float = 10000.0  # Max size per trade in USD (hard cap)
     
     # limit entry options
@@ -98,6 +105,15 @@ class BacktestConfig:
     # Date filtering
     start_date: Optional[str] = None
     end_date: Optional[str] = None
+
+    # Circuit Breaker (Market Breadth Risk Management)
+    use_circuit_breaker: bool = False
+    cb_confluence_tf: str = '8h'           # Large TF for structural break detection
+    cb_confluence_threshold: float = 0.35  # >= 35% coins have MACD cross down
+    cb_velocity_tf: str = '4h'             # Small TF for acceleration detection
+    cb_velocity_lookback: int = 2          # Rolling window in TF bars
+    cb_velocity_threshold: float = 0.20    # Breadth increased >= 20% within lookback
+    cb_sleep_hours: int = 24               # Sleep duration after trigger (in base TF bars)
 
 
 @dataclass
@@ -175,7 +191,7 @@ class ThreeStageBacktester:
             self.entry_model = data['model']
             self.entry_scaler = data.get('scaler')
             self.entry_features = data['feature_names']
-            print(f"✓ Stage 1 loaded: {len(self.entry_features)} features from {entry_path.parent.name}")
+            # print(f"✓ Stage 1 loaded: {len(self.entry_features)} features from {entry_path.parent.name}")
         else:
             print(f"⚠️ Entry filter not found at {entry_path}")
         
@@ -186,7 +202,7 @@ class ThreeStageBacktester:
             self.sl_model = data['model']
             self.sl_scaler = data.get('scaler')
             self.sl_features = data['feature_names']
-            print(f"✓ Stage 2 loaded: {len(self.sl_features)} features from {sl_path.parent.name}")
+            # print(f"✓ Stage 2 loaded: {len(self.sl_features)} features from {sl_path.parent.name}")
         else:
             print(f"⚠️ SL predictor not found at {sl_path}")
         
@@ -198,7 +214,7 @@ class ThreeStageBacktester:
             self.tp_scaler = data.get('scaler')
             self.tp_features = data['feature_names']
             self.tp_predict_rr = data.get('predict_rr', False)
-            print(f"✓ Stage 3 loaded: {len(self.tp_features)} features from {tp_path.parent.name}")
+            # print(f"✓ Stage 3 loaded: {len(self.tp_features)} features from {tp_path.parent.name}")
         else:
             print(f"⚠️ TP predictor not found at {tp_path}")
     
@@ -221,6 +237,36 @@ class ThreeStageBacktester:
         
         return vals
     
+    def _predict_entry_batch(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
+        if self.entry_model is None or df.empty:
+            return np.ones(len(df), dtype=bool), np.ones(len(df)) * 0.5
+        X = df.reindex(columns=self.entry_features, fill_value=0).values
+        X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
+        if self.entry_scaler is not None: X = self.entry_scaler.transform(X)
+        proba = self.entry_model.predict_proba(X)[:, 1]
+        should_enter = proba >= self.config.entry_threshold
+        return should_enter, proba
+
+    def _predict_sl_batch(self, df: pd.DataFrame) -> np.ndarray:
+        if self.sl_model is None or df.empty:
+            return np.ones(len(df)) * 0.02
+        X = df.reindex(columns=self.sl_features, fill_value=0).values
+        X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
+        if self.sl_scaler is not None: X = self.sl_scaler.transform(X)
+        sl_pct = self.sl_model.predict(X)
+        return np.clip(sl_pct, 0.005, 0.15)
+
+    def _predict_tp_batch(self, df: pd.DataFrame, sl_pct_arr: np.ndarray) -> np.ndarray:
+        if self.tp_model is None or df.empty:
+            return np.ones(len(df)) * 0.04
+        X = df.reindex(columns=self.tp_features, fill_value=0).values
+        X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
+        if self.tp_scaler is not None: X = self.tp_scaler.transform(X)
+        tp_pct = self.tp_model.predict(X)
+        if getattr(self, 'tp_predict_rr', False):
+            tp_pct = tp_pct * sl_pct_arr
+        return np.clip(tp_pct, 0.01, 0.30)
+
     def predict_entry(self, row: pd.Series) -> Tuple[bool, float]:
         """Stage 1: Predict if entry is good."""
         if self.entry_model is None:
@@ -652,32 +698,55 @@ class ThreeStageBacktester:
         trade_counter = 0
         last_exit: Dict[str, Tuple[datetime, bool]] = {} # symbol -> (exit_time, is_long)
 
+        # Portfolio Trailing state
+        portfolio_peak_equity = capital
+        portfolio_trailing_stop_value = 0.0
+
         # 1. Pre-process: Group data and signals by symbol and time
         symbols = df['symbol'].unique() if 'symbol' in df.columns else ['UNKNOWN']
-        df_by_symbol = {s: df[df['symbol'] == s].sort_values('timestamp').reset_index(drop=True) for s in symbols}
+        # OPTIMIZATION: Use groupby instead of boolean masks which is 100x faster
+        df_by_symbol = {s: group.sort_values('timestamp').reset_index(drop=True) for s, group in df.groupby('symbol')}
         
         # Pre-process signals
         signals_by_time = {}
+        all_signals = []
         for symbol, df_s in df_by_symbol.items():
             mask = (df_s['macd_cross_up'] == 1) | (df_s['macd_cross_down'] == 1)
             for _, row in df_s[mask].iterrows():
                 ts = row['timestamp']
-                if ts not in signals_by_time: signals_by_time[ts] = []
-                signals_by_time[ts].append({
+                sig_dict = {
                     'symbol': symbol,
                     'row': row,
                     'is_long': row['macd_cross_up'] == 1,
                     'signal_price': row['close'],
                     'timestamp': ts
-                })
+                }
+                all_signals.append(sig_dict)
+                if ts not in signals_by_time: signals_by_time[ts] = []
+                signals_by_time[ts].append(sig_dict)
+                
+        # OPTIMIZATION: Batch predict all potential entry signals to avoid XGBoost loop overhead!
+        if all_signals:
+            if verbose: print(f"  Batch predicting {len(all_signals)} potential entry signals...")
+            df_signals = pd.DataFrame([s['row'] for s in all_signals])
+            
+            should_enter_arr, conf_arr = self._predict_entry_batch(df_signals)
+            sl_arr = self._predict_sl_batch(df_signals)
+            tp_arr = self._predict_tp_batch(df_signals, sl_arr)
+            
+            for i, sig in enumerate(all_signals):
+                sig['should_enter'] = bool(should_enter_arr[i])
+                sig['confidence'] = float(conf_arr[i])
+                sig['sl_pct'] = float(sl_arr[i])
+                sig['tp_pct'] = float(tp_arr[i])
 
         # Pre-process price maps with ffill for robust real-time check
         if verbose: print("  Preparing synchronized price maps (Open, Low, High, Close)...")
-        # Use pivot_table with ffill to handle gaps
-        open_map = df.pivot_table(index='timestamp', columns='symbol', values='open').fillna(method='ffill')
-        low_map = df.pivot_table(index='timestamp', columns='symbol', values='low').fillna(method='ffill')
-        high_map = df.pivot_table(index='timestamp', columns='symbol', values='high').fillna(method='ffill')
-        close_map = df.pivot_table(index='timestamp', columns='symbol', values='close').fillna(method='ffill')
+        # Use pivot (100x faster than pivot_table) with ffill to handle gaps
+        open_map = df.pivot(index='timestamp', columns='symbol', values='open').fillna(method='ffill')
+        low_map = df.pivot(index='timestamp', columns='symbol', values='low').fillna(method='ffill')
+        high_map = df.pivot(index='timestamp', columns='symbol', values='high').fillna(method='ffill')
+        close_map = df.pivot(index='timestamp', columns='symbol', values='close').fillna(method='ffill')
         
         idx_map = {}        # {(symbol, timestamp): row_index} mapping for slicing
         for symbol, df_s in df_by_symbol.items():
@@ -690,12 +759,59 @@ class ThreeStageBacktester:
         # 2. Get all unique timestamps for simulation
         all_timestamps = sorted(df['timestamp'].unique())
         equity_timeline = [(all_timestamps[0], capital)]
+
+        # 2.5 Circuit Breaker: Pre-compute Market Breadth timeline
+        breadth_timeline = None
+        cb_is_sleeping = False
+        cb_sleep_timer = 0
+        cb_trigger_count = 0
+        if self.config.use_circuit_breaker:
+            cb_config = CircuitBreakerConfig(
+                confluence_tf=self.config.cb_confluence_tf,
+                confluence_threshold=self.config.cb_confluence_threshold,
+                velocity_tf=self.config.cb_velocity_tf,
+                velocity_lookback=self.config.cb_velocity_lookback,
+                velocity_threshold=self.config.cb_velocity_threshold,
+                sleep_duration_hours=self.config.cb_sleep_hours
+            )
+            breadth_engine = BreadthEngine(cb_config)
+            base_ts = pd.DatetimeIndex(all_timestamps)
+            breadth_timeline = breadth_engine.build_breadth_timeline(base_ts)
+            if verbose:
+                print(f"  🛡️ Circuit Breaker enabled: "
+                      f"Confluence({cb_config.confluence_tf} >= {cb_config.confluence_threshold:.0%}), "
+                      f"Velocity({cb_config.velocity_tf} +{cb_config.velocity_threshold:.0%}), "
+                      f"Sleep={cb_config.sleep_duration_hours} bars")
         
         # 3. Main Time-Stepped Loop
         if verbose:
             print(f"🚀 Starting Optimized Time-Stepped Backtest: {len(all_timestamps)} steps...")
 
         for current_time in all_timestamps:
+            # --- CIRCUIT BREAKER: Sleep State Management ---
+            if self.config.use_circuit_breaker and cb_is_sleeping:
+                cb_sleep_timer -= 1
+                if cb_sleep_timer <= 0:
+                    cb_is_sleeping = False
+                    if verbose:
+                        print(f"  ⏰ [AWAKE] System resumed trading at {current_time}")
+                else:
+                    # Still sleeping: only process trade exits, skip new entries
+                    # Close expired positions even while sleeping
+                    closed_ids = []
+                    for tid, pos in open_positions.items():
+                        if pos['exit_time'] <= current_time:
+                            trade = pos['trade']
+                            capital += trade.pnl
+                            available_capital += pos['margin'] + trade.pnl
+                            result.trades.append(trade)
+                            closed_ids.append(tid)
+                            last_exit[trade.symbol] = (trade.exit_time or current_time, trade.direction == 'LONG')
+                    for tid in closed_ids: del open_positions[tid]
+                    if closed_ids: equity_timeline.append((current_time, capital))
+                    result.daily_open_positions[current_time] = len(open_positions)
+                    continue  # Skip all entry logic while sleeping
+
             # --- REAL-TIME MTM EQUITY & LIQUIDATION CHECK ---
             if open_positions:
                 floating_pnl_total = 0.0
@@ -750,6 +866,107 @@ class ThreeStageBacktester:
                     self._handle_global_liquidation(result, current_time, [], [])
                     break
 
+                # 🛡️ PORTFOLIO TRAILING STOP LOGIC
+                if self.config.use_portfolio_trailing:
+                    current_portfolio_equity = capital + floating_pnl_total
+                    
+                    if current_portfolio_equity > portfolio_peak_equity:
+                        portfolio_peak_equity = current_portfolio_equity
+                        
+                    activation_value = capital * (1 + self.config.portfolio_trailing_start_pct)
+                    if current_portfolio_equity >= activation_value:
+                        new_stop = portfolio_peak_equity * (1 - self.config.portfolio_trailing_step_pct)
+                        if new_stop > portfolio_trailing_stop_value:
+                            portfolio_trailing_stop_value = new_stop
+                            
+                    if portfolio_trailing_stop_value > 0 and current_portfolio_equity <= portfolio_trailing_stop_value:
+                        if verbose:
+                            print(f"🛡️ PORTFOLIO SECURED at {current_time} (Equity: ${current_portfolio_equity:.2f}, Peak: ${portfolio_peak_equity:.2f})")
+                        
+                        # Force close all active trades at current prices
+                        for tid, pos in list(open_positions.items()):
+                            trade = pos['trade']
+                            symbol = trade.symbol
+                            
+                            close_price = close_map.at[current_time, symbol] if symbol in close_map.columns else trade.entry_price
+                            if trade.direction == 'LONG':
+                                actual_pnl_pct = (close_price - trade.entry_price) / trade.entry_price
+                            else:
+                                actual_pnl_pct = (trade.entry_price - close_price) / trade.entry_price
+                                
+                            actual_pnl = trade.position_size * actual_pnl_pct
+                            
+                            trade.exit_price = close_price
+                            trade.exit_time = current_time
+                            trade.pnl = actual_pnl
+                            trade.exit_reason = 'PORTFOLIO_TRAILING_STOP'
+                            
+                            capital += trade.pnl
+                            available_capital += pos['margin'] + trade.pnl
+                            result.trades.append(trade)
+                            del open_positions[tid]
+                            last_exit[symbol] = (trade.exit_time, trade.direction == 'LONG')
+                            
+                        # Reset tracking variables since we went flat
+                        portfolio_peak_equity = capital
+                        portfolio_trailing_stop_value = 0.0
+                        equity_timeline.append((current_time, capital))
+                        
+                        # Skip processing the rest of the step since we closed everything
+                        continue
+
+            # --- CIRCUIT BREAKER: Check Trigger ---
+            if self.config.use_circuit_breaker and breadth_timeline is not None:
+                if current_time in breadth_timeline.index:
+                    breadth_row = breadth_timeline.loc[current_time]
+                    triggered, reason = breadth_engine.check_trigger(breadth_row)
+                    
+                    if triggered and len(open_positions) > 0:
+                        cb_trigger_count += 1
+                        if verbose:
+                            print(f"  🚨 CIRCUIT BREAKER #{cb_trigger_count} at {current_time}: {reason}")
+                        
+                        # Force close ALL open positions
+                        for tid, pos in list(open_positions.items()):
+                            trade = pos['trade']
+                            symbol = trade.symbol
+                            
+                            close_price = close_map.at[current_time, symbol] if symbol in close_map.columns else trade.entry_price
+                            if trade.direction == 'LONG':
+                                actual_pnl_pct = (close_price - trade.entry_price) / trade.entry_price
+                            else:
+                                actual_pnl_pct = (trade.entry_price - close_price) / trade.entry_price
+                            
+                            actual_pnl = trade.position_size * actual_pnl_pct
+                            exit_fee = trade.position_size * (1 + abs(actual_pnl_pct)) * self.config.fee_rate
+                            trade.fees_paid += exit_fee
+                            actual_pnl -= exit_fee
+                            
+                            trade.exit_price = close_price
+                            trade.exit_time = current_time
+                            trade.pnl = actual_pnl
+                            trade.pnl_pct = actual_pnl_pct
+                            trade.exit_reason = 'CIRCUIT_BREAKER'
+                            
+                            capital += trade.pnl
+                            available_capital += pos['margin'] + trade.pnl
+                            result.trades.append(trade)
+                            del open_positions[tid]
+                            last_exit[symbol] = (current_time, trade.direction == 'LONG')
+                        
+                        # Activate sleep mode
+                        cb_is_sleeping = True
+                        cb_sleep_timer = self.config.cb_sleep_hours
+                        
+                        # Clear pending pool (don't enter anything during reset)
+                        pending_pool = []
+                        
+                        equity_timeline.append((current_time, capital))
+                        result.daily_open_positions[current_time] = 0
+                        if verbose:
+                            print(f"    💤 Sleeping for {self.config.cb_sleep_hours} bars. Capital: ${capital:,.2f}")
+                        continue
+
             # A. Close expired positions
             closed_any = False
             closed_ids = []
@@ -769,9 +986,10 @@ class ThreeStageBacktester:
             # B. Add new signals to Pending Pool
             if current_time in signals_by_time:
                 for sig in signals_by_time[current_time]:
-                    should_enter, confidence = self.predict_entry(sig['row'])
+                    should_enter = sig['should_enter']
+                    confidence = sig['confidence']
                     if should_enter:
-                        sig['confidence'] = confidence
+                        # sig already holds 'confidence', 'sl_pct', 'tp_pct'
                         sig['expiry'] = current_time + pd.Timedelta(days=self.config.scanner_lookback_days)
                         pending_pool.append(sig)
 
@@ -825,8 +1043,8 @@ class ThreeStageBacktester:
                 row_sig = sig['row']
                 entry_price = cand['price']
                 
-                sl_pct = self.predict_sl(row_sig)
-                tp_pct = self.predict_tp(row_sig, sl_pct)
+                sl_pct = sig['sl_pct']
+                tp_pct = sig['tp_pct']
                 direction = 'LONG' if sig['is_long'] else 'SHORT'
                 
                 # Future data starting from current_time to end of max_bars
@@ -843,6 +1061,7 @@ class ThreeStageBacktester:
 
                 trade = self.simulate_trade(row_sig, future_data, entry_price, sl_pct, tp_pct, direction, size)
                 trade.confidence = sig['confidence']
+                trade.entry_time = current_time # FIX: Record exact execution time, not signal time
                 
                 trade_counter += 1
                 open_positions[trade_counter] = {
@@ -898,9 +1117,9 @@ class ThreeStageBacktester:
 
         # 1. Create price maps (pivot tables) for High, Low, Close
         # We need these to calculate worst-case floating PnL
-        close_map = df.pivot_table(index='timestamp', columns='symbol', values='close').fillna(method='ffill')
-        low_map = df.pivot_table(index='timestamp', columns='symbol', values='low').fillna(method='ffill')
-        high_map = df.pivot_table(index='timestamp', columns='symbol', values='high').fillna(method='ffill')
+        close_map = df.pivot(index='timestamp', columns='symbol', values='close').fillna(method='ffill')
+        low_map = df.pivot(index='timestamp', columns='symbol', values='low').fillna(method='ffill')
+        high_map = df.pivot(index='timestamp', columns='symbol', values='high').fillna(method='ffill')
         
         market_timestamps = close_map.index.sort_values()
         
@@ -1720,6 +1939,107 @@ def run_pullback_comparison(df: pd.DataFrame, base_config: BacktestConfig):
                      save_path=str(DATA_DIR.parent / 'backtest_pullback_comparison.png'))
 
 
+def run_breaker_comparison(df: pd.DataFrame, base_config: BacktestConfig):
+    """
+    Compare strategy performance: Baseline (no Circuit Breaker) vs Circuit Breaker configs.
+    """
+    print("\n" + "="*70)
+    print("🛡️ CIRCUIT BREAKER COMPARISON")
+    print("="*70)
+    
+    results = {}
+    
+    # 1. Baseline (no circuit breaker)
+    print("\n🔹 Running Baseline (No Circuit Breaker)...")
+    config_base = deepcopy(base_config)
+    config_base.use_circuit_breaker = False
+    backtester_base = ThreeStageBacktester(config_base)
+    results['Baseline'] = backtester_base.run_backtest(df, verbose=False)
+    
+    # 2. Circuit Breaker with user-specified or default params
+    print(f"\n🔹 Running CB: Conf={base_config.cb_confluence_tf} >= {base_config.cb_confluence_threshold:.0%}, "
+          f"Vel={base_config.cb_velocity_threshold:.0%}, Sleep={base_config.cb_sleep_hours}bars...")
+    config_cb = deepcopy(base_config)
+    config_cb.use_circuit_breaker = True
+    backtester_cb = ThreeStageBacktester(config_cb)
+    results[f'CB ({config_cb.cb_confluence_tf} {config_cb.cb_confluence_threshold:.0%})'] = backtester_cb.run_backtest(df, verbose=True)
+    
+    # 3. Additional CB variants
+    cb_variants = [
+        ('CB Conservative', {'cb_confluence_threshold': 0.25, 'cb_velocity_threshold': 0.15, 'cb_sleep_hours': 2}),
+        ('CB Aggressive', {'cb_confluence_threshold': 0.45, 'cb_velocity_threshold': 0.30, 'cb_sleep_hours': 1}),
+    ]
+    
+    for name, overrides in cb_variants:
+        print(f"\n🔹 Running {name}...")
+        config_var = deepcopy(base_config)
+        config_var.use_circuit_breaker = True
+        for k, v in overrides.items():
+            setattr(config_var, k, v)
+        bt = ThreeStageBacktester(config_var)
+        results[name] = bt.run_backtest(df, verbose=False)
+    
+    # Print comparison table
+    print("\n" + "="*110)
+    lev_str = f"{base_config.leverage:.0f}x" if base_config.leverage > 1 else "1x"
+    print(f"📊 CIRCUIT BREAKER COMPARISON ({lev_str} Leverage, {base_config.timeframe or '1d'} Timeframe)")
+    print("="*110)
+    
+    header = f"{'Metric':<25}"
+    for name in results.keys():
+        header += f" | {name:>18}"
+    print(header)
+    print("-"*110)
+    
+    metrics = [
+        ('Final Equity ($)', 'equity_curve', lambda x: x[-1] if x else 0),
+        ('Total Return (%)', 'total_return', lambda x: x * 100),
+        ('Max Drawdown (%)', 'max_drawdown', lambda x: x * 100),
+        ('Calmar Ratio', None, None),  # Computed
+        ('Sharpe Ratio', 'sharpe_ratio', lambda x: x),
+        ('Win Rate (%)', 'win_rate', lambda x: x * 100),
+        ('Total Trades', 'total_trades', lambda x: x),
+        ('Profit Factor', 'profit_factor', lambda x: x),
+        ('Avg Trade ($)', 'avg_trade_pnl', lambda x: x),
+        ('CB Triggers', None, None),  # Computed
+    ]
+    
+    for label, attr, fmt_func in metrics:
+        row = f"{label:<25}"
+        for name, res in results.items():
+            if label == 'Calmar Ratio':
+                ret = res.total_return
+                dd = max(res.max_drawdown, 0.001)
+                val = ret / dd
+            elif label == 'CB Triggers':
+                val = sum(1 for t in res.trades if t.exit_reason == 'CIRCUIT_BREAKER')
+            elif attr == 'equity_curve':
+                val = fmt_func(res.equity_curve)
+            else:
+                val = fmt_func(getattr(res, attr))
+            row += f" | {val:>18.2f}"
+        print(row)
+    
+    print("="*110)
+    
+    # Exit reason breakdown for CB strategy
+    for name, res in results.items():
+        if 'CB' in name or 'Baseline' in name:
+            reasons = {}
+            for t in res.trades:
+                reasons[t.exit_reason] = reasons.get(t.exit_reason, 0) + 1
+            print(f"\n📋 {name} Exit Reasons: {dict(sorted(reasons.items(), key=lambda x: -x[1]))}")
+    
+    # Plot equity curves
+    plot_equity_curve(
+        results, 
+        title=f"Circuit Breaker Comparison ({lev_str} Leverage)",
+        save_path=str(DATA_DIR.parent / f'backtest_breaker_comparison_{lev_str}.png')
+    )
+    
+    return results
+
+
 def run_timeout_comparison(df, base_config):
     """Test standard vs different timeout periods (max_bars)."""
     print("\n" + "="*70)
@@ -1798,6 +2118,12 @@ def main():
     parser.add_argument('--trailing', action='store_true', help='Enable Trailing Stop')
     parser.add_argument('--trailing-start', type=float, default=0.1, help='Trailing start pct (e.g. 0.02 for 2%%)')
     parser.add_argument('--trailing-step', type=float, default=0.05, help='Trailing step pct (e.g. 0.01 for 1%%)')
+    
+    # Portfolio Trailing Stop arguments
+    parser.add_argument('--portfolio-trailing', action='store_true', help='Enable Portfolio-level Trailing Stop')
+    parser.add_argument('--pt-start', type=float, default=0.30, help='Portfolio Trailing start pct')
+    parser.add_argument('--pt-step', type=float, default=0.15, help='Portfolio Trailing step pct')
+    
     parser.add_argument('--compare-trailing', action='store_true', help='Run Trailing Stop Comparison')
     parser.add_argument('--compare-kelly', action='store_true', help='Run Kelly vs Even Sizing Comparison')
     parser.add_argument('--compare-pullback', action='store_true', help='Run Market vs Pullback Entry Comparison')
@@ -1808,6 +2134,14 @@ def main():
     parser.add_argument('--entry-timeout', type=int, default=3, help='Timeout bars for limit entry')
     parser.add_argument('--compare-timeout', action='store_true', help='Run Timeout (max_bars) Optimization')
     parser.add_argument('--max-bars', type=int, default=10, help='Max bars to hold trade (timeout)')
+    
+    # Circuit Breaker arguments
+    parser.add_argument('--circuit-breaker', action='store_true', help='Enable Circuit Breaker (Market Breadth risk management)')
+    parser.add_argument('--compare-breaker', action='store_true', help='Run Circuit Breaker vs Baseline comparison')
+    parser.add_argument('--cb-confluence-tf', type=str, default='8h', help='Confluence timeframe (8h or 12h)')
+    parser.add_argument('--cb-threshold', type=float, default=0.35, help='Confluence threshold (0.35 = 35%%)')
+    parser.add_argument('--cb-velocity-threshold', type=float, default=0.20, help='Velocity threshold (0.20 = 20%%)')
+    parser.add_argument('--cb-sleep', type=int, default=1, help='Sleep duration in base TF bars after trigger')
     
     # Scanner Filter arguments
     parser.add_argument('--use-scanner', action='store_true', help='Enable SmartScanner Entry Zone filtering')
@@ -1922,6 +2256,9 @@ def main():
         use_trailing_stop=args.trailing,
         trailing_start_pct=args.trailing_start,
         trailing_step_pct=args.trailing_step,
+        use_portfolio_trailing=args.portfolio_trailing,
+        portfolio_trailing_start_pct=args.pt_start,
+        portfolio_trailing_step_pct=args.pt_step,
         entry_pullback_pct=args.entry_pullback,
         entry_pullback_timeout=args.entry_timeout,
         start_date=args.start,
@@ -1930,8 +2267,18 @@ def main():
         use_scanner_filter=args.use_scanner,
         scanner_mae=args.scanner_mae,
         scanner_mfe=args.scanner_mfe,
-        scanner_lookback_days=args.scanner_lookback
+        scanner_lookback_days=args.scanner_lookback,
+        use_circuit_breaker=args.circuit_breaker,
+        cb_confluence_tf=args.cb_confluence_tf,
+        cb_confluence_threshold=args.cb_threshold,
+        cb_velocity_threshold=args.cb_velocity_threshold,
+        cb_sleep_hours=args.cb_sleep
     )
+    
+    # Run Circuit Breaker comparison if requested
+    if args.compare_breaker:
+        run_breaker_comparison(df_test, config)
+        return
     
     # Run timeout comparison if requested
     if args.compare_timeout:

@@ -1,0 +1,10 @@
+[
+  {
+    "name": "BTC_TREND_FILTER",
+    "condition": "btc_sma20 < btc_sma50",
+    "action": "REDUCE_LONG_EXPOSURE",
+    "detail": "Reduce LONG position size by 50% when BTC is in downtrend",
+    "lift": 11.75,
+    "p_value": 0.0035846009129294584
+  }
+]

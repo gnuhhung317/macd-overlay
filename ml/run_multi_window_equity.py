@@ -52,6 +52,28 @@ def run_single_window(args_dict, df_path, window_start, window_end, window_idx, 
             print(f"  ⚠️  {label} — No data, skipping")
             return None
 
+        # Circuit Breaker Profile Mapping
+        cb_kwargs = {}
+        cb_profile = args_dict.get('cb_profile', 'none')
+        if cb_profile == '0.6':
+            cb_kwargs = {
+                'use_circuit_breaker': True,
+                'cb_confluence_tf': '12h',
+                'cb_confluence_threshold': 0.2,
+                'cb_velocity_lookback': 2,
+                'cb_velocity_threshold': 0.1,
+                'cb_sleep_hours': 4
+            }
+        elif cb_profile == '0.65':
+            cb_kwargs = {
+                'use_circuit_breaker': True,
+                'cb_confluence_tf': '12h',
+                'cb_confluence_threshold': 0.15,
+                'cb_velocity_lookback': 1,
+                'cb_velocity_threshold': 0.1,
+                'cb_sleep_hours': 5
+            }
+
         # Build config
         config = BacktestConfig(
             initial_capital=args_dict['capital'],
@@ -70,13 +92,18 @@ def run_single_window(args_dict, df_path, window_start, window_end, window_idx, 
             use_trailing_stop=args_dict['trailing'],
             trailing_start_pct=args_dict['trailing_start'],
             trailing_step_pct=args_dict['trailing_step'],
+            use_portfolio_trailing=args_dict.get('portfolio_trailing', False),
+            # portfolio_trailing_start_pct=args_dict.get('pt_start', 0.30),
+            # portfolio_trailing_step_pct=args_dict.get('pt_step', 0.15),
+            # portfolio_cooldown_days=args_dict.get('pt_cooldown', 1.0),
             entry_pullback_pct=args_dict['entry_pullback'],
             entry_pullback_timeout=args_dict['entry_timeout'],
             max_bars=args_dict['max_bars'],
             use_scanner_filter=args_dict['use_scanner'],
             scanner_mae=args_dict['scanner_mae'],
             scanner_mfe=args_dict['scanner_mfe'],
-            scanner_lookback_days=args_dict['scanner_lookback']
+            scanner_lookback_days=args_dict['scanner_lookback'],
+            **cb_kwargs
         )
 
         backtester = ThreeStageBacktester(config)
@@ -223,6 +250,12 @@ def main():
     parser.add_argument('--trailing', action='store_true', help='Enable Trailing Stop')
     parser.add_argument('--trailing-start', type=float, default=0.1, help='Trailing start pct')
     parser.add_argument('--trailing-step', type=float, default=0.05, help='Trailing step pct')
+    
+    # Portfolio Trailing
+    parser.add_argument('--portfolio-trailing', action='store_true', help='Enable Portfolio Trailing')
+    parser.add_argument('--pt-start', type=float, default=0.30, help='Portfolio Trailing start pct')
+    parser.add_argument('--pt-step', type=float, default=0.15, help='Portfolio Trailing step pct')
+    parser.add_argument('--pt-cooldown', type=float, default=1.0, help='Days to cooldown after portfolio trailing stop hits')
 
     # Pullback
     parser.add_argument('--entry-pullback', type=float, default=0.0, help='Pullback pct for limit entry')
@@ -234,6 +267,10 @@ def main():
     parser.add_argument('--scanner-mae', type=float, default=0.04, help='Max Adverse Excursion')
     parser.add_argument('--scanner-mfe', type=float, default=0.12, help='Max Favorable Excursion')
     parser.add_argument('--scanner-lookback', type=int, default=6, help='Lookback days for scanner')
+
+    # Circuit Breaker
+    parser.add_argument('--cb-profile', type=str, choices=['0.6', '0.65', 'none'], default='none',
+                        help='Circuit Breaker optimization profile to use based on robustness insights')
 
     # Date range
     parser.add_argument('--start', type=str, default='2021-01-01', help='Overall start date')

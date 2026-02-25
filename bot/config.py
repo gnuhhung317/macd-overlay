@@ -12,6 +12,7 @@ class ExchangeConfig(BaseModel):
     api_key: str = ""
     api_secret: str = ""
     passphrase: str = ""
+    password: str = ""  # Used by some exchanges like OKX/Bitget via CCXT
     leverage: int = 20
     dry_run: bool = True  # Safety first! Default to simulation mode
     slippage: float = 0.0005  # 0.05% slippage

@@ -9,3 +9,5 @@ ml/models/*
 *.png
 ml/*.png
 ml/*.csv
+*.parquet
+*.txt

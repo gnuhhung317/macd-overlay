@@ -60,7 +60,16 @@ def create_daily_equity_curve(df, backtester, start_date, end_date, price_data):
     # Create benchmark data
     benchmark_data = create_benchmark_data(price_data, start_date, end_date, backtester.config.initial_capital)
     
-    return result, daily_equity, benchmark_data
+    # Extract CB events if Circuit Breaker is active
+    cb_events = []
+    if getattr(backtester.config, 'use_circuit_breaker', False):
+        for trade in result.trades:
+            if trade.exit_reason == 'CIRCUIT_BREAKER' and trade.exit_time:
+                ts = trade.exit_time
+                if ts not in cb_events:
+                    cb_events.append(ts)
+    
+    return result, daily_equity, benchmark_data, cb_events
 
 def create_time_based_equity_mtm(trades, start_date, end_date, initial_capital, price_data, leverage=20.0, actual_daily_positions=None):
     """
@@ -314,7 +323,7 @@ def create_benchmark_data(price_data, start_date, end_date, initial_capital):
     
     return benchmark_df[['date_x', 'benchmark_equity']].rename(columns={'date_x': 'date'})
 
-def plot_time_based_equity(daily_equity_df, trades, benchmark_df=None, title="Time-Based Equity Curve"):
+def plot_time_based_equity(daily_equity_df, trades, benchmark_df=None, title="Time-Based Equity Curve", cb_events=None):
     """
     Plot comprehensive time-based equity analysis.
     """
@@ -351,6 +360,29 @@ def plot_time_based_equity(daily_equity_df, trades, benchmark_df=None, title="Ti
     if lose_trades:
         lose_dates, lose_equities = zip(*lose_trades)
         ax1.scatter(lose_dates, lose_equities, color='red', s=30, alpha=0.7, label='Losing Trades', zorder=5)
+    
+    # 🆕 Plot Circuit Breaker exit markers
+    if cb_events:
+        for cb_ts in cb_events:
+            cb_date = pd.to_datetime(cb_ts).date()
+            
+            # Find closest equity point for the marker by comparing dates
+            # daily_equity_df['date'] contains datetime/timestamp objects
+            # Convert both sides to pure date components or normalize
+            mask = pd.to_datetime(daily_equity_df['date']).dt.date == cb_date
+            
+            if mask.any():
+                idx = mask.idxmax()
+                x_val = daily_equity_df.loc[idx, 'date']
+                
+                # Annotate the chart with a vertical dotted line and text
+                ax1.axvline(x=x_val, color='darkorange', linestyle=':', alpha=0.8, zorder=1)
+                ax1.text(x_val, ax1.get_ylim()[1]*0.95, 'CB', color='darkorange', 
+                         fontsize=9, fontweight='bold', ha='center', va='top', 
+                         bbox=dict(facecolor='white', alpha=0.6, pad=2, edgecolor='darkorange'))
+                
+        # Just to add to legend
+        ax1.plot([], [], color='darkorange', linestyle=':', label='Circuit Breaker')
     
     ax1.set_title('Daily Equity Curve', fontsize=14, fontweight='bold')
     ax1.set_xlabel('Date')
@@ -614,6 +646,12 @@ def main():
     parser.add_argument('--trailing-start', type=float, default=0.1, help='Trailing start pct (e.g. 0.02 for 2%)')
     parser.add_argument('--trailing-step', type=float, default=0.05, help='Trailing step pct (e.g. 0.01 for 1%)')
     
+    # Portfolio Trailing Stop arguments
+    parser.add_argument('--portfolio-trailing', action='store_true', help='Enable Portfolio-level Trailing Stop')
+    parser.add_argument('--pt-start', type=float, default=0.30, help='Portfolio Trailing start pct (default 30%)')
+    parser.add_argument('--pt-step', type=float, default=0.15, help='Portfolio Trailing step pct (default 15%)')
+    parser.add_argument('--pt-cooldown', type=float, default=1.0, help='Days to cooldown after portfolio trailing stop hits')
+    
     # Pullback options
     parser.add_argument('--entry-pullback', type=float, default=0.0, help='Pullback pct for limit entry (e.g. 0.005 for 0.5%)')
     parser.add_argument('--entry-timeout', type=int, default=3, help='Timeout bars for limit entry')
@@ -624,6 +662,10 @@ def main():
     parser.add_argument('--scanner-mae', type=float, default=0.04, help='Max Adverse Excursion for zone (default: 0.04)')
     parser.add_argument('--scanner-mfe', type=float, default=0.12, help='Max Favorable Excursion for zone (default: 0.12)')
     parser.add_argument('--scanner-lookback', type=int, default=6, help='Lookback days for scanner entry (default: 6)')
+    
+    # Circuit Breaker
+    parser.add_argument('--cb-profile', type=str, choices=['0.6', '0.65', 'none'], default='none',
+                        help='Circuit Breaker optimization profile to use based on robustness insights')
     
     parser.add_argument("--start", type=str, default='2026-01-01', help="Analysis start date (YYYY-MM-DD)")
     parser.add_argument("--end", type=str, default='2026-02-23', help="Analysis end date (YYYY-MM-DD)")
@@ -710,6 +752,10 @@ def main():
         use_trailing_stop=args.trailing,
         trailing_start_pct=args.trailing_start,
         trailing_step_pct=args.trailing_step,
+        # Portfolio Trailing arguments
+        use_portfolio_trailing=args.portfolio_trailing,
+        portfolio_trailing_start_pct=args.pt_start,
+        portfolio_trailing_step_pct=args.pt_step,
         # Pullback options
         entry_pullback_pct=args.entry_pullback,
         entry_pullback_timeout=args.entry_timeout,
@@ -720,6 +766,24 @@ def main():
         scanner_mfe=args.scanner_mfe,
         scanner_lookback_days=args.scanner_lookback
     )
+    
+    # Attach CB properties if requested
+    if args.cb_profile == '0.6':
+        config.use_circuit_breaker = True
+        config.cb_confluence_tf = '12h'
+        config.cb_confluence_threshold = 0.2
+        config.cb_velocity_lookback = 2
+        config.cb_velocity_threshold = 0.1
+        config.cb_sleep_hours = 4
+        print(f"   🛡️ Using Circuit Breaker Profile: 0.6")
+    elif args.cb_profile == '0.65':
+        config.use_circuit_breaker = True
+        config.cb_confluence_tf = '12h'
+        config.cb_confluence_threshold = 0.15
+        config.cb_velocity_lookback = 1
+        config.cb_velocity_threshold = 0.1
+        config.cb_sleep_hours = 5
+        print(f"   🛡️ Using Circuit Breaker Profile: 0.65")
     
     # Create backtester
     backtester = ThreeStageBacktester(config)
@@ -733,7 +797,7 @@ def main():
     price_data = df_with_warmup[price_columns].copy()
     
     # Run enhanced backtest with mark-to-market
-    result, daily_equity_df, benchmark_df = create_daily_equity_curve(
+    result, daily_equity_df, benchmark_df, cb_events = create_daily_equity_curve(
         df_with_warmup, backtester, backtest_start, backtest_end, price_data
     )
     
@@ -766,7 +830,8 @@ def main():
             daily_equity_df, 
             result.trades,
             benchmark_df,
-            title=f'3-Stage ML Strategy ({margin_mode}, {leverage}x leverage)'
+            title=f'3-Stage ML Strategy ({margin_mode}, {leverage}x leverage)',
+            cb_events=cb_events
         )
         
         # Save enhanced results

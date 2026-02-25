@@ -110,6 +110,9 @@ def compute_condition_features(df, btc_data=None):
     result = df.copy()
     result['date'] = pd.to_datetime(result['date'])
     
+    if 'window_idx' not in result.columns:
+        result['window_idx'] = 0
+    
     # ── Per-window: drawdown ────────────────────────────────────────────
     dd_pct_list = []
     for _, group in result.groupby('window_idx'):
@@ -660,29 +663,32 @@ def generate_risk_rules(results_tuple, threshold_dd):
         cutoff = r.get('cutoff_value', None)
         
         if 'adx' in feature:
+            c_val = cutoff if cutoff is not None else 20
             rules.append({
                 'name': 'WEAK_TREND_FILTER',
-                'condition': f"btc_adx < {cutoff:.1f}" if cutoff else "btc_adx < 20",
+                'condition': f"btc_adx < {c_val:.1f}",
                 'action': 'REDUCE_POSITION_SIZE',
-                'detail': f"When BTC ADX < {cutoff:.1f}, reduce position size 50% (weak trend = bad for trend-following)",
+                'detail': f"When BTC ADX < {c_val:.1f}, reduce position size 50% (weak trend = bad for trend-following)",
                 'lift': r['lift'],
                 'p_value': r['p_value']
             })
         elif 'chop' in feature:
+            c_val = cutoff if cutoff is not None else 60
             rules.append({
                 'name': 'CHOPPY_MARKET_FILTER',
-                'condition': f"btc_chop > {cutoff:.1f}" if cutoff else "btc_chop > 60",
+                'condition': f"btc_chop > {c_val:.1f}",
                 'action': 'SKIP_NEW_ENTRIES',
-                'detail': f"When BTC CHOP > {cutoff:.1f}, skip new entries (choppy market = whipsaws)",
+                'detail': f"When BTC CHOP > {c_val:.1f}, skip new entries (choppy market = whipsaws)",
                 'lift': r['lift'],
                 'p_value': r['p_value']
             })
         elif 'vol' in feature and 'btc' not in feature:
+            c_val = cutoff if cutoff is not None else 0.05
             rules.append({
                 'name': 'HIGH_VOLATILITY_FILTER',
-                'condition': f"rolling_vol > {cutoff:.5f}" if cutoff else "vol > threshold",
+                'condition': f"rolling_vol > {c_val:.5f}",
                 'action': 'REDUCE_LEVERAGE',
-                'detail': f"When equity vol > {cutoff:.5f}, reduce leverage by 50%",
+                'detail': f"When equity vol > {c_val:.5f}, reduce leverage by 50%",
                 'lift': r['lift'],
                 'p_value': r['p_value']
             })
@@ -737,6 +743,8 @@ def main():
     # Load data
     print(f"📂 Loading: {input_path}")
     df = pd.read_csv(input_path, parse_dates=['date'])
+    if 'window_idx' not in df.columns:
+        df['window_idx'] = 0
     print(f"   Loaded {len(df):,} rows, {df['window_idx'].nunique()} windows")
     
     # Load BTC prices

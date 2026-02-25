@@ -67,28 +67,164 @@ class DryRunExecutor(ExchangeExecutor):
     def get_open_positions(self) -> list:
         return []
 
-class BitgetExecutor(ExchangeExecutor):
+import ccxt
+
+class CCXTExecutor(ExchangeExecutor):
     def __init__(self, config: BotConfig):
         self.config = config
-        # Here we would initialize the real Bitget/CCXT client using api_key/secret
-        print("[Executor] Initialized Bitget Executor (Real Trading)")
+        exchange_id = config.exchange.name.lower()
+        exchange_class = getattr(ccxt, exchange_id)
+        
+        exchange_args = {
+            'apiKey': config.exchange.api_key,
+            'secret': config.exchange.api_secret,
+            'enableRateLimit': True,
+            'options': {
+                'defaultType': 'swap' # assume futures
+            }
+        }
+        if config.exchange.password:
+            exchange_args['password'] = config.exchange.password
+            
+        self.client = exchange_class(exchange_args)
+        
+        # Load markets for precision and symbol details
+        try:
+            self.client.load_markets()
+            print(f"[Executor] Initialized CCXT Executor for {exchange_id.upper()} (Real Trading)")
+        except Exception as e:
+            print(f"⚠️ Error loading markets for {exchange_id}: {e}")
+
+    def _get_ccxt_symbol(self, symbol: str) -> str:
+        # e.g. BTCUSDT -> BTC/USDT:USDT (futures) or BTC/USDT
+        # Many exchanges require base/quote. Let's find it from loaded markets
+        for s in self.client.symbols:
+            if s.replace('/', '').replace(':', '') == symbol or s.replace('/', '').split(':')[0] == symbol:
+                if self.client.markets[s]['swap']:
+                    return s
+        # fallback
+        return symbol.replace("USDT", "/USDT:USDT")
 
     def get_balance(self) -> float:
-        # Placeholder for real API call
-        return 0.0
+        try:
+            balance = self.client.fetch_balance()
+            if 'USDT' in balance:
+                return float(balance['USDT']['free'])
+            return 0.0
+        except Exception as e:
+            print(f"❌ Error getting balance via CCXT: {e}")
+            return 0.0
 
     def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float, trailing_callback: float = 0.0, activation_price: float = 0.0) -> Dict[str, Any]:
-        # Placeholder
-        raise NotImplementedError("Real Bitget execution not yet fully implemented")
+        ccxt_symbol = self._get_ccxt_symbol(symbol)
+        try:
+            # 1. Set Leverage
+            try:
+                self.client.set_leverage(leverage, ccxt_symbol)
+            except Exception as e:
+                pass # might not be supported or already set
+                
+            # 2. Set Margin Mode
+            try:
+                margin_mode = self.config.exchange.margin_mode.lower() # isolated or cross
+                self.client.set_margin_mode(margin_mode, ccxt_symbol)
+            except Exception as e:
+                pass
+
+            # 3. Calculate Quantity
+            ticker = self.client.fetch_ticker(ccxt_symbol)
+            current_price = float(ticker['last'])
+            
+            quantity = size / current_price
+            
+            # Use CCXT precision formatting
+            quantity = float(self.client.amount_to_precision(ccxt_symbol, quantity))
+            if quantity <= 0:
+                print(f"❌ Calculated quantity is 0 for {ccxt_symbol}")
+                return {}
+
+            ccxt_side = side.lower()
+            
+            print(f"🚀 Placing {side} {ccxt_symbol}: Qty {quantity} @ Market via CCXT")
+            
+            # Unified SL/TP params in CCXT
+            params = {
+                'stopLossPrice': self.client.price_to_precision(ccxt_symbol, sl_price),
+                'takeProfitPrice': self.client.price_to_precision(ccxt_symbol, tp_price)
+            }
+            
+            # Create Market Order
+            order = self.client.create_order(
+                symbol=ccxt_symbol,
+                type='market',
+                side=ccxt_side,
+                amount=quantity,
+                params=params
+            )
+            
+            print(f"✅ Order & Standard SL/TP Placed for {ccxt_symbol}")
+
+            return {
+                "order_id": order.get('id', 'unknown'),
+                "status": order.get('status', 'open'),
+                "filled_price": float(order.get('average', ticker['last'])),
+                "timestamp": datetime.now()
+            }
+            
+        except Exception as e:
+            print(f"❌ CCXT Execution Error: {e}")
+            return {}
 
     def cancel_order(self, symbol: str, order_id: str) -> bool:
-        return False
-        
+        ccxt_symbol = self._get_ccxt_symbol(symbol)
+        try:
+            self.client.cancel_order(order_id, ccxt_symbol)
+            return True
+        except:
+            return False
+            
     def close_position(self, symbol: str) -> bool:
-        return False
+        ccxt_symbol = self._get_ccxt_symbol(symbol)
+        try:
+            positions = self.client.fetch_positions([ccxt_symbol])
+            for p in positions:
+                if p['symbol'] == ccxt_symbol and float(p['contracts']) > 0:
+                    side = 'sell' if p['side'] == 'long' else 'buy'
+                    self.client.create_order(
+                        symbol=ccxt_symbol,
+                        type='market',
+                        side=side,
+                        amount=float(p['contracts']),
+                        params={'reduceOnly': True}
+                    )
+                    print(f"⚠️ Closed position for {ccxt_symbol}")
+                    return True
+            return True
+        except Exception as e:
+            print(f"❌ Error closing position via CCXT: {e}")
+            return False
 
     def get_open_positions(self) -> list:
-        return []
+        try:
+            all_positions = self.client.fetch_positions()
+            active_positions = []
+            
+            for p in all_positions:
+                if float(p.get('contracts', 0)) > 0:
+                    raw_symbol = p['symbol'].split(':')[0].replace('/', '')
+                    active_positions.append({
+                        "symbol": raw_symbol,
+                        "size": float(p['contracts']),
+                        "entry_price": float(p['entryPrice']),
+                        "mark_price": float(p.get('markPrice', p['entryPrice'])),
+                        "pnl": float(p.get('unrealizedPnl', 0)),
+                        "leverage": int(p.get('leverage', self.config.exchange.leverage)),
+                        "side": p['side'].upper()
+                    })
+            return active_positions
+        except Exception as e:
+            print(f"❌ Error fetching positions via CCXT: {e}")
+            return []
 
 try:
     from binance.client import Client
@@ -332,4 +468,4 @@ def get_executor(config: BotConfig) -> ExchangeExecutor:
     elif config.exchange.name.lower() == 'binance':
         return BinanceExecutor(config)
     else:
-        return BitgetExecutor(config)
+        return CCXTExecutor(config)

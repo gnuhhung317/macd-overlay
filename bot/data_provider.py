@@ -8,15 +8,31 @@ from .config import BotConfig
 # In a real scenario, this should be adaptable or use ccxt for multi-exchange support
 try:
     from data_processor import BinanceDataProcessor
+    from ccxt_data_processor import CCXTDataProcessor
 except ImportError:
     import sys
     sys.path.append('..') # Add parent directory to path
     from data_processor import BinanceDataProcessor
+    from ccxt_data_processor import CCXTDataProcessor
 
 class DataProvider:
     def __init__(self, config: BotConfig):
         self.config = config
-        self.processor = BinanceDataProcessor()
+        
+        exchange_name = self.config.exchange.name.lower()
+        if exchange_name == 'binance':
+            self.processor = BinanceDataProcessor(
+                api_key=self.config.exchange.api_key,
+                api_secret=self.config.exchange.api_secret
+            )
+        else:
+            self.processor = CCXTDataProcessor(
+                exchange_id=exchange_name,
+                api_key=self.config.exchange.api_key,
+                api_secret=self.config.exchange.api_secret,
+                password=self.config.exchange.password
+            )
+
         self.interval_map = {
             "1m": 60, "3m": 180, "5m": 300, "15m": 900, "30m": 1800,
             "1h": 3600, "2h": 7200, "4h": 14400, "6h": 21600, "8h": 28800,
