@@ -2,7 +2,6 @@ import time
 import signal
 import sys
 from datetime import datetime
-import traceback
 from telegram_notifier import TelegramNotifier
 from .config import BotConfig
 from .db import DatabaseManager
@@ -76,7 +75,7 @@ class Bot:
                 else:
                     print("⚠️ No coins found matching criteria! Using default list.")
             except Exception as e:
-                print(f"❌ Error fetching coins: {e}\n{traceback.format_exc()}")
+                print(f"❌ Error fetching coins: {e}")
         
         while self.running:
             try:
@@ -116,7 +115,7 @@ class Bot:
                                 self.position_manager.process_symbol(symbol, tf)
                                 
                         except Exception as e:
-                            print(f"⚠️ Error processing {symbol} {tf}: {e}\n{traceback.format_exc()}")
+                            print(f"⚠️ Error processing {symbol} {tf}: {e}")
 
                 # 2. Scan for NEW Entries (Smart Scanner)
                 if len(self.position_manager.active_positions) < self.config.risk.max_open_positions:
@@ -128,7 +127,7 @@ class Bot:
                                 if not self.running: break
                                 self.position_manager.execute_calculated_signal(sig, tf)
                         except Exception as e:
-                            print(f"❌ Scanner Error: {e}\n{traceback.format_exc()}")
+                            print(f"❌ Scanner Error: {e}")
                             
                 # Sleep logic: Wait for next candle close of the smallest timeframe
                 # This prevents continuous scanning and API waste
@@ -165,7 +164,7 @@ class Bot:
             except KeyboardInterrupt:
                 self.stop(None, None)
             except Exception as e:
-                print(f"❌ Critical Loop Error: {e}\n{traceback.format_exc()}")
+                print(f"❌ Critical Loop Error: {e}")
                 time.sleep(60) # Prevent tight loop on crash
 
 if __name__ == "__main__":

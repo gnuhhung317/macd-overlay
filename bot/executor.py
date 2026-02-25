@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 from datetime import datetime
 from .config import BotConfig
-import traceback
 
 class ExchangeExecutor(ABC):
     @abstractmethod
@@ -97,7 +96,7 @@ class CCXTExecutor(ExchangeExecutor):
             self.client.load_markets()
             print(f"[Executor] Initialized CCXT Executor for {exchange_id.upper()} (Real Trading)")
         except Exception as e:
-            print(f"⚠️ Error loading markets for {exchange_id}: {e}\n{traceback.format_exc()}")
+            print(f"⚠️ Error loading markets for {exchange_id}: {e}")
 
     def _get_ccxt_symbol(self, symbol: str) -> str:
         # e.g. BTCUSDT -> BTC/USDT:USDT (futures) or BTC/USDT
@@ -116,7 +115,7 @@ class CCXTExecutor(ExchangeExecutor):
                 return float(balance['USDT']['free'])
             return 0.0
         except Exception as e:
-            print(f"❌ Error getting balance via CCXT: {e}\n{traceback.format_exc()}")
+            print(f"❌ Error getting balance via CCXT: {e}")
             return 0.0
 
     def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float, trailing_callback: float = 0.0, activation_price: float = 0.0) -> Dict[str, Any]:
@@ -161,19 +160,43 @@ class CCXTExecutor(ExchangeExecutor):
                 }
             }
             
-            # Bitget Hack: Forced tradeSide='open' is required even in One-Way mode 
-            # to bypass the 40774 "unilateral pos side mismatch" error.
+            # Bitget Adaptive Logic: Handle both Unilateral and Hedge modes
             if self.config.exchange.name.lower() == 'bitget':
-                params['tradeSide'] = 'open'
-                
-            # Create Market Order (Entry) with SL/TP attached
-            order = self.client.create_order(
-                symbol=ccxt_symbol,
-                type='market',
-                side=ccxt_side,
-                amount=quantity,
-                params=params
-            )
+                try:
+                    # Attempt 1: Assume Unilateral mode (omit tradeSide)
+                    order = self.client.create_order(
+                        symbol=ccxt_symbol,
+                        type='market',
+                        side=ccxt_side,
+                        amount=quantity,
+                        params=params
+                    )
+                except Exception as e:
+                    # Error 40774 indicates a mode mismatch
+                    if '40774' in str(e):
+                        print(f"🔄 Bitget 40774 detected. Retrying with tradeSide='open' (Hedge Mode)...")
+                        params['tradeSide'] = 'open'
+                        # In Hedge mode, we also specify the position side
+                        params['posSide'] = 'long' if ccxt_side == 'buy' else 'short'
+                        
+                        order = self.client.create_order(
+                            symbol=ccxt_symbol,
+                            type='market',
+                            side=ccxt_side,
+                            amount=quantity,
+                            params=params
+                        )
+                    else:
+                        raise e
+            else:
+                # Standard order placement for other exchanges
+                order = self.client.create_order(
+                    symbol=ccxt_symbol,
+                    type='market',
+                    side=ccxt_side,
+                    amount=quantity,
+                    params=params
+                )
             
             print(f"✅ Order & Standard SL/TP Placed for {ccxt_symbol}")
 
@@ -190,7 +213,7 @@ class CCXTExecutor(ExchangeExecutor):
             }
             
         except Exception as e:
-            print(f"❌ CCXT Execution Error: {e}\n{traceback.format_exc()}")
+            print(f"❌ CCXT Execution Error: {e}")
             return {}
 
     def cancel_order(self, symbol: str, order_id: str) -> bool:
@@ -208,18 +231,50 @@ class CCXTExecutor(ExchangeExecutor):
             for p in positions:
                 if p['symbol'] == ccxt_symbol and float(p['contracts']) > 0:
                     side = 'sell' if p['side'] == 'long' else 'buy'
-                    self.client.create_order(
-                        symbol=ccxt_symbol,
-                        type='market',
-                        side=side,
-                        amount=float(p['contracts']),
-                        params={'reduceOnly': True}
-                    )
+                    params = {'reduceOnly': True}
+                    
+                    if self.config.exchange.name.lower() == 'bitget':
+                        try:
+                            # Attempt 1: Assume Unilateral mode (use reduceOnly)
+                            self.client.create_order(
+                                symbol=ccxt_symbol,
+                                type='market',
+                                side=side,
+                                amount=float(p['contracts']),
+                                params=params
+                            )
+                        except Exception as e:
+                            # Error 40774 indicates a mode mismatch
+                            if '40774' in str(e):
+                                print(f"🔄 Bitget 40774 detected during Close. Retrying with tradeSide='close' (Hedge Mode)...")
+                                del params['reduceOnly']
+                                params['tradeSide'] = 'close'
+                                # In Hedge mode, we explicitly provide the position side to be closed
+                                params['posSide'] = p['side'] # 'long' or 'short'
+                                
+                                self.client.create_order(
+                                    symbol=ccxt_symbol,
+                                    type='market',
+                                    side=side,
+                                    amount=float(p['contracts']),
+                                    params=params
+                                )
+                            else:
+                                raise e
+                    else:
+                        # Standard order placement for other exchanges
+                        self.client.create_order(
+                            symbol=ccxt_symbol,
+                            type='market',
+                            side=side,
+                            amount=float(p['contracts']),
+                            params=params
+                        )
                     print(f"⚠️ Closed position for {ccxt_symbol}")
                     return True
             return True
         except Exception as e:
-            print(f"❌ Error closing position via CCXT: {e}\n{traceback.format_exc()}")
+            print(f"❌ Error closing position via CCXT: {e}")
             return False
 
     def get_open_positions(self) -> list:
@@ -241,7 +296,7 @@ class CCXTExecutor(ExchangeExecutor):
                     })
             return active_positions
         except Exception as e:
-            print(f"❌ Error fetching positions via CCXT: {e}\n{traceback.format_exc()}")
+            print(f"❌ Error fetching positions via CCXT: {e}")
             return []
 
 try:
@@ -268,7 +323,7 @@ class BinanceExecutor(ExchangeExecutor):
             for s in info['symbols']:
                 self.symbol_info[s['symbol']] = s
         except Exception as e:
-            print(f"⚠️ Error fetching exchange info: {e}\n{traceback.format_exc()}")
+            print(f"⚠️ Error fetching exchange info: {e}")
 
     def _get_precision(self, symbol: str) -> int:
         """Get quantity precision for symbol"""
@@ -310,7 +365,7 @@ class BinanceExecutor(ExchangeExecutor):
                     return float(b['availableBalance'])
             return 0.0
         except Exception as e:
-            print(f"❌ Error getting balance: {e}\n{traceback.format_exc()}")
+            print(f"❌ Error getting balance: {e}")
             return 0.0
 
     def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float, trailing_callback: float = 0.0, activation_price: float = 0.0) -> Dict[str, Any]:
@@ -410,7 +465,7 @@ class BinanceExecutor(ExchangeExecutor):
             }
             
         except Exception as e:
-            print(f"❌ Execution Error: {e}\n{traceback.format_exc()}")
+            print(f"❌ Execution Error: {e}")
             return {}
 
     def cancel_order(self, symbol: str, order_id: str) -> bool:
@@ -447,7 +502,7 @@ class BinanceExecutor(ExchangeExecutor):
             return True
             
         except Exception as e:
-            print(f"❌ Error closing position: {e}\n{traceback.format_exc()}")
+            print(f"❌ Error closing position: {e}")
             return False
 
     def get_open_positions(self) -> list:
@@ -477,7 +532,7 @@ class BinanceExecutor(ExchangeExecutor):
                     })
             return active_positions
         except Exception as e:
-            print(f"❌ Error fetching positions: {e}\n{traceback.format_exc()}")
+            print(f"❌ Error fetching positions: {e}")
             return []
 
 def get_executor(config: BotConfig) -> ExchangeExecutor:
