@@ -25,7 +25,7 @@ class Bot:
         self.executor = get_executor(self.config)
         
         # Initialize Smart Scanner
-        self.scanner = SmartScanner(self.config) # Let it create its own processor
+        self.scanner = SmartScanner(self.config, self.data_provider.processor)
         
         # Initialize Telegram Notifier
         self.notifier = None

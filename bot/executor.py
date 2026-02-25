@@ -85,6 +85,8 @@ class CCXTExecutor(ExchangeExecutor):
         }
         if config.exchange.password:
             exchange_args['password'] = config.exchange.password
+        elif hasattr(config.exchange, 'passphrase') and config.exchange.passphrase:
+            exchange_args['password'] = config.exchange.passphrase
             
         self.client = exchange_class(exchange_args)
         
