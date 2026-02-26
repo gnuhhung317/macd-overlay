@@ -399,7 +399,7 @@ def main():
     combined = pd.concat([df_eq for _, df_eq in all_results], ignore_index=True)
     combined = compute_drawdown_features(combined)
 
-    combined_path = output_dir / 'all_windows_combined.csv'
+    combined_path = output_dir / f'{args.timeframe}_all_windows_combined.csv'
     combined.to_csv(combined_path, index=False)
     print(f"💾 Combined dataset: {combined_path} ({len(combined):,} rows)")
 
@@ -473,7 +473,6 @@ def main():
 
     print(f"\n✅ Done! Use analyze_drawdowns.py for detailed analysis:")
     print(f"   python ml/analyze_drawdowns.py --input {combined_path}")
-
 
 if __name__ == '__main__':
     main()

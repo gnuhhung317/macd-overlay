@@ -467,17 +467,17 @@ def plot_time_based_equity(daily_equity_df, trades, benchmark_df=None, title="Ti
     
     return fig
 
-def print_time_based_stats(daily_equity_df, trades, benchmark_df=None):
+def print_time_based_stats(daily_equity_df, trades, benchmark_df=None, target_initial_capital=100.0):
     """Print comprehensive time-based performance statistics with mark-to-market."""
     
     # Calculate metrics
     total_days = len(daily_equity_df)
     trading_days = len([d for d in daily_equity_df.get('daily_realized_pnl', [0]) if d != 0])
     
-    initial_equity = daily_equity_df['equity'].iloc[0]
+    # Use specified initial capital for more accurate return stats
+    initial_equity = target_initial_capital
     final_equity = daily_equity_df['equity'].iloc[-1]
     total_return = (final_equity / initial_equity - 1) * 100
-    
     # Daily returns (log returns)
     daily_returns = daily_equity_df['daily_return']
     positive_days = len([r for r in daily_returns if r > 0])
@@ -822,7 +822,7 @@ def main():
             daily_equity_df = daily_equity_df.drop(columns=['date_dt'])
 
         # Print enhanced statistics
-        print_time_based_stats(daily_equity_df, result.trades, benchmark_df)
+        print_time_based_stats(daily_equity_df, result.trades, benchmark_df, initial_capital)
         
         # Plot enhanced equity curve
         print(f"\n📈 Creating enhanced time-based equity curve plot...")
@@ -856,5 +856,7 @@ def main():
     print(f"\n✅ Analysis complete!")
     plt.show()
 
+if __name__ == '__main__':
+    main()
 if __name__ == '__main__':
     main()
