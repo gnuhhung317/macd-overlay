@@ -99,10 +99,9 @@ def run_single_window(args_dict, df_path, window_start, window_end, window_idx, 
             entry_pullback_pct=args_dict['entry_pullback'],
             entry_pullback_timeout=args_dict['entry_timeout'],
             max_bars=args_dict['max_bars'],
-            use_scanner_filter=args_dict['use_scanner'],
-            scanner_mae=args_dict['scanner_mae'],
             scanner_mfe=args_dict['scanner_mfe'],
             scanner_lookback_days=args_dict['scanner_lookback'],
+            min_refined_score=args_dict.get('min_score', 0.0),
             **cb_kwargs
         )
 
@@ -238,6 +237,7 @@ def main():
     parser.add_argument('--capital', type=float, default=100.0, help='Initial capital')
     parser.add_argument('--risk', type=float, default=0.01, help='Risk per trade')
     parser.add_argument('--threshold', type=float, default=0.65, help='Entry confidence threshold')
+    parser.add_argument('--min-score', type=float, default=0.0, help='Minimum refined score threshold (0.33, 0.66, 1.0)')
     parser.add_argument('--fee', type=float, default=0.001, help='Fee rate')
     parser.add_argument('--slippage', type=float, default=0.0005, help='Slippage')
     parser.add_argument('--kelly', action='store_true', help='Use Kelly Criterion')

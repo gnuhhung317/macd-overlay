@@ -1,0 +1,259 @@
+{
+  "config": {
+    "start": "2025-09-01",
+    "end": "2026-02-25",
+    "window_days": 30,
+    "step_days": 30,
+    "timeframe": "8h",
+    "leverage": 7.0,
+    "threshold": 0.6,
+    "max_positions": 13,
+    "use_scanner": true
+  },
+  "windows": [
+    {
+      "start": "2025-09-01",
+      "end": "2025-10-01",
+      "results": {
+        "All Signals": {
+          "threshold": 0.0,
+          "return_pct": 55.36574260868864,
+          "max_dd_pct": 30.928456576239782,
+          "win_rate_pct": 60.86956521739131,
+          "trades": 46,
+          "profit_factor": 1.3410363016148024,
+          "avg_trade_pnl": 1.203603100188883
+        },
+        "Weak (>=0.33)": {
+          "threshold": 0.33,
+          "return_pct": 143.07390943735808,
+          "max_dd_pct": 16.629753538865884,
+          "win_rate_pct": 68.42105263157895,
+          "trades": 38,
+          "profit_factor": 2.1667876733550853,
+          "avg_trade_pnl": 3.7651028799304758
+        },
+        "Balanced (>=0.66)": {
+          "threshold": 0.66,
+          "return_pct": 168.87844203728062,
+          "max_dd_pct": 9.346551705618772,
+          "win_rate_pct": 80.95238095238095,
+          "trades": 21,
+          "profit_factor": 4.467954636318833,
+          "avg_trade_pnl": 8.041830573203839
+        },
+        "Elite (1.0)": {
+          "threshold": 1.0,
+          "return_pct": 40.06847473110153,
+          "max_dd_pct": 0,
+          "win_rate_pct": 100.0,
+          "trades": 5,
+          "profit_factor": 40.06847473110153,
+          "avg_trade_pnl": 8.013694946220307
+        }
+      }
+    },
+    {
+      "start": "2025-10-01",
+      "end": "2025-10-31",
+      "results": {
+        "All Signals": {
+          "threshold": 0.0,
+          "return_pct": 4525.699335718921,
+          "max_dd_pct": 37.12591170041037,
+          "win_rate_pct": 64.81481481481481,
+          "trades": 54,
+          "profit_factor": 2.385325633892384,
+          "avg_trade_pnl": 83.80924695775782
+        },
+        "Weak (>=0.33)": {
+          "threshold": 0.33,
+          "return_pct": 4255.158447138105,
+          "max_dd_pct": 31.401640175974038,
+          "win_rate_pct": 65.38461538461539,
+          "trades": 52,
+          "profit_factor": 3.2089332906196084,
+          "avg_trade_pnl": 81.82997013727125
+        },
+        "Balanced (>=0.66)": {
+          "threshold": 0.66,
+          "return_pct": 1329.20982016697,
+          "max_dd_pct": 22.128745567427778,
+          "win_rate_pct": 70.58823529411765,
+          "trades": 34,
+          "profit_factor": 2.945034588987967,
+          "avg_trade_pnl": 39.09440647549911
+        },
+        "Elite (1.0)": {
+          "threshold": 1.0,
+          "return_pct": 344.66038545541653,
+          "max_dd_pct": 13.379828640427945,
+          "win_rate_pct": 69.23076923076923,
+          "trades": 13,
+          "profit_factor": 5.91300859074242,
+          "avg_trade_pnl": 26.512337342724344
+        }
+      }
+    },
+    {
+      "start": "2025-10-31",
+      "end": "2025-11-30",
+      "results": {
+        "All Signals": {
+          "threshold": 0.0,
+          "return_pct": 1054.1707618552223,
+          "max_dd_pct": 33.42026664643215,
+          "win_rate_pct": 67.9245283018868,
+          "trades": 53,
+          "profit_factor": 2.2776134003312523,
+          "avg_trade_pnl": 19.890014374626837
+        },
+        "Weak (>=0.33)": {
+          "threshold": 0.33,
+          "return_pct": 1309.6346002394343,
+          "max_dd_pct": 16.272079736834566,
+          "win_rate_pct": 74.50980392156863,
+          "trades": 51,
+          "profit_factor": 3.4845044103165854,
+          "avg_trade_pnl": 25.67910980861635
+        },
+        "Balanced (>=0.66)": {
+          "threshold": 0.66,
+          "return_pct": 143.7711592589599,
+          "max_dd_pct": 18.98434843875705,
+          "win_rate_pct": 72.22222222222221,
+          "trades": 18,
+          "profit_factor": 3.6234296731406577,
+          "avg_trade_pnl": 7.987286625497772
+        },
+        "Elite (1.0)": {
+          "threshold": 1.0,
+          "return_pct": 15.160484671693023,
+          "max_dd_pct": 22.13616343249235,
+          "win_rate_pct": 62.5,
+          "trades": 8,
+          "profit_factor": 1.5850576861450498,
+          "avg_trade_pnl": 1.8950605839616275
+        }
+      }
+    },
+    {
+      "start": "2025-11-30",
+      "end": "2025-12-30",
+      "results": {
+        "All Signals": {
+          "threshold": 0.0,
+          "return_pct": 89.67203192116305,
+          "max_dd_pct": 60.23387914959899,
+          "win_rate_pct": 59.57446808510638,
+          "trades": 47,
+          "profit_factor": 1.659208016320294,
+          "avg_trade_pnl": 1.9079155727907033
+        },
+        "Weak (>=0.33)": {
+          "threshold": 0.33,
+          "return_pct": 60.68953537557468,
+          "max_dd_pct": 65.82240529907261,
+          "win_rate_pct": 62.5,
+          "trades": 40,
+          "profit_factor": 1.6905139700151095,
+          "avg_trade_pnl": 1.517238384389366
+        },
+        "Balanced (>=0.66)": {
+          "threshold": 0.66,
+          "return_pct": 111.0752736596507,
+          "max_dd_pct": 49.16467186124524,
+          "win_rate_pct": 72.41379310344827,
+          "trades": 29,
+          "profit_factor": 2.8328054139748553,
+          "avg_trade_pnl": 3.8301818503327834
+        },
+        "Elite (1.0)": {
+          "threshold": 1.0,
+          "return_pct": -6.655330825231491,
+          "max_dd_pct": 42.431777698591254,
+          "win_rate_pct": 50.0,
+          "trades": 14,
+          "profit_factor": 0.8543816680838268,
+          "avg_trade_pnl": -0.47538077323082134
+        }
+      }
+    },
+    {
+      "start": "2025-12-30",
+      "end": "2026-01-29",
+      "results": {
+        "All Signals": {
+          "threshold": 0.0,
+          "return_pct": 6.666322002651191,
+          "max_dd_pct": 50.2811146123477,
+          "win_rate_pct": 46.51162790697674,
+          "trades": 43,
+          "profit_factor": 1.0389926639181046,
+          "avg_trade_pnl": 0.1550307442477023
+        },
+        "Weak (>=0.33)": {
+          "threshold": 0.33,
+          "return_pct": -17.934890324656948,
+          "max_dd_pct": 44.72257445185153,
+          "win_rate_pct": 45.0,
+          "trades": 40,
+          "profit_factor": 0.8867680947643283,
+          "avg_trade_pnl": -0.4483722581164239
+        },
+        "Balanced (>=0.66)": {
+          "threshold": 0.66,
+          "return_pct": 35.98605459232384,
+          "max_dd_pct": 36.35524128762302,
+          "win_rate_pct": 60.86956521739131,
+          "trades": 23,
+          "profit_factor": 1.540507836999868,
+          "avg_trade_pnl": 1.5646110692314719
+        },
+        "Elite (1.0)": {
+          "threshold": 1.0,
+          "return_pct": -0.44674111917537296,
+          "max_dd_pct": 5.111552222407424,
+          "win_rate_pct": 50.0,
+          "trades": 6,
+          "profit_factor": 0.9712253624890091,
+          "avg_trade_pnl": -0.0744568531958955
+        }
+      }
+    }
+  ],
+  "summary": [
+    {
+      "label": "All Signals",
+      "avg_return": 1146.314838821329,
+      "median_return": 89.67203192116305,
+      "max_drawdown": 60.23387914959899,
+      "avg_profit_factor": 1.7404352032153674,
+      "avg_trades": 48.6
+    },
+    {
+      "label": "Weak (>=0.33)",
+      "avg_return": 1150.124320373163,
+      "median_return": 143.07390943735808,
+      "max_drawdown": 65.82240529907261,
+      "avg_profit_factor": 2.287501487814143,
+      "avg_trades": 44.2
+    },
+    {
+      "label": "Balanced (>=0.66)",
+      "avg_return": 357.78414994303705,
+      "median_return": 143.7711592589599,
+      "max_drawdown": 49.16467186124524,
+      "avg_profit_factor": 3.0819464298844363,
+      "avg_trades": 25.0
+    },
+    {
+      "label": "Elite (1.0)",
+      "avg_return": 78.55745458276085,
+      "median_return": 15.160484671693023,
+      "max_drawdown": 42.431777698591254,
+      "avg_profit_factor": 9.878429607712366,
+      "avg_trades": 9.2
+    }
+  ]
+}

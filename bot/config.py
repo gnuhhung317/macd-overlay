@@ -33,6 +33,7 @@ class StrategyConfig(BaseModel):
     timeout_candles: int = 10
     require_fresh_crossover: bool = True
     min_rr_ratio: float = 1.0
+    min_refined_score: float = 0.0 # Standard: 0.0, Balanced: 0.66, Elite: 1.0
     allowed_zones: List[str] = ["DEEP MERGE"] # Optimal setting from Grid Search
     
     # Trailing Stop settings

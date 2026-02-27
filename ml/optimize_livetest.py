@@ -98,7 +98,8 @@ def run_rolling_optimization(args):
             use_kelly=True,  # Kelly is recommended for live
             max_open_trades=args.max_positions,
             use_scanner_filter=args.use_scanner,
-            use_circuit_breaker=True  # Important to enable circuit breaker for robustness
+            use_circuit_breaker=True,  # Important to enable circuit breaker for robustness
+            min_refined_score=args.min_score
         )
         template_bt = ThreeStageBacktester(base_config)
         
@@ -254,7 +255,8 @@ def run_optuna_optimization(args):
         use_kelly=True,
         max_open_trades=args.max_positions,
         use_scanner_filter=args.use_scanner,
-        use_circuit_breaker=True
+        use_circuit_breaker=True,
+        min_refined_score=args.min_score
     )
     template_bt = ThreeStageBacktester(base_config)
     
@@ -341,6 +343,7 @@ if __name__ == "__main__":
     parser.add_argument('--step-days', type=int, default=30, help='How many days to shift the window each step')
     
     parser.add_argument('--capital', type=float, default=100.0)
+    parser.add_argument('--min-score', type=float, default=0.0, help='Minimum refined score threshold (0.33, 0.66, 1.0)')
     parser.add_argument('--risk', type=float, default=0.01)
     parser.add_argument('--fee', type=float, default=0.001)
     parser.add_argument('--slippage', type=float, default=0.0005)

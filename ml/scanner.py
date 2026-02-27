@@ -18,6 +18,23 @@ class SmartScanner:
         self.processor = data_processor if data_processor else BinanceDataProcessor(use_futures=True)
         # Cache engines to avoid reloading
         self._engines = {} 
+        # Load success profiles for refined score
+        self.profiles = {}
+        self._load_profiles()
+
+    def _load_profiles(self):
+        """Load timeframe-specific success profiles for refined filtering."""
+        model_dir = Path(__file__).parent / 'models'
+        timeframes = ['4h', '8h', '12h', '1d']
+        import json
+        for tf in timeframes:
+            p = model_dir / f'profile_{tf}.json'
+            if p.exists():
+                try:
+                    with open(p, 'r') as f:
+                        self.profiles[tf] = json.load(f)
+                except Exception as e:
+                    print(f"[Scanner] Failed to load profile for {tf}: {e}")
 
     def get_engine(self, timeframe: str) -> InferenceEngine:
         """Get or lazy-load InferenceEngine for timeframe"""
@@ -156,7 +173,11 @@ class SmartScanner:
                     # print(f"[Scanner Debug] {symbol}: Skipped (Price moved too far)")
                     continue
                 
-                # 8. Compile Result
+                # 8. Refined Score Calculation
+                score_data = self.get_refined_score(row, timeframe)
+                refined_score = score_data['score']
+
+                # 9. Compile Result
                 meta_cleaned = self.clean_for_msgpack(prediction)
                 
                 signal_data = {
@@ -167,6 +188,7 @@ class SmartScanner:
                     'status': status,
                     'signal_price': float(cross_price), # Ensure float
                     'current_price': float(live_price), # Use live price for display
+                    'refined_score': float(refined_score),
                     'sl_pct': float(prediction.get('sl_pct', 0.02)),
                     'tp_pct': float(prediction.get('tp_pct', 0.04)),
                     'risk_reward': float(prediction.get('risk_reward', 0.0)),
@@ -246,3 +268,47 @@ class SmartScanner:
             else: status = "⚠️ CHASING"
             
         return status
+
+    def get_refined_score(self, row, timeframe: str) -> Dict:
+        """Calculate refined score (0-1) and return details."""
+        result = {'score': 1.0, 'total': 0, 'factors': [], 'pass_count': 0}
+        
+        if not timeframe or timeframe not in self.profiles:
+            return result
+            
+        direction = 'LONG' if row.get('macd_cross_up', 0) == 1 else 'SHORT'
+        
+        tf_profile = self.profiles[timeframe]
+        if direction not in tf_profile:
+            return result
+            
+        score = 0
+        filters = tf_profile[direction]
+        total = len(filters)
+        factors = []
+        
+        for f in filters:
+            val = row.get(f['feat'], 0)
+            passed = False
+            if f['shift'] > 0:
+                if val >= f['w_mean'] - 0.2 * f['std']: 
+                    score += 1
+                    passed = True
+            else:
+                if val <= f['w_mean'] + 0.2 * f['std']: 
+                    score += 1
+                    passed = True
+            
+            factors.append({
+                'feature': f['feat'],
+                'value': float(val),
+                'target': float(f['w_mean']),
+                'passed': passed
+            })
+                
+        return {
+            'score': score / total if total > 0 else 1.0,
+            'total': total,
+            'pass_count': score,
+            'factors': factors
+        }

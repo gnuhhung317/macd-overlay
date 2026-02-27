@@ -137,6 +137,7 @@ def run_single_combo(df_full, threshold, window, args):
         entry_threshold=threshold,
         use_scanner_filter=args.use_scanner,
         max_open_trades=args.max_positions,
+        min_refined_score=args.min_score,
     )
 
     # Baseline
@@ -258,6 +259,7 @@ def main():
     parser.add_argument('--dd-max', type=float, default=0.40, help='Max DD constraint')
     parser.add_argument('--thresholds', type=str, default='0.60,0.65',
                        help='Comma-separated entry thresholds (default: 0.60,0.65)')
+    parser.add_argument('--min-score', type=float, default=0.0, help='Minimum refined score threshold (0.33, 0.66, 1.0)')
     parser.add_argument('--n-jobs', type=int, default=-1, help='Number of parallel processes (-1 for all cores)')
     
     # Rolling window args
@@ -355,6 +357,7 @@ def main():
                 'dd_max': args.dd_max,
                 'leverage': args.leverage,
                 'max_positions': args.max_positions,
+                'min_score': args.min_score
             },
             'results': all_results,
         }, f, indent=2, default=str)

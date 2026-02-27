@@ -153,6 +153,7 @@ def run_optimization(args):
         entry_threshold=args.threshold,
         use_scanner_filter=args.use_scanner,
         max_open_trades=args.max_positions,
+        min_refined_score=args.min_score,
     )
 
     # Run baseline first
@@ -289,6 +290,7 @@ def main():
     parser.add_argument('--start', type=str, default=None, help='Start date (YYYY-MM-DD)')
     parser.add_argument('--end', type=str, default=None, help='End date (YYYY-MM-DD)')
     parser.add_argument('--threshold', type=float, default=0.65, help='Entry confidence threshold')
+    parser.add_argument('--min-score', type=float, default=0.0, help='Minimum refined score threshold (0.33, 0.66, 1.0)')
     parser.add_argument('--use-scanner', action='store_true', help='Enable daily Top Volatility scanner filter')
     parser.add_argument('--max-positions', type=int, default=15, help='Maximum open trades')
     parser.add_argument('--objective', type=str, default='calmar',

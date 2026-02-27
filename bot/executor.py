@@ -112,7 +112,7 @@ class CCXTExecutor(ExchangeExecutor):
         try:
             balance = self.client.fetch_balance()
             if 'USDT' in balance:
-                return float(balance['USDT']['free'])
+                return float(balance['USDT']['total']) # Use Total (Equity/Margin Balance) instead of Free
             return 0.0
         except Exception as e:
             print(f"❌ Error getting balance via CCXT: {e}")
@@ -362,7 +362,7 @@ class BinanceExecutor(ExchangeExecutor):
             balances = self.client.futures_account_balance()
             for b in balances:
                 if b['asset'] == 'USDT':
-                    return float(b['availableBalance'])
+                    return float(b['marginBalance']) # Use Margin Balance (Equity) instead of Available
             return 0.0
         except Exception as e:
             print(f"❌ Error getting balance: {e}")

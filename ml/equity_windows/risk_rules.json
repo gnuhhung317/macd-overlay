@@ -1,10 +1,34 @@
 [
   {
+    "name": "HIGH_VOLATILITY_FILTER",
+    "condition": "rolling_vol > 0.25399",
+    "action": "REDUCE_LEVERAGE",
+    "detail": "When equity vol > 0.25399, reduce leverage by 50%",
+    "lift": 3.2665390924002184,
+    "p_value": 2.6784357495123936e-26
+  },
+  {
+    "name": "HIGH_VOLATILITY_FILTER",
+    "condition": "rolling_vol > 0.27706",
+    "action": "REDUCE_LEVERAGE",
+    "detail": "When equity vol > 0.27706, reduce leverage by 50%",
+    "lift": 2.725372753918695,
+    "p_value": 1.4194567096602508e-18
+  },
+  {
+    "name": "WEAK_TREND_FILTER",
+    "condition": "btc_adx < 20.0",
+    "action": "REDUCE_POSITION_SIZE",
+    "detail": "When BTC ADX < 20.0, reduce position size 50% (weak trend = bad for trend-following)",
+    "lift": 1.6223417500871558,
+    "p_value": 0.0011029472149828728
+  },
+  {
     "name": "BTC_MARKET_FILTER",
-    "condition": "BTC RSI > 70 (overbought)",
+    "condition": "btc_vol_14d >= 0.0274 (top 25%)",
     "action": "REDUCE_EXPOSURE",
-    "detail": "BTC RSI > 70 (overbought) \u2192 reduce exposure",
-    "lift": 2.221182266009852,
-    "p_value": 1.4409575639989416e-14
+    "detail": "High BTC vol (14d, top 25%) \u2192 reduce exposure",
+    "lift": 1.482930540492416,
+    "p_value": 0.0019007829026435516
   }
 ]

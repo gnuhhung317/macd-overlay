@@ -722,6 +722,53 @@ def generate_risk_rules(results_tuple, threshold_dd):
     
     return rules
 
+from sklearn.tree import DecisionTreeClassifier, export_text
+from sklearn.model_selection import train_test_split
+
+def run_ml_decision_tree(df, threshold_dd):
+    print(f"\n{'='*80}")
+    print(f"🧠 MACHINE LEARNING: MULTI-CONDITION INSIGHTS (Decision Tree)")
+    print(f"{'='*80}")
+    
+    # 1. Chọn các features (chỉ dùng Leading Indicators)
+    features = ['btc_rsi', 'btc_adx', 'btc_chop', 'btc_atr_ratio', 
+                'rolling_vol_5d', 'rolling_vol_10d', 'open_positions_count']
+    
+    # Thêm encode cho btc_trend (1 là DOWNTREND, 0 là UPTREND)
+    if 'btc_trend' in df.columns:
+        df['btc_trend_encoded'] = np.where(df['btc_trend'] == 'DOWNTREND', 1, 0)
+        features.append('btc_trend_encoded')
+
+    # Lọc data hợp lệ
+    ml_df = df.dropna(subset=features + ['drawdown_pct']).copy()
+    if len(ml_df) < 50:
+        print(" ⚠️ Không đủ dữ liệu để chạy Machine Learning.")
+        return
+
+    X = ml_df[features]
+    y = np.where(ml_df['drawdown_pct'] > threshold_dd, 1, 0) # 1 = Bị Drawdown nặng
+
+    # 2. Train mô hình (Giới hạn depth=3 để chống Overfitting và dễ đọc)
+    clf = DecisionTreeClassifier(max_depth=3, class_weight='balanced', random_state=42)
+    clf.fit(X, y)
+
+    # 3. Xuất luật ra dạng text dễ hiểu
+    tree_rules = export_text(clf, feature_names=list(X.columns))
+    print("\n🔍 Các nhánh ra quyết định (Class 1 = Drawdown > 35%, Class 0 = An toàn):")
+    print(tree_rules)
+    
+    # 4. In ra Feature Importance (Trọng số quan trọng nhất)
+    importances = pd.DataFrame({
+        'Feature': X.columns,
+        'Importance': clf.feature_importances_
+    }).sort_values('Importance', ascending=False)
+    
+    print("\n🏆 Top các chỉ số quyết định sự sống còn:")
+    for _, row in importances.head(5).iterrows():
+        print(f"   • {row['Feature']:<20}: {row['Importance']:.2f}")
+
+    return clf
+
 
 # ─── MAIN ────────────────────────────────────────────────────────────────────
 
@@ -793,10 +840,10 @@ def main():
     print(f"💾 Enriched analysis saved: {analysis_path}")
     
     # Plots
-    if not args.no_plot:
-        print(f"\n📊 Generating condition analysis plots...")
-        plot_condition_analysis(df, results, args.threshold, output_dir)
-    
+    # if not args.no_plot:
+    #     print(f"\n📊 Generating condition analysis plots...")
+    #     plot_condition_analysis(df, results, args.threshold, output_dir)
+    run_ml_decision_tree(df, args.threshold)
     print(f"\n✅ Analysis complete!")
 
 

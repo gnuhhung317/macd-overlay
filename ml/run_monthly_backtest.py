@@ -64,15 +64,16 @@ def main():
     # Matching arguments from backtest_3stage.py & plot_time_equity.py
     parser.add_argument('--data', type=str, default=None, help='Path to data file')
     parser.add_argument('--capital', type=float, default=100.0, help='Initial capital for each month')
-    parser.add_argument('--risk', type=float, default=0.01, help='Risk per trade (0.01 = 1%)')
+    parser.add_argument('--risk', type=float, default=0.01, help='Risk per trade (0.01 = 1%%)')
     parser.add_argument('--threshold', type=float, default=0.65, help='Entry confidence threshold')
-    parser.add_argument('--fee', type=float, default=0.001, help='Fee rate (0.001 = 0.1%)')
-    parser.add_argument('--slippage', type=float, default=0.0005, help='Slippage (0.0005 = 0.05%)')
+    parser.add_argument('--fee', type=float, default=0.001, help='Fee rate (0.001 = 0.1%%)')
+    parser.add_argument('--slippage', type=float, default=0.0005, help='Slippage (0.0005 = 0.05%%)')
     parser.add_argument('--kelly', action='store_true', help='Use Kelly Criterion')
     parser.add_argument('--fixed-size', action='store_true', help='Use fixed position size')
     parser.add_argument('--size-usd', type=float, default=1000, help='Fixed position size in USD')
     parser.add_argument('--leverage', type=float, default=20.0, help='Leverage multiplier')
     parser.add_argument('--max-positions', type=int, default=10, help='Max open positions')
+    parser.add_argument('--min-score', type=float, default=0.0, help='Minimum refined score threshold (0.33, 0.66, 1.0)')
     
     # Trailing Stop arguments
     parser.add_argument('--trailing', action='store_true', help='Enable Trailing Stop')
@@ -153,7 +154,8 @@ def main():
         use_scanner_filter=args.use_scanner,
         scanner_mae=args.scanner_mae,
         scanner_mfe=args.scanner_mfe,
-        scanner_lookback_days=args.scanner_lookback
+        scanner_lookback_days=args.scanner_lookback,
+        min_refined_score=args.min_score
     )
     
     print(f"\n" + "="*85)

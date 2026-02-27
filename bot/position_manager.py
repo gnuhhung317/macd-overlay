@@ -343,7 +343,14 @@ class PositionManager:
             # Block CHASING and TOO LATE
             print(f"🚫 {symbol} filtered by Entry Zone: {signal_data['status']}")
             return
-        # print(f"DEBUG: {symbol} passed zone filter")
+        
+        # 4. Refined Score Filter
+        min_score = self.config.strategy.min_refined_score
+        refined_score = signal_data.get('refined_score', 0.0)
+        if refined_score < min_score:
+            print(f"🚫 {symbol} filtered by Refined Score: {refined_score:.2f} < {min_score:.2f}")
+            return
+        # print(f"DEBUG: {symbol} passed zone and score filters")
 
         # Convert Scanner format to internal Analysis format
         analysis = {

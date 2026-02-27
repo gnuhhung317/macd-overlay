@@ -123,6 +123,11 @@ class Bot:
                         print(f"📡 Scanning {len(self.config.coins)} coins on {tf}...")
                         try:
                             signals = self.scanner.scan(self.config.coins, tf)
+                            
+                            # PRIORITIZATION: Sort signals by confidence (descending)
+                            # This ensures we take the "Elite" signals first if slot limited.
+                            signals.sort(key=lambda x: x.get('confidence', 0), reverse=True)
+                            
                             for sig in signals:
                                 if not self.running: break
                                 self.position_manager.execute_calculated_signal(sig, tf)

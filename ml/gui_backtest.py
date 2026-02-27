@@ -339,6 +339,7 @@ def main():
     parser.add_argument('--max-pos', '--max-positions', type=int, default=10, dest='max_positions', help='Max open positions')
     parser.add_argument('--threshold', type=float, default=0.65, help='Entry confidence threshold')
     parser.add_argument('--use-scanner', action='store_true', help='Enable SmartScanner Entry Zone filtering')
+    parser.add_argument('--live-mode', action='store_true', help='Calculate risk based on available balance (mimics Livebot)')
     args = parser.parse_args()
     
     # Configure backtest
@@ -356,6 +357,7 @@ def main():
         max_open_trades=max_pos_val,
         entry_threshold=args.threshold,
         use_scanner_filter=args.use_scanner,
+        use_available_balance_for_risk=args.live_mode,
         start_date=args.start,
         end_date=args.end
     )

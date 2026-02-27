@@ -33,7 +33,7 @@ def run_baseline_backtest(args):
     margin_mode = args.margin_mode
     use_kelly = args.kelly
     
-    logger.info(f"🚀 Running Baseline Backtest (Timeframe: {timeframe}, Leverage: {leverage}x)")
+    logger.info(f"  Running Baseline Backtest (Timeframe: {timeframe}, Leverage: {leverage}x)")
     
     # Load data
     data_path = Path(__file__).parent.parent / 'bitget-data' / 'processed' / f'features_{timeframe}_full.parquet'
@@ -44,7 +44,7 @@ def run_baseline_backtest(args):
         data_path = Path(args.data)
         
     if not data_path.exists():
-        logger.error(f"❌ Data file not found: {data_path}")
+        logger.error(f"  Data file not found: {data_path}")
         return None, None
     
     df = pd.read_parquet(data_path)
@@ -61,7 +61,7 @@ def run_baseline_backtest(args):
     ].copy()
     
     if df_with_warmup.empty:
-        logger.error("❌ No data found for the specified period!")
+        logger.error("  No data found for the specified period!")
         return None, None
     
     # Configure backtest
@@ -88,10 +88,8 @@ def run_baseline_backtest(args):
         entry_pullback_timeout=args.entry_timeout,
         max_bars=args.max_bars,
         # Scanner options
-        use_scanner_filter=args.use_scanner,
-        scanner_mae=args.scanner_mae,
-        scanner_mfe=args.scanner_mfe,
         scanner_lookback_days=args.scanner_lookback,
+        min_refined_score=args.min_score
         # global_cb_pct=args.global_cb,
         # global_cb_cooldown=args.global_cb_cooldown
     )
@@ -105,7 +103,7 @@ def run_baseline_backtest(args):
     
     valid_trades = [t for t in result.trades if t.entry_time.replace(tzinfo=None) >= analysis_start_ts]
     
-    logger.info(f"✅ Baseline complete. Extracted {len(valid_trades)} completed trades.")
+    logger.info(f"  Baseline complete. Extracted {len(valid_trades)} completed trades.")
     
     # Determine actual initial capital (in case of warm-up or active trades)
     actual_initial_capital = config.initial_capital
@@ -118,51 +116,53 @@ def run_baseline_backtest(args):
                 break
         actual_initial_capital = result.equity_curve[start_idx] if start_idx < len(result.equity_curve) else config.initial_capital
         
-    return valid_trades, actual_initial_capital
+    return result.signal_pool, len(valid_trades), actual_initial_capital
 
 def extract_trade_returns(trades):
     """
-    Extract Trade Return % (Account Impact).
-    We mimic the actual PnL generated relative to the account capital available when it executed.
+    Extract Trade Data (PnL% and SL%).
     """
-    trade_impacts = []
+    trade_data = []
     
-    # Simulate a running Realized Equity to extract true percentage impact per trade
-    working_equity = 100.0  # Normalized Base capital
-    
-    # Sort by exit time to determine realized equity timeline
-    sorted_trades = sorted(trades, key=lambda x: x.exit_time if x.exit_time else x.entry_time)
-    
-    for t in sorted_trades:
-        if t.position_size <= 0: continue
-            
-        # PnL scaling
-        # Assuming Fixed Risk, impact_pct relies on SL risk ratio.
-        # But for Monte Carlo, we just take the relative impact it had on the exact balance
-        impact_pct = t.pnl / working_equity
-        working_equity += t.pnl
-        
-        trade_impacts.append({
+    for t in trades:
+        # We need both pnl_pct and sl_pct to calculate realistic account impact
+        trade_data.append({
             'symbol': t.symbol,
-            'impact_pct': impact_pct, 
-            'pnl': t.pnl,
-            'original_equity': working_equity - t.pnl
+            'pnl_pct': t.pnl_pct,  # Raw price change
+            'sl_pct': max(0.005, t.sl_pct) # Floor SL at 0.5% for stability
         })
         
-    return trade_impacts
+    return trade_data
 
-def simulate_equity_curve_fast(trade_impacts, initial_capital, num_trades):
+def simulate_equity_curve_fast(trade_impacts, initial_capital, num_trades, leverage, fee_rate, risk_per_trade):
     """
     Simulate a single equity curve utilizing bootstrap sampling of returns using numpy.
-    Compounding mathematically: E_{t} = E_{t-1} * (1 + impact_pct)
+    Follows backtester logic: size = min(risk/sl, leverage)
     """
     # Sample impacts with replacement
     sampled_indices = np.random.randint(0, len(trade_impacts), size=num_trades)
-    sampled_impacts = np.array([trade_impacts[i]['impact_pct'] for i in sampled_indices])
+    sampled_pnl_pcts = np.array([trade_impacts[i]['pnl_pct'] for i in sampled_indices])
+    sampled_sl_pcts = np.array([trade_impacts[i]['sl_pct'] for i in sampled_indices])
     
-    # Compounding Equity Curve calculation
-    # E_t = Initial * cumprod(1 + r_t)
-    returns = 1.0 + sampled_impacts
+    # [Warning] FIX: Leverage should NOT be a multiplier for risk-based sizing.
+    # Risk-based sizing ALREADY calculates the necessary position size to lose 'risk_amount'
+    # if 'sl_pct' is hit. Leverage is simply the mechanism that allows this size.
+    # The true constraint is: position_size <= capital * leverage
+    size_factors = np.minimum(risk_per_trade / sampled_sl_pcts, leverage)
+    
+    # Leveraged account impact: size_factor * price_change
+    account_pnl = sampled_pnl_pcts * size_factors
+    
+    # Fee impact: entry + exit fee on the position size
+    # fee = size * fee_rate * 2
+    # relative to equity: size_factor * fee_rate * 2
+    fee_impact = size_factors * fee_rate * 2
+    
+    # Net return per trade
+    net_returns = account_pnl - fee_impact
+    
+    # Compounding factor
+    returns = 1.0 + net_returns
     
     # Prevent negative equity blowups (bankruptcy)
     returns = np.clip(returns, 0.0, None)
@@ -175,19 +175,24 @@ def simulate_equity_curve_fast(trade_impacts, initial_capital, num_trades):
     
     return equity_curve
 
-def run_monte_carlo(args, trade_impacts, actual_initial_capital):
+def run_monte_carlo(args, trade_impacts, actual_initial_capital, original_trade_count=None):
     """Run Monte Carlo simulation N times and aggregate results."""
-    logger.info(f"\n🎲 Starting Monte Carlo Simulation: {args.simulations:,} Iterations")
+    logger.info(f"\n  Starting Monte Carlo Simulation: {args.simulations:,} Iterations")
     
-    num_trades = len(trade_impacts)
-    if num_trades == 0:
+    # We sample 'num_trades' per iteration. 
+    # If original_trade_count is provided, we use that to keep simulation length realistic.
+    # Otherwise we use the full pool length.
+    pool_size = len(trade_impacts)
+    num_trades = original_trade_count if original_trade_count else pool_size
+    
+    if pool_size == 0:
         logger.error("No trades extracted. Simulation aborted.")
         return
         
     all_equity_curves = np.zeros((args.simulations, num_trades + 1))
     
     for i in tqdm(range(args.simulations), desc="Simulating"):
-        curve = simulate_equity_curve_fast(trade_impacts, actual_initial_capital, num_trades)
+        curve = simulate_equity_curve_fast(trade_impacts, actual_initial_capital, num_trades, args.leverage, args.fee, args.risk)
         all_equity_curves[i] = curve
         
     # Statistical Analysis
@@ -209,12 +214,13 @@ def run_monte_carlo(args, trade_impacts, actual_initial_capital):
     
     # 3. Print Report
     print("\n" + "="*80)
-    print("🎲 MONTE CARLO SIMULATION RESULTS (Bootstrap Resampling)")
+    print("  MONTE CARLO SIMULATION RESULTS (Signal Pool Resampling)")
     print("="*80)
-    print(f"   Original Trades Count:    {num_trades}")
+    print(f"   Signal Pool Size:         {pool_size}")
+    print(f"   Simulated Trades/Run:     {num_trades}")
     print(f"   Simulations Run:          {args.simulations:,}")
     print(f"   Initial Capital:          ${actual_initial_capital:,.2f}")
-    print("\n💰 Final Equity Percentiles:")
+    print("\n  Final Equity Percentiles:")
     print(f"   99th Percentile (Luckiest): ${np.percentile(final_equities, 99):,.2f}")
     print(f"   95th Percentile (Great):    ${np.percentile(final_equities, 95):,.2f}")
     print(f"   75th Percentile (Good):     ${np.percentile(final_equities, 75):,.2f}")
@@ -223,17 +229,17 @@ def run_monte_carlo(args, trade_impacts, actual_initial_capital):
     print(f"   5th  Percentile (Unlucky):  ${np.percentile(final_equities, 5):,.2f}")
     print(f"   1st  Percentile (Worst):    ${np.percentile(final_equities, 1):,.2f}")
     
-    print("\n📉 Expected Maximum Drawdown:")
+    print("\n  Expected Maximum Drawdown:")
     print(f"   Median Max Drawdown:      {np.percentile(max_drawdowns, 50):.2f}%")
     print(f"   95th Percentile Max DD:   {np.percentile(max_drawdowns, 95):.2f}% (95% chance to not exceed this)")
     print(f"   Maximum Simulated DD:     {np.max(max_drawdowns):.2f}%")
     
-    print(f"\n⚠️ Risk Metrics:")
+    print(f"\n   Risk Metrics:")
     print(f"   Risk of Ruin (< 50% Init):{risk_of_ruin_pct:.2f}% chance of catastrophic loss")
     print("="*80)
     
     # 4. Plot Fan Chart
-    logger.info("\n📈 Generating Monte Carlo Fan Chart...")
+    logger.info("\n  Generating Monte Carlo Fan Chart...")
     
     fig, ax = plt.subplots(figsize=(14, 8))
     
@@ -276,7 +282,7 @@ def run_monte_carlo(args, trade_impacts, actual_initial_capital):
     
     save_path = Path(__file__).parent / 'monte_carlo_equity.png'
     fig.savefig(save_path, dpi=300)
-    logger.info(f"💾 Plot saved to: {save_path.name}")
+    logger.info(f"  Plot saved to: {save_path.name}")
     
 def main():
     parser = argparse.ArgumentParser(description="Monte Carlo Trade Resampling Simulator")
@@ -284,10 +290,11 @@ def main():
     # Baseline Backtest arguments
     parser.add_argument('--data', type=str, default=None, help='Path to data file')
     parser.add_argument('--capital', type=float, default=100.0, help='Initial capital')
-    parser.add_argument('--risk', type=float, default=0.01, help='Risk per trade (0.01 = 1%)')
+    parser.add_argument('--risk', type=float, default=0.01, help='Risk per trade (0.01 = 1%%)')
     parser.add_argument('--threshold', type=float, default=0.65, help='Entry confidence threshold')
-    parser.add_argument('--fee', type=float, default=0.001, help='Fee rate (0.001 = 0.1%)')
-    parser.add_argument('--slippage', type=float, default=0.0005, help='Slippage (0.0005 = 0.05%)')
+    parser.add_argument('--min-score', type=float, default=0.0, help='Minimum refined score threshold (0.33, 0.66, 1.0)')
+    parser.add_argument('--fee', type=float, default=0.001, help='Fee rate (0.001 = 0.1%%)')
+    parser.add_argument('--slippage', type=float, default=0.0005, help='Slippage (0.0005 = 0.05%%)')
     parser.add_argument('--kelly', action='store_true', help='Use Kelly Criterion')
     parser.add_argument('--fixed-size', action='store_true', help='Use fixed position size')
     parser.add_argument('--size-usd', type=float, default=1000, help='Fixed position size in USD')
@@ -296,8 +303,8 @@ def main():
     
     # Trailing Stop arguments
     parser.add_argument('--trailing', action='store_true', help='Enable Trailing Stop')
-    parser.add_argument('--trailing-start', type=float, default=0.1, help='Trailing start pct (e.g. 0.02 for 2%)')
-    parser.add_argument('--trailing-step', type=float, default=0.05, help='Trailing step pct (e.g. 0.01 for 1%)')
+    parser.add_argument('--trailing-start', type=float, default=0.1, help='Trailing start pct (e.g. 0.02 for 2%%)')
+    parser.add_argument('--trailing-step', type=float, default=0.05, help='Trailing step pct (e.g. 0.01 for 1%%)')
     
     # Pullback options
     parser.add_argument('--entry-pullback', type=float, default=0.0, help='Pullback pct for limit entry (e.g. 0.005 for 0.5%)')
@@ -326,15 +333,17 @@ def main():
     args = parser.parse_args()
     
     # 1. Run baseline
-    trades, actual_capital = run_baseline_backtest(args)
-    if not trades:
+    # The backtester now returns ALL qualifying signals in 'signal_pool'
+    signal_pool, original_count, actual_capital = run_baseline_backtest(args)
+    if not signal_pool:
         return
         
-    # 2. Extract trade impacts
-    impacts = extract_trade_returns(trades)
+    # 2. Extract impacts from the POOL
+    pool_impacts = extract_trade_returns(signal_pool)
     
     # 3. Process simulations
-    run_monte_carlo(args, impacts, actual_capital)
+    # Use the original trade count to keep the simulation duration realistic
+    run_monte_carlo(args, pool_impacts, actual_capital, original_trade_count=original_count)
 
 if __name__ == "__main__":
     main()

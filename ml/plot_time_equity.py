@@ -6,6 +6,8 @@ Create daily equity curve from backtest results
 
 import pandas as pd
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from datetime import datetime, timedelta
@@ -16,6 +18,7 @@ from typing import List, Dict, Optional
 # Import backtest module
 from backtest_3stage import ThreeStageBacktester, BacktestConfig
 from analyze_peaks import analyze_peaks, filter_significant_peaks
+from drawdown_guard import DrawdownGuard
 
 def create_daily_equity_curve(df, backtester, start_date, end_date, price_data):
     """
@@ -32,7 +35,7 @@ def create_daily_equity_curve(df, backtester, start_date, end_date, price_data):
     result = backtester.run_backtest(df, verbose=True)
     
     if not result.trades:
-        print("❌ No trades found!")
+        print("  No trades found!")
         return None, None, None
     
     # NEW: Filter trades to only include those starting after start_date
@@ -42,23 +45,60 @@ def create_daily_equity_curve(df, backtester, start_date, end_date, price_data):
     result.trades = [t for t in result.trades if t.entry_time.replace(tzinfo=None) >= analysis_start_ts]
     
     if len(result.trades) != original_trade_count:
-        print(f"   💡 Filtered to {len(result.trades)} trades starting after {start_date} (from {original_trade_count} total)")
+        print(f"     Filtered to {len(result.trades)} trades starting after {start_date} (from {original_trade_count} total)")
 
-    print(f"\n📊 Backtest Complete:")
+    print(f"\n  Backtest Complete:")
     print(f"   Total Trades: {len(result.trades)}")
     # Note: result.total_return and final_capital might still reflect original run, 
     # but create_time_based_equity_mtm will use the filtered list.
     
-    # Create time-based equity curve with mark-to-market
-    daily_equity = create_time_based_equity_mtm(
-        result.trades, start_date, end_date, 
-        backtester.config.initial_capital, price_data,
-        leverage=backtester.config.leverage,
-        actual_daily_positions=result.daily_open_positions
-    )
+    # USE THE HIGH-FIDELITY EQUITY CURVE FROM THE BACKTESTER
+    # This prevents discrepancies caused by daily vs intra-day wick tracking.
+    if hasattr(result, 'equity_curve') and result.equity_curve:
+        print(f"     Using high-fidelity equity curve ({len(result.equity_curve)} points)")
+        # Convert to DataFrame
+        equity_df = pd.DataFrame({
+            'timestamp': pd.to_datetime(result.timestamps),
+            'equity': result.equity_curve
+        })
+        equity_df['date'] = equity_df['timestamp'].dt.date
+        
+        # Resample to Daily (Last value per day)
+        daily_equity = equity_df.groupby('date').last().reset_index()
+        daily_equity['date'] = pd.to_datetime(daily_equity['date'])
+        
+        # Calculate daily log returns for the report
+        daily_equity['daily_return'] = np.log(daily_equity['equity'] / daily_equity['equity'].shift(1)).fillna(0)
+        
+        # Ensure it has the expected columns for plotting/stats
+        daily_equity['realized_equity'] = daily_equity['equity'] # Fallback
+        daily_equity['floating_pnl'] = 0 # Included in equity already
+        daily_equity['open_positions_count'] = [result.daily_open_positions.get(ts, 0) for ts in daily_equity['timestamp']]
+        
+    else:
+        # Fallback to re-simulation if no curve (legacy)
+        print(f"      No equity curve in result, falling back to daily re-simulation")
+        daily_equity = create_time_based_equity_mtm(
+            result.trades, start_date, end_date, 
+            backtester.config.initial_capital, price_data,
+            leverage=backtester.config.leverage,
+            actual_daily_positions=result.daily_open_positions
+        )
     
     # Create benchmark data
     benchmark_data = create_benchmark_data(price_data, start_date, end_date, backtester.config.initial_capital)
+    
+    # NEW: Identify Drawdown Hazard zones
+    hazard_events = []
+    if getattr(backtester.config, 'use_drawdown_guard', False):
+        guard = DrawdownGuard(timeframe=backtester.config.drawdown_guard_tf or backtester.config.timeframe)
+        guard.load_btc_data(df)
+        
+        for idx, row in daily_equity.iterrows():
+            ts = pd.to_datetime(row['date'])
+            safe, reason = guard.is_safe(ts)
+            if not safe:
+                hazard_events.append(ts)
     
     # Extract CB events if Circuit Breaker is active
     cb_events = []
@@ -69,7 +109,7 @@ def create_daily_equity_curve(df, backtester, start_date, end_date, price_data):
                 if ts not in cb_events:
                     cb_events.append(ts)
     
-    return result, daily_equity, benchmark_data, cb_events
+    return result, daily_equity, benchmark_data, cb_events, hazard_events
 
 def create_time_based_equity_mtm(trades, start_date, end_date, initial_capital, price_data, leverage=20.0, actual_daily_positions=None):
     """
@@ -82,7 +122,7 @@ def create_time_based_equity_mtm(trades, start_date, end_date, initial_capital, 
     
     skipped_trades = 0
     for trade in trades:
-        # ⚠️ CRITICAL: Validate trade data before processing
+        #    CRITICAL: Validate trade data before processing
         if trade.position_size <= 0 or trade.position_size > 1_000_000_000:  # 1 billion USD max
             skipped_trades += 1
             continue
@@ -111,7 +151,7 @@ def create_time_based_equity_mtm(trades, start_date, end_date, initial_capital, 
             })
     
     if skipped_trades > 0:
-        print(f"⚠️ Skipped {skipped_trades} corrupted trades with invalid data")
+        print(f"   Skipped {skipped_trades} corrupted trades with invalid data")
     
     trade_df = pd.DataFrame(trade_events)
     
@@ -139,7 +179,7 @@ def create_time_based_equity_mtm(trades, start_date, end_date, initial_capital, 
         current_date = date.date()
         
         # Process trade events for this date
-        # ⚠️ CRITICAL: Process EXITS before ENTRIES to keep position count accurate
+        #    CRITICAL: Process EXITS before ENTRIES to keep position count accurate
         day_events = trade_df[trade_df['date'] == current_date] if not trade_df.empty else pd.DataFrame()
         
         daily_realized_pnl = 0
@@ -169,17 +209,17 @@ def create_time_based_equity_mtm(trades, start_date, end_date, initial_capital, 
         
         if open_positions:
             for trade_id, pos in open_positions.items():
-                # ⚠️ CRITICAL: Validate entry price
+                #    CRITICAL: Validate entry price
                 if pos['entry_price'] <= 0 or pos['entry_price'] > 1_000_000:
-                    print(f"⚠️ Invalid entry price ${pos['entry_price']:.2f} for position {trade_id} - skipping")
+                    print(f"   Invalid entry price ${pos['entry_price']:.2f} for position {trade_id} - skipping")
                     continue
                 
-                # ⚠️ CRITICAL: Validate position size
+                #    CRITICAL: Validate position size
                 if pos['position_size'] <= 0 or pos['position_size'] > 1_000_000:
-                    print(f"⚠️ Invalid position size ${pos['position_size']:.2f} for position {trade_id} - skipping")
+                    print(f"   Invalid position size ${pos['position_size']:.2f} for position {trade_id} - skipping")
                     continue
                 
-                # 🔧 FIX: Get price for THIS SPECIFIC symbol
+                #   FIX: Get price for THIS SPECIFIC symbol
                 symbol_price_data = price_daily[
                     (price_daily['symbol'] == pos['symbol']) & 
                     (price_daily['date'] == current_date)
@@ -198,16 +238,16 @@ def create_time_based_equity_mtm(trades, start_date, end_date, initial_capital, 
                 # Calculate percentage change
                 price_change_pct = (current_price / pos['entry_price']) - 1
                 
-                # ⚠️ Cap extreme price changes (data errors)
+                #    Cap extreme price changes (data errors)
                 price_change_pct = np.clip(price_change_pct, -0.99, 100)  # -99% to +10,000% max
                 
-                # ⚠️ SIMPLIFIED & SAFER floating PnL calculation
+                #    SIMPLIFIED & SAFER floating PnL calculation
                 if pos['direction'] == 'LONG':
                     pos_pnl = pos['position_size'] * price_change_pct
                 else:  # SHORT 
                     pos_pnl = pos['position_size'] * (-price_change_pct)
                 
-                # ⚠️ ISOLATED margin cap: max loss = margin = position_size / leverage
+                #    ISOLATED margin cap: max loss = margin = position_size / leverage
                 margin = pos['position_size'] / leverage
                 pos_pnl = max(pos_pnl, -margin)  # Can't lose more than margin
                 
@@ -215,7 +255,7 @@ def create_time_based_equity_mtm(trades, start_date, end_date, initial_capital, 
         
         # Debug extreme floating PnL (optional - can be removed after testing)
         if abs(floating_pnl) > 100000:  # $100K threshold (lowered)
-            print(f"⚠️ Extreme floating PnL on {current_date}: ${floating_pnl:,.2f}")
+            print(f"   Extreme floating PnL on {current_date}: ${floating_pnl:,.2f}")
             print(f"   Open positions: {len(open_positions)}")
             for i, (tid, pos) in enumerate(list(open_positions.items())[:3]):
                 symbol_price = price_daily[
@@ -228,7 +268,7 @@ def create_time_based_equity_mtm(trades, start_date, end_date, initial_capital, 
                         pnl_calc = (curr_px - pos['entry_price']) * pos['position_size'] / pos['entry_price']
                     else:
                         pnl_calc = (pos['entry_price'] - curr_px) * pos['position_size'] / pos['entry_price']
-                    print(f"   {pos['symbol']}: ${pos['position_size']:,.2f} @ ${pos['entry_price']:,.2f} ({pos['direction']}) → ${pnl_calc:,.2f}")
+                    print(f"   {pos['symbol']}: ${pos['position_size']:,.2f} @ ${pos['entry_price']:,.2f} ({pos['direction']})   ${pnl_calc:,.2f}")
                 else:
                     print(f"   {pos['symbol']}: No price data for {current_date}")
         
@@ -252,8 +292,8 @@ def create_time_based_equity_mtm(trades, start_date, end_date, initial_capital, 
             'open_positions_count': actual_daily_positions.get(date, len(open_positions)) if actual_daily_positions else len(open_positions)
         })
         
-        # 🔥 Account blown — ONLY when REALIZED equity (closed trades) <= 0
-        # In ISOLATED margin, floating losses don't blow account — each position
+        #   Account blown   ONLY when REALIZED equity (closed trades) <= 0
+        # In ISOLATED margin, floating losses don't blow account   each position
         # is independent and can only lose its own margin. The account is only 
         # truly blown when all margin has been lost through actual liquidations.
         if realized_equity <= 0:
@@ -323,7 +363,7 @@ def create_benchmark_data(price_data, start_date, end_date, initial_capital):
     
     return benchmark_df[['date_x', 'benchmark_equity']].rename(columns={'date_x': 'date'})
 
-def plot_time_based_equity(daily_equity_df, trades, benchmark_df=None, title="Time-Based Equity Curve", cb_events=None):
+def plot_time_based_equity(daily_equity_df, trades, benchmark_df=None, title="Time-Based Equity Curve", cb_events=None, hazard_events=None):
     """
     Plot comprehensive time-based equity analysis.
     """
@@ -361,7 +401,7 @@ def plot_time_based_equity(daily_equity_df, trades, benchmark_df=None, title="Ti
         lose_dates, lose_equities = zip(*lose_trades)
         ax1.scatter(lose_dates, lose_equities, color='red', s=30, alpha=0.7, label='Losing Trades', zorder=5)
     
-    # 🆕 Plot Circuit Breaker exit markers
+    #   Plot Circuit Breaker exit markers
     if cb_events:
         for cb_ts in cb_events:
             cb_date = pd.to_datetime(cb_ts).date()
@@ -384,10 +424,26 @@ def plot_time_based_equity(daily_equity_df, trades, benchmark_df=None, title="Ti
         # Just to add to legend
         ax1.plot([], [], color='darkorange', linestyle=':', label='Circuit Breaker')
     
+    # NEW: Plot Drawdown Hazard zones
+    if hazard_events:
+        for hazard_ts in hazard_events:
+            ax1.axvspan(hazard_ts, hazard_ts + timedelta(days=1), color='red', alpha=0.1, zorder=0)
+        
+        # Add a placeholder for legend
+        import matplotlib.patches as mpatches
+        hazard_patch = mpatches.Patch(color='red', alpha=0.2, label='Drawdown Hazard')
+        
     ax1.set_title('Daily Equity Curve', fontsize=14, fontweight='bold')
     ax1.set_xlabel('Date')
     ax1.set_ylabel('Equity ($)')
-    ax1.legend()
+    
+    # Update legend
+    handles, labels = ax1.get_legend_handles_labels()
+    if hazard_events:
+        handles.append(mpatches.Patch(color='red', alpha=0.2))
+        labels.append('Drawdown Hazard')
+    ax1.legend(handles, labels)
+    
     ax1.grid(True, alpha=0.3)
     ax1.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d'))
     ax1.xaxis.set_major_locator(mdates.WeekdayLocator(interval=1))
@@ -524,26 +580,26 @@ def print_time_based_stats(daily_equity_df, trades, benchmark_df=None, target_in
         
         # Validate for extreme outliers
         if max_floating_gain > initial_equity * 1000:  # More than 1000x initial capital
-            print(f"\n⚠️ WARNING: Extreme floating gain detected: ${max_floating_gain:,.2f}")
+            print(f"\n   WARNING: Extreme floating gain detected: ${max_floating_gain:,.2f}")
             print(f"   This suggests an error in floating PnL calculation.")
         
         if abs(max_floating_loss) > initial_equity * 10:  # More than 10x initial capital loss
-            print(f"\n⚠️ WARNING: Extreme floating loss detected: ${max_floating_loss:,.2f}")
+            print(f"\n   WARNING: Extreme floating loss detected: ${max_floating_loss:,.2f}")
             print(f"   This suggests an error in floating PnL calculation.")
     else:
         max_floating_loss = max_floating_gain = avg_positions = 0
     
     print("\n" + "="*80)
-    print("📈 TIME-BASED PERFORMANCE ANALYSIS (MARK-TO-MARKET) 📈")
+    print("  TIME-BASED PERFORMANCE ANALYSIS (MARK-TO-MARKET)  ")
     print("="*80)
     
-    print(f"\n📅 Time Period:")
+    print(f"\n  Time Period:")
     print(f"   Start Date: {daily_equity_df['date'].iloc[0].strftime('%Y-%m-%d')}")
     print(f"   End Date: {daily_equity_df['date'].iloc[-1].strftime('%Y-%m-%d')}")
     print(f"   Total Days: {total_days}")
     print(f"   Active Trading Days: {trading_days}")
     
-    print(f"\n💰 Equity Performance (MTM):")
+    print(f"\n  Equity Performance (MTM):")
     print(f"   Initial Equity: ${initial_equity:,.2f}")
     print(f"   Final Equity: ${final_equity:,.2f}")
     print(f"   Total Return: {total_return:+.2f}%")
@@ -551,21 +607,21 @@ def print_time_based_stats(daily_equity_df, trades, benchmark_df=None, target_in
     
     # Mark-to-market specifics
     if 'floating_pnl' in daily_equity_df.columns:
-        print(f"\n💫 Mark-to-Market Analysis:")
+        print(f"\n  Mark-to-Market Analysis:")
         print(f"   Max Floating Loss: ${max_floating_loss:,.2f}")
         print(f"   Max Floating Gain: ${max_floating_gain:,.2f}")
         print(f"   Average Open Positions: {avg_positions:.1f}")
         print(f"   Final Realized Equity: ${daily_equity_df['realized_equity'].iloc[-1]:,.2f}")
         print(f"   Final Floating PnL: ${daily_equity_df['floating_pnl'].iloc[-1]:,.2f}")
     
-    print(f"\n📊 Daily Statistics:")
+    print(f"\n  Daily Statistics:")
     print(f"   Positive Days: {positive_days} ({positive_days/total_days*100:.1f}%)")
     print(f"   Negative Days: {negative_days} ({negative_days/total_days*100:.1f}%)")
     if 'daily_realized_pnl' in daily_equity_df.columns:
         print(f"   Best Day: {best_day['date'].strftime('%Y-%m-%d')} (+${best_day['daily_realized_pnl']:,.2f})")
         print(f"   Worst Day: {worst_day['date'].strftime('%Y-%m-%d')} (${worst_day['daily_realized_pnl']:,.2f})")
     
-    print(f"\n📉 Enhanced Risk Metrics:")
+    print(f"\n  Enhanced Risk Metrics:")
     print(f"   Max Drawdown: {max_drawdown:.2f}% (on {max_dd_date.strftime('%Y-%m-%d')})")
     print(f"   Annualized Volatility: {daily_vol*100:.2f}%")
     print(f"   Sharpe Ratio: {sharpe:.3f}")
@@ -578,19 +634,19 @@ def print_time_based_stats(daily_equity_df, trades, benchmark_df=None, target_in
         bench_final = benchmark_df['benchmark_equity'].iloc[-1]
         bench_return = (bench_final / bench_initial - 1) * 100
         alpha = total_return - bench_return
-        print(f"\n🎯 vs Buy & Hold Benchmark:")
+        print(f"\n  vs Buy & Hold Benchmark:")
         print(f"   Benchmark Return: {bench_return:+.2f}%")
         print(f"   Alpha (Excess Return): {alpha:+.2f}%")
     
-    print(f"\n🎯 Trade Summary:")
+    print(f"\n  Trade Summary:")
     print(f"   Total Trades: {len(trades)}")
     print(f"   Avg Trades/Day: {len(trades)/trading_days:.2f}" if trading_days > 0 else "   Avg Trades/Day: 0")
     
-    print("\n⚠️  Note: This analysis includes mark-to-market (floating PnL)")
+    print("\n    Note: This analysis includes mark-to-market (floating PnL)")
     print("   which provides accurate drawdown and risk metrics.")
     print("="*80)
     
-    # ── Peak-to-Drawdown Analysis ────────────────────────────────────
+    #    Peak-to-Drawdown Analysis                                     
     try:
         all_peaks = analyze_peaks(daily_equity_df)
         sig_peaks = filter_significant_peaks(all_peaks, min_gain_pct=10.0)
@@ -602,7 +658,7 @@ def print_time_based_stats(daily_equity_df, trades, benchmark_df=None, target_in
             deep_pct = (dd_vals > 20).mean() * 100
             
             print(f"\n{'='*80}")
-            print(f"🏔️  PEAK-TO-DRAWDOWN ANALYSIS ({len(sig_peaks)} significant peaks)")
+            print(f"    PEAK-TO-DRAWDOWN ANALYSIS ({len(sig_peaks)} significant peaks)")
             print(f"{'='*80}")
             print(f"\n   After each new ATH (>10% gain):")
             print(f"     Median DD:      {dd_vals.median():.1f}%")
@@ -616,7 +672,7 @@ def print_time_based_stats(daily_equity_df, trades, benchmark_df=None, target_in
             if never > 0:
                 print(f"     Never recovered: {never} peaks")
             
-            print(f"\n   💡 After ATH: expect ~{dd_vals.median():.0f}% DD in ~{dur_vals.median():.0f}d, "
+            print(f"\n     After ATH: expect ~{dd_vals.median():.0f}% DD in ~{dur_vals.median():.0f}d, "
                   f"recover ~{rec_vals.median():.0f}d" if len(rec_vals) > 0 else "")
             print(f"{'='*80}")
     except Exception:
@@ -631,10 +687,11 @@ def main():
     # Matching arguments from backtest_3stage.py
     parser.add_argument('--data', type=str, default=None, help='Path to data file')
     parser.add_argument('--capital', type=float, default=100.0, help='Initial capital')
-    parser.add_argument('--risk', type=float, default=0.01, help='Risk per trade (0.01 = 1%)')
+    parser.add_argument('--risk', type=float, default=0.01, help='Risk per trade (0.01 = 1%%)')
     parser.add_argument('--threshold', type=float, default=0.65, help='Entry confidence threshold')
-    parser.add_argument('--fee', type=float, default=0.001, help='Fee rate (0.001 = 0.1%)')
-    parser.add_argument('--slippage', type=float, default=0.0005, help='Slippage (0.0005 = 0.05%)')
+    parser.add_argument('--min-score', type=float, default=0.0, help='Minimum refined score threshold (0.33, 0.66, 1.0)')
+    parser.add_argument('--fee', type=float, default=0.001, help='Fee rate (0.001 = 0.1%%)')
+    parser.add_argument('--slippage', type=float, default=0.0005, help='Slippage (0.0005 = 0.05%%)')
     parser.add_argument('--kelly', action='store_true', help='Use Kelly Criterion')
     parser.add_argument('--fixed-size', action='store_true', help='Use fixed position size')
     parser.add_argument('--size-usd', type=float, default=1000, help='Fixed position size in USD')
@@ -643,17 +700,17 @@ def main():
     
     # Trailing Stop arguments
     parser.add_argument('--trailing', action='store_true', help='Enable Trailing Stop')
-    parser.add_argument('--trailing-start', type=float, default=0.1, help='Trailing start pct (e.g. 0.02 for 2%)')
-    parser.add_argument('--trailing-step', type=float, default=0.05, help='Trailing step pct (e.g. 0.01 for 1%)')
+    parser.add_argument('--trailing-start', type=float, default=0.1, help='Trailing start pct (e.g. 0.02 for 2%%)')
+    parser.add_argument('--trailing-step', type=float, default=0.05, help='Trailing step pct (e.g. 0.01 for 1%%)')
     
     # Portfolio Trailing Stop arguments
     parser.add_argument('--portfolio-trailing', action='store_true', help='Enable Portfolio-level Trailing Stop')
-    parser.add_argument('--pt-start', type=float, default=0.30, help='Portfolio Trailing start pct (default 30%)')
-    parser.add_argument('--pt-step', type=float, default=0.15, help='Portfolio Trailing step pct (default 15%)')
+    parser.add_argument('--pt-start', type=float, default=0.30, help='Portfolio Trailing start pct (default 30%%)')
+    parser.add_argument('--pt-step', type=float, default=0.15, help='Portfolio Trailing step pct (default 15%%)')
     parser.add_argument('--pt-cooldown', type=float, default=1.0, help='Days to cooldown after portfolio trailing stop hits')
     
     # Pullback options
-    parser.add_argument('--entry-pullback', type=float, default=0.0, help='Pullback pct for limit entry (e.g. 0.005 for 0.5%)')
+    parser.add_argument('--entry-pullback', type=float, default=0.0, help='Pullback pct for limit entry (e.g. 0.005 for 0.5%%)')
     parser.add_argument('--entry-timeout', type=int, default=3, help='Timeout bars for limit entry')
     parser.add_argument('--max-bars', type=int, default=10, help='Max bars to hold trade (timeout)')
     
@@ -667,12 +724,17 @@ def main():
     parser.add_argument('--cb-profile', type=str, choices=['0.6', '0.65', 'none'], default='none',
                         help='Circuit Breaker optimization profile to use based on robustness insights')
     
+    # Drawdown Guard arguments
+    parser.add_argument('--drawdown-guard', action='store_true', help='Enable Drawdown Guard (Decision Tree risk management)')
+    parser.add_argument('--drawdown-guard-tf', type=str, default='1d', choices=['1d', '12h', '8h'], help='Drawdown Guard timeframe rules (1d, 12h, 8h)')
+    
     parser.add_argument("--start", type=str, default='2026-01-01', help="Analysis start date (YYYY-MM-DD)")
     parser.add_argument("--end", type=str, default='2026-02-23', help="Analysis end date (YYYY-MM-DD)")
     parser.add_argument("--timeframe", type=str, default='1d', help="Timeframe (1d, 4h, etc.)")
     parser.add_argument("--margin-mode", type=str, default='ISOLATED', choices=['ISOLATED', 'CROSS'], help="Margin mode")
     parser.add_argument("--warmup", type=int, default=0, help="Warm-up months for indicators")
     parser.add_argument("--reset-capital", action="store_true", help="Reset capital to initial on start date (for direct comparison)")
+    parser.add_argument('--live-mode', action='store_true', help='Calculate risk based on available balance (mimics Livebot)')
     
     args = parser.parse_args()
 
@@ -686,7 +748,7 @@ def main():
     margin_mode = args.margin_mode
     use_kelly = args.kelly
     
-    print(f"🚀 Creating Enhanced Time-Based Equity Curve (Mark-to-Market)")
+    print(f"  Creating Enhanced Time-Based Equity Curve (Mark-to-Market)")
     print(f"   Analysis Period: {backtest_start} to {backtest_end}")
     print(f"   Warm-up Period: {warm_up_months} months")
     print(f"   Timeframe: {timeframe}")
@@ -694,7 +756,7 @@ def main():
     print(f"   Margin Mode: {margin_mode}")
     print(f"   Capital: ${initial_capital:,.2f}")
     if args.reset_capital:
-        print(f"   ⚠️  Capital WILL BE RESET TO ${initial_capital:,.2f} on {backtest_start}")
+        print(f"       Capital WILL BE RESET TO ${initial_capital:,.2f} on {backtest_start}")
     
     # Load data
     data_path = Path(__file__).parent.parent / 'bitget-data' / 'processed' / f'features_{timeframe}_full.parquet'
@@ -706,11 +768,11 @@ def main():
         data_path = Path(args.data)
         
     if not data_path.exists():
-        print(f"❌ Data file not found: {data_path}")
+        print(f"  Data file not found: {data_path}")
         print(f"Run 'python ml/sync_and_rebuild.py --timeframe {timeframe}' first.")
         return
     
-    print(f"\n📂 Loading data with warm-up period...")
+    print(f"\n  Loading data with warm-up period...")
     df = pd.read_parquet(data_path)
     print(f"   Loaded {len(df):,} rows")
     
@@ -730,7 +792,7 @@ def main():
     print(f"   Total data with warm-up: {len(df_with_warmup):,} rows")
     
     if df_with_warmup.empty:
-        print("❌ No data found for the specified period!")
+        print("  No data found for the specified period!")
         return
     
     # Configure backtest
@@ -764,7 +826,11 @@ def main():
         use_scanner_filter=args.use_scanner,
         scanner_mae=args.scanner_mae,
         scanner_mfe=args.scanner_mfe,
-        scanner_lookback_days=args.scanner_lookback
+        scanner_lookback_days=args.scanner_lookback,
+        use_drawdown_guard=args.drawdown_guard,
+        drawdown_guard_tf=args.drawdown_guard_tf,
+        min_refined_score=args.min_score,
+        use_available_balance_for_risk=args.live_mode
     )
     
     # Attach CB properties if requested
@@ -775,7 +841,7 @@ def main():
         config.cb_velocity_lookback = 2
         config.cb_velocity_threshold = 0.1
         config.cb_sleep_hours = 4
-        print(f"   🛡️ Using Circuit Breaker Profile: 0.6")
+        print(f"      Using Circuit Breaker Profile: 0.6")
     elif args.cb_profile == '0.65':
         config.use_circuit_breaker = True
         config.cb_confluence_tf = '12h'
@@ -783,7 +849,7 @@ def main():
         config.cb_velocity_lookback = 1
         config.cb_velocity_threshold = 0.1
         config.cb_sleep_hours = 5
-        print(f"   🛡️ Using Circuit Breaker Profile: 0.65")
+        print(f"      Using Circuit Breaker Profile: 0.65")
     
     # Create backtester
     backtester = ThreeStageBacktester(config)
@@ -797,7 +863,7 @@ def main():
     price_data = df_with_warmup[price_columns].copy()
     
     # Run enhanced backtest with mark-to-market
-    result, daily_equity_df, benchmark_df, cb_events = create_daily_equity_curve(
+    result, daily_equity_df, benchmark_df, cb_events, hazard_events = create_daily_equity_curve(
         df_with_warmup, backtester, backtest_start, backtest_end, price_data
     )
     
@@ -816,7 +882,7 @@ def main():
                 ratio = initial_capital / actual_capital_at_start
                 daily_equity_df['equity'] *= ratio
                 daily_equity_df['realized_equity'] *= ratio
-                print(f"   🔄 Data normalized: Resetting capital to ${initial_capital} on {backtest_start}")
+                print(f"     Data normalized: Resetting capital to ${initial_capital} on {backtest_start}")
             
             # Clean up temp column
             daily_equity_df = daily_equity_df.drop(columns=['date_dt'])
@@ -825,13 +891,14 @@ def main():
         print_time_based_stats(daily_equity_df, result.trades, benchmark_df, initial_capital)
         
         # Plot enhanced equity curve
-        print(f"\n📈 Creating enhanced time-based equity curve plot...")
+        print(f"\n  Creating enhanced time-based equity curve plot...")
         fig = plot_time_based_equity(
             daily_equity_df, 
             result.trades,
             benchmark_df,
             title=f'3-Stage ML Strategy ({margin_mode}, {leverage}x leverage)',
-            cb_events=cb_events
+            cb_events=cb_events,
+            hazard_events=hazard_events
         )
         
         # Save enhanced results
@@ -841,22 +908,19 @@ def main():
         results_dir.mkdir(exist_ok=True)
         save_path = results_dir / f'time_equity_{filename_suffix}.png'
         fig.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
-        print(f"💾 Enhanced chart saved: {save_path.name}")
+        print(f"  Enhanced chart saved: {save_path.name}")
         
         # Save comprehensive data
         csv_path = save_path.with_suffix('.csv')
         daily_equity_df.to_csv(csv_path, index=False)
-        print(f"📊 Mark-to-market data saved: {csv_path.name}")
+        print(f"  Mark-to-market data saved: {csv_path.name}")
     
     if benchmark_df is not None and not benchmark_df.empty:
         benchmark_path = results_dir / f'benchmark_data_{timeframe}.csv'
         benchmark_df.to_csv(benchmark_path, index=False)
-        print(f"📊 Benchmark data saved: {benchmark_path.name}")
+        print(f"  Benchmark data saved: {benchmark_path.name}")
     
-    print(f"\n✅ Analysis complete!")
-    plt.show()
+    print(f"\n  Analysis complete!")
 
-if __name__ == '__main__':
-    main()
 if __name__ == '__main__':
     main()

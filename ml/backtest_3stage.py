@@ -20,13 +20,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from copy import deepcopy
 import joblib
+import json
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 try:
     import mplfinance as mpf
 except ImportError:
     mpf = None
-    print("⚠️ mplfinance not installed. Install with: pip install mplfinance")
+    print("[Warning] mplfinance not installed. Install with: pip install mplfinance")
 import warnings
 warnings.filterwarnings('ignore')
 from config import SUPPORTED_TIMEFRAMES, get_timeframe_config
@@ -55,6 +56,7 @@ class Trade:
     pnl_pct: float = 0
     exit_reason: str = ''  # TP_HIT, SL_HIT, TIMEOUT
     confidence: float = 0
+    refined_score: float = 0
     fees_paid: float = 0
     bars_held: int = 0
 
@@ -89,7 +91,7 @@ class BacktestConfig:
     portfolio_trailing_start_pct: float = 0.30  # Start trailing after 30% floating profit
     portfolio_trailing_step_pct: float = 0.15   # Close all if floating profit drops 15% from its peak
     
-    max_position_size_usd: float = 10000.0  # Max size per trade in USD (hard cap)
+    max_position_size_usd: float = 1000.0  # Max size per trade in USD (hard cap)
     
     # limit entry options
     entry_pullback_pct: float = 0.0  # If > 0, place LIMIT order at (Price * (1 - pct)) instead of Market
@@ -114,6 +116,14 @@ class BacktestConfig:
     cb_velocity_lookback: int = 2          # Rolling window in TF bars
     cb_velocity_threshold: float = 0.20    # Breadth increased >= 20% within lookback
     cb_sleep_hours: int = 24               # Sleep duration after trigger (in base TF bars)
+    
+    # Drawdown Guard (Decision Tree)
+    use_drawdown_guard: bool = False
+    drawdown_guard_tf: str = '1d'
+
+    # Scoring Factors
+    min_refined_score: float = 0.0
+    use_available_balance_for_risk: bool = False # If True, calculate risk based on available capital (Livebot style)
 
 
 @dataclass
@@ -141,6 +151,7 @@ class BacktestResult:
     worst_trade: float = 0
     avg_bars_held: float = 0
     total_fees: float = 0
+    signal_pool: List[Trade] = field(default_factory=list) # All qualifying signals (for MC)
 
 
 class ThreeStageBacktester:
@@ -154,6 +165,13 @@ class ThreeStageBacktester:
     
     def __init__(self, config: BacktestConfig = None):
         self.config = config or BacktestConfig()
+        
+        # Risk Management: Drawdown Guard
+        self.drawdown_guard = None
+        if self.config.use_drawdown_guard:
+            from drawdown_guard import DrawdownGuard
+            self.drawdown_guard = DrawdownGuard(self.config.drawdown_guard_tf)
+            
         self.entry_model = None
         self.sl_model = None
         self.tp_model = None
@@ -161,6 +179,7 @@ class ThreeStageBacktester:
         self.sl_scaler = None
         self.tp_scaler = None
         self.entry_features = None
+        self.profiles = {}
         self.sl_features = None
         self.tp_features = None
         
@@ -175,14 +194,14 @@ class ThreeStageBacktester:
         if self.config.timeframe and self.config.timeframe in ['1d', '4h', '8h', '12h', '1h', '1w']:
             model_dir = MODEL_DIR / self.config.timeframe
             if not model_dir.exists():
-                print(f"⚠️ Models for {self.config.timeframe} not found, falling back to default models")
+                print(f"[Warning] Models for {self.config.timeframe} not found, falling back to default models")
                 model_dir = MODEL_DIR
             else:
-                print(f"📂 Using models for timeframe: {self.config.timeframe}")
+                print(f"[Models] Using models for timeframe: {self.config.timeframe}")
         else:
             model_dir = MODEL_DIR
             if self.config.timeframe:
-                print(f"⚠️ Unsupported timeframe {self.config.timeframe}, using default models")
+                print(f"[Warning] Unsupported timeframe {self.config.timeframe}, using default models")
         
         # Stage 1: Entry Filter
         entry_path = model_dir / 'entry_filter.joblib'
@@ -191,9 +210,9 @@ class ThreeStageBacktester:
             self.entry_model = data['model']
             self.entry_scaler = data.get('scaler')
             self.entry_features = data['feature_names']
-            # print(f"✓ Stage 1 loaded: {len(self.entry_features)} features from {entry_path.parent.name}")
+            # print(f"[Done] Stage 1 loaded: {len(self.entry_features)} features from {entry_path.parent.name}")
         else:
-            print(f"⚠️ Entry filter not found at {entry_path}")
+            print(f"[Warning] Entry filter not found at {entry_path}")
         
         # Stage 2: SL Predictor
         sl_path = model_dir / 'sl_predictor.joblib'
@@ -202,9 +221,9 @@ class ThreeStageBacktester:
             self.sl_model = data['model']
             self.sl_scaler = data.get('scaler')
             self.sl_features = data['feature_names']
-            # print(f"✓ Stage 2 loaded: {len(self.sl_features)} features from {sl_path.parent.name}")
+            # print(f"[Done] Stage 2 loaded: {len(self.sl_features)} features from {sl_path.parent.name}")
         else:
-            print(f"⚠️ SL predictor not found at {sl_path}")
+            print(f"[Warning] SL predictor not found at {sl_path}")
         
         # Stage 3: TP Predictor
         tp_path = model_dir / 'tp_predictor.joblib'
@@ -214,9 +233,71 @@ class ThreeStageBacktester:
             self.tp_scaler = data.get('scaler')
             self.tp_features = data['feature_names']
             self.tp_predict_rr = data.get('predict_rr', False)
-            # print(f"✓ Stage 3 loaded: {len(self.tp_features)} features from {tp_path.parent.name}")
+            # print(f"[Done] Stage 3 loaded: {len(self.tp_features)} features from {tp_path.parent.name}")
         else:
-            print(f"⚠️ TP predictor not found at {tp_path}")
+            print(f"[Warning] TP predictor not found at {tp_path}")
+        
+        self._load_profiles()
+
+    def _load_profiles(self):
+        """Load timeframe-specific success profiles for refined filtering."""
+        timeframes = ['4h', '8h', '12h', '1d']
+        for tf in timeframes:
+            p = MODEL_DIR / f'profile_{tf}.json'
+            if p.exists():
+                try:
+                    with open(p, 'r') as f:
+                        self.profiles[tf] = json.load(f)
+                    # print(f"[ML] Profile loaded for {tf}")
+                except Exception as e:
+                    print(f"[ML] Failed to load profile for {tf}: {e}")
+
+    def get_refined_score(self, row: pd.Series, timeframe: str) -> Dict:
+        """
+        Calculate refined score (0-1) and return details.
+        Ported from realtime_predictor.py
+        """
+        result = {'score': 1.0, 'total': 0, 'factors': [], 'pass_count': 0}
+        
+        if not timeframe or timeframe not in self.profiles:
+            return result
+            
+        direction = 'LONG' if row.get('is_bullish_cross', 0) == 1 else 'SHORT'
+        
+        tf_profile = self.profiles[timeframe]
+        if direction not in tf_profile:
+            return result
+            
+        score = 0
+        filters = tf_profile[direction]
+        total = len(filters)
+        factors = []
+        
+        for f in filters:
+            val = row.get(f['feat'], 0)
+            passed = False
+            if f['shift'] > 0:
+                if val >= f['w_mean'] - 0.2 * f['std']: 
+                    score += 1
+                    passed = True
+            else:
+                if val <= f['w_mean'] + 0.2 * f['std']: 
+                    score += 1
+                    passed = True
+            
+            factors.append({
+                'feature': f['feat'],
+                'value': float(val),
+                'target': float(f['w_mean']),
+                'passed': passed
+            })
+                
+        return {
+            'score': score / total if total > 0 else 1.0,
+            'total': total,
+            'pass_count': score,
+            'factors': factors
+        }
     
     def _prepare_features(self, row: pd.Series, feature_names: list, scaler) -> np.ndarray:
         """Prepare features for prediction (Optimized)."""
@@ -352,7 +433,7 @@ class ThreeStageBacktester:
             self.hourly_data_cache[symbol] = df
             return df
         except Exception as e:
-            print(f"⚠️ Error loading 1H data for {symbol}: {e}")
+            print(f"[Warning] Error loading 1H data for {symbol}: {e}")
             return None
 
     def calculate_position_size(
@@ -391,7 +472,8 @@ class ThreeStageBacktester:
             return 0
         
         # Fixed risk sizing
-        risk_amount = capital * self.config.risk_per_trade
+        risk_capital = available_capital if self.config.use_available_balance_for_risk else capital
+        risk_amount = risk_capital * self.config.risk_per_trade
         
         # Kelly criterion (optional)
         if self.config.use_kelly and confidence > 0.5:
@@ -421,7 +503,7 @@ class ThreeStageBacktester:
         else:
             position_size = risk_amount / 0.02  # Default 2% SL
         
-        # ⚠️ FIX: Leverage should NOT be a multiplier for risk-based sizing.
+        # [Warning] FIX: Leverage should NOT be a multiplier for risk-based sizing.
         # Risk-based sizing ALREADY calculates the necessary position size to lose 'risk_amount'
         # if 'sl_pct' is hit. Leverage is simply the mechanism that allows this size.
         # The true constraint is: position_size <= capital * leverage
@@ -464,7 +546,7 @@ class ThreeStageBacktester:
             position_size=position_size
         )
         
-        # ⚠️ CRITICAL: Validate entry price before any calculations
+        # [Warning] CRITICAL: Validate entry price before any calculations
         if entry_price <= 0 or entry_price > 1_000_000:
             trade.exit_reason = 'INVALID_PRICE'
             trade.pnl = 0
@@ -498,7 +580,7 @@ class ThreeStageBacktester:
             close = row['close']
             open_price = row.get('open', close)
             
-            # ── Try hourly resolution first ──────────────────────────────
+            #    Try hourly resolution first                               
             hourly_exit = False
             if hourly_df is not None:
                 day_start = current_time
@@ -566,7 +648,7 @@ class ThreeStageBacktester:
                     
                     if hourly_exit:
                         break
-                    # Hourly data existed but no exit → continue to next daily bar
+                    # Hourly data existed but no exit   continue to next daily bar
                     # (skip daily fallback since hourly already checked all H/L precisely)
                     if trade.bars_held >= self.config.max_bars:
                         trade.exit_price = h_close * (1 - self.config.slippage if direction == 'LONG' else 1 + self.config.slippage)
@@ -575,7 +657,7 @@ class ThreeStageBacktester:
                         break
                     continue
             
-            # ── Daily fallback (no hourly data) ──────────────────────────
+            #    Daily fallback (no hourly data)                           
             if use_trailing and not trade.exit_reason:
                 if direction == 'LONG':
                     price_pct = (high - trade.entry_price) / trade.entry_price
@@ -655,7 +737,7 @@ class ThreeStageBacktester:
             else:
                 trade.pnl_pct = (trade.entry_price - trade.exit_price) / trade.entry_price
             
-            # ⚠️ Sanity check for PnL percentage
+            # [Warning] Sanity check for PnL percentage
             if abs(trade.pnl_pct) > 10:  # More than 1000% gain/loss - likely data error
                 trade.pnl_pct = np.clip(trade.pnl_pct, -0.95, 10)  # Cap at -95% to +1000%
             
@@ -669,7 +751,7 @@ class ThreeStageBacktester:
             # Net PnL after fees (on leveraged position)
             trade.pnl = position_size * trade.pnl_pct - trade.fees_paid
             
-            # ⚠️ Additional safety check for extreme PnL
+            # [Warning] Additional safety check for extreme PnL
             if abs(trade.pnl) > margin * 50:  # More than 50x margin - likely error
                 trade.pnl = np.clip(trade.pnl, -margin * 10, margin * 20)
             
@@ -739,6 +821,10 @@ class ThreeStageBacktester:
                 sig['confidence'] = float(conf_arr[i])
                 sig['sl_pct'] = float(sl_arr[i])
                 sig['tp_pct'] = float(tp_arr[i])
+                
+                # Calculate Refined Score (Scoring Factors)
+                score_details = self.get_refined_score(sig['row'], self.config.timeframe)
+                sig['refined_score'] = score_details['score']
 
         # Pre-process price maps with ffill for robust real-time check
         if verbose: print("  Preparing synchronized price maps (Open, Low, High, Close)...")
@@ -778,14 +864,17 @@ class ThreeStageBacktester:
             base_ts = pd.DatetimeIndex(all_timestamps)
             breadth_timeline = breadth_engine.build_breadth_timeline(base_ts)
             if verbose:
-                print(f"  🛡️ Circuit Breaker enabled: "
+                print(f"  [Guard] Circuit Breaker enabled: "
                       f"Confluence({cb_config.confluence_tf} >= {cb_config.confluence_threshold:.0%}), "
                       f"Velocity({cb_config.velocity_tf} +{cb_config.velocity_threshold:.0%}), "
                       f"Sleep={cb_config.sleep_duration_hours} bars")
         
         # 3. Main Time-Stepped Loop
         if verbose:
-            print(f"🚀 Starting Optimized Time-Stepped Backtest: {len(all_timestamps)} steps...")
+            print(f"[Start] Starting Optimized Time-Stepped Backtest: {len(all_timestamps)} steps...")
+
+        if self.drawdown_guard:
+            self.drawdown_guard.load_btc_data(df)
 
         for current_time in all_timestamps:
             # --- CIRCUIT BREAKER: Sleep State Management ---
@@ -794,7 +883,7 @@ class ThreeStageBacktester:
                 if cb_sleep_timer <= 0:
                     cb_is_sleeping = False
                     if verbose:
-                        print(f"  ⏰ [AWAKE] System resumed trading at {current_time}")
+                        print(f"    [AWAKE] System resumed trading at {current_time}")
                 else:
                     # Still sleeping: only process trade exits, skip new entries
                     # Close expired positions even while sleeping
@@ -855,18 +944,18 @@ class ThreeStageBacktester:
                     available_capital += pos['margin'] + pos['trade'].pnl
                     result.trades.append(pos['trade'])
                     del open_positions[tid]
-                    # if verbose: print(f"  💀 Local Liquidation: {pos['trade'].symbol} at {current_time}")
+                    # if verbose: print(f"    Local Liquidation: {pos['trade'].symbol} at {current_time}")
 
                 # Global Liquidation Check
                 mtm_equity = capital + (floating_pnl_total if self.config.margin_mode == 'CROSS' else 0)
                 if mtm_equity <= 0:
                     if verbose:
-                        print(f"💀 GLOBAL LIQUIDATION at {current_time} (Mode: {self.config.margin_mode}, MTM Equity: ${mtm_equity:.2f})")
+                        print(f"  GLOBAL LIQUIDATION at {current_time} (Mode: {self.config.margin_mode}, MTM Equity: ${mtm_equity:.2f})")
                     # Break simulation and cleanup result.trades
                     self._handle_global_liquidation(result, current_time, [], [])
                     break
 
-                # 🛡️ PORTFOLIO TRAILING STOP LOGIC
+                # [Guard] PORTFOLIO TRAILING STOP LOGIC
                 if self.config.use_portfolio_trailing:
                     current_portfolio_equity = capital + floating_pnl_total
                     
@@ -881,7 +970,7 @@ class ThreeStageBacktester:
                             
                     if portfolio_trailing_stop_value > 0 and current_portfolio_equity <= portfolio_trailing_stop_value:
                         if verbose:
-                            print(f"🛡️ PORTFOLIO SECURED at {current_time} (Equity: ${current_portfolio_equity:.2f}, Peak: ${portfolio_peak_equity:.2f})")
+                            print(f"[Guard] PORTFOLIO SECURED at {current_time} (Equity: ${current_portfolio_equity:.2f}, Peak: ${portfolio_peak_equity:.2f})")
                         
                         # Force close all active trades at current prices
                         for tid, pos in list(open_positions.items()):
@@ -924,7 +1013,7 @@ class ThreeStageBacktester:
                     if triggered and len(open_positions) > 0:
                         cb_trigger_count += 1
                         if verbose:
-                            print(f"  🚨 CIRCUIT BREAKER #{cb_trigger_count} at {current_time}: {reason}")
+                            print(f"    CIRCUIT BREAKER #{cb_trigger_count} at {current_time}: {reason}")
                         
                         # Force close ALL open positions
                         for tid, pos in list(open_positions.items()):
@@ -964,7 +1053,7 @@ class ThreeStageBacktester:
                         equity_timeline.append((current_time, capital))
                         result.daily_open_positions[current_time] = 0
                         if verbose:
-                            print(f"    💤 Sleeping for {self.config.cb_sleep_hours} bars. Capital: ${capital:,.2f}")
+                            print(f"      Sleeping for {self.config.cb_sleep_hours} bars. Capital: ${capital:,.2f}")
                         continue
 
             # A. Close expired positions
@@ -1001,7 +1090,7 @@ class ThreeStageBacktester:
             if current_time not in low_map.index: continue
 
             for sig in pending_pool:
-                # 🛑 FIX LOOK-AHEAD BIAS: Strict "Next Candle" Entry Rule
+                #   FIX LOOK-AHEAD BIAS: Strict "Next Candle" Entry Rule
                 # If signal timestamp is >= current time, the candle hasn't closed yet.
                 # We can ONLY enter on the candle(s) AFTER the signal is confirmed.
                 if sig['timestamp'] >= current_time:
@@ -1022,11 +1111,44 @@ class ThreeStageBacktester:
 
                 price_now = open_map.at[current_time, symbol]
                 
+                # --- DRAWDOWN GUARD CHECK (Visualization Only) ---
+                if self.drawdown_guard:
+                    # We no longer skip trades here as per user request.
+                    # The guard results will be visualized in plot_time_equity.py.
+                    pass
+
                 if self.config.use_scanner_filter:
                     zone = self.analyze_entry_zone(sig['is_long'], sig['signal_price'], price_now)
                     if zone not in self.config.allowed_zones: continue
                 
+                # --- REFINED SCORE FILTER ---
+                if sig['refined_score'] < self.config.min_refined_score:
+                    continue
+
                 # Valid candidate
+                # We simulate EVERY candidate here to build a "Signal Pool" for Monte Carlo
+                # This includes signals that might be skipped due to max_open_trades limit.
+                df_s = df_by_symbol[symbol]
+                cur_idx = idx_map.get((symbol, current_time))
+                if cur_idx is not None:
+                    fut_data = df_s.iloc[cur_idx : cur_idx + self.config.max_bars + 1]
+                    # Use a sample size of 1000 or config price for simulation
+                    # For signal_pool, we mostly care about the pct return, but simulate_trade needs a size.
+                    # We'll use a nominal size (initial_capital / max_open_trades) for calculation.
+                    nom_size = self.config.initial_capital / self.config.max_open_trades
+                    
+                    sl_pct = sig['sl_pct']
+                    tp_pct = sig['tp_pct']
+                    direction = 'LONG' if sig['is_long'] else 'SHORT'
+                    
+                    potential_trade = self.simulate_trade(
+                        sig['row'], fut_data, price_now, sl_pct, tp_pct, direction, nom_size
+                    )
+                    potential_trade.confidence = sig['confidence']
+                    potential_trade.refined_score = sig['refined_score']
+                    potential_trade.entry_time = current_time
+                    result.signal_pool.append(potential_trade)
+
                 candidates.append({
                     'signal': sig,
                     'price': price_now
@@ -1061,6 +1183,7 @@ class ThreeStageBacktester:
 
                 trade = self.simulate_trade(row_sig, future_data, entry_price, sl_pct, tp_pct, direction, size)
                 trade.confidence = sig['confidence']
+                trade.refined_score = sig['refined_score']
                 trade.entry_time = current_time # FIX: Record exact execution time, not signal time
                 
                 trade_counter += 1
@@ -1075,7 +1198,7 @@ class ThreeStageBacktester:
                 pending_pool = [s for s in pending_pool if s['symbol'] != sig['symbol']]
                 
                 if verbose and len(result.trades) < 5:
-                    print(f"  ✅ Entry: {sig['symbol']} at {entry_price:.4f} (Conf: {sig['confidence']:.2%})")
+                    print(f"  [Done] Entry: {sig['symbol']} at {entry_price:.4f} (Conf: {sig['confidence']:.2%})")
 
             # Track actual open position count per day
             result.daily_open_positions[current_time] = len(open_positions)
@@ -1276,7 +1399,7 @@ class ThreeStageBacktester:
         print("3-STAGE ML BACKTEST RESULTS")
         print("="*70)
         
-        print(f"\n📊 Configuration:")
+        print(f"\n[Stats] Configuration:")
         print(f"   Initial Capital: ${self.config.initial_capital:,.2f}")
         print(f"   Leverage: {self.config.leverage:.0f}x")
         print(f"   Risk per Trade: {self.config.risk_per_trade:.1%}")
@@ -1288,12 +1411,12 @@ class ThreeStageBacktester:
         print(f"   Timeframe: {self.config.timeframe if self.config.timeframe else 'ALL'}")
         print(f"   Require Fresh Crossover After Exit: {'Yes' if self.config.require_fresh_crossover_after_exit else 'No'}")
         
-        print(f"\n📈 Performance Summary:")
+        print(f"\n[Stats] Performance Summary:")
         print(f"   Total Trades: {result.total_trades}")
         print(f"   Winning: {result.winning_trades} ({result.win_rate:.1%})")
         print(f"   Losing: {result.losing_trades}")
         
-        print(f"\n💰 PnL Metrics:")
+        print(f"\n  PnL Metrics:")
         print(f"   Total PnL: ${result.total_pnl:,.2f}")
         print(f"   Total Return: {result.total_return:.1%}")
         print(f"   Avg Trade: ${result.avg_trade_pnl:,.2f}")
@@ -1303,12 +1426,12 @@ class ThreeStageBacktester:
         print(f"   Worst Trade: ${result.worst_trade:,.2f}")
         print(f"   Total Fees Paid: ${result.total_fees:,.2f}")
         
-        print(f"\n📉 Risk Metrics:")
+        print(f"\n[Stats] Risk Metrics:")
         print(f"   Max Drawdown: {result.max_drawdown:.1%}")
         print(f"   Sharpe Ratio: {result.sharpe_ratio:.2f}")
         print(f"   Profit Factor: {result.profit_factor:.2f}")
         
-        print(f"\n⏱️ Trade Duration:")
+        print(f"\n[Time] Trade Duration:")
         print(f"   Avg Bars Held: {result.avg_bars_held:.1f}")
         
         # Exit reason breakdown
@@ -1316,14 +1439,14 @@ class ThreeStageBacktester:
         for t in result.trades:
             exit_reasons[t.exit_reason] = exit_reasons.get(t.exit_reason, 0) + 1
         
-        print(f"\n🚪 Exit Reasons:")
+        print(f"\n[Exits] Exit Reasons:")
         for reason, count in sorted(exit_reasons.items(), key=lambda x: -x[1]):
             pct = count / result.total_trades * 100
             print(f"   {reason}: {count} ({pct:.1f}%)")
         
         # Final equity
         final_equity = result.equity_curve[-1] if result.equity_curve else self.config.initial_capital
-        print(f"\n🏆 Final Equity: ${final_equity:,.2f}")
+        print(f"\n[Final] Final Equity: ${final_equity:,.2f}")
         print("="*70)
 
 
@@ -1443,7 +1566,7 @@ def plot_equity_curve(results: Dict[str, BacktestResult], title: str = "Equity C
     
     if save_path:
         plt.savefig(save_path, dpi=150, bbox_inches='tight', facecolor='white')
-        print(f"\n📊 Chart saved to: {save_path}")
+        print(f"\n[Stats] Chart saved to: {save_path}")
     
     plt.show()
     return fig
@@ -1551,7 +1674,7 @@ def plot_max_positions_comparison(results: Dict[str, BacktestResult], initial_ca
         Path(save_path).parent.mkdir(exist_ok=True)
     
     plt.savefig(save_path, dpi=150, bbox_inches='tight', facecolor='white')
-    print(f"\n📊 Plot saved: {save_path}")
+    print(f"\n[Stats] Plot saved: {save_path}")
     
     plt.show()
     return fig
@@ -1654,6 +1777,74 @@ def plot_leverage_comparison(results: Dict[str, BacktestResult], initial_capital
     
     if save_path:
         plt.savefig(save_path, dpi=150, bbox_inches='tight', facecolor='white')
+def run_score_comparison(df: pd.DataFrame, base_config: BacktestConfig):
+    """
+    Compare strategy performance across different "Refined Score" thresholds.
+    """
+    print("\n" + "="*70)
+    print("[Score] RUNNING REFINED SCORE THRESHOLD COMPARISON")
+    print("="*70)
+    
+    results = {}
+    
+    # Thresholds to test: All, Weak (>=0.33), Balanced (>=0.66), Elite (1.0)
+    thresholds = [
+        ('All Signals', 0.0),
+        ('Weak (>=0.33)', 0.33),
+        ('Balanced (>=0.66)', 0.66),
+        ('Elite (1.0)', 1.0)
+    ]
+    
+    for name, threshold in thresholds:
+        print(f"\n[Test] Running with Min Score = {threshold} ({name})...")
+        config = deepcopy(base_config)
+        config.min_refined_score = threshold
+        
+        backtester = ThreeStageBacktester(config)
+        results[name] = backtester.run_backtest(df, verbose=False)
+    
+    # Print Comparison Table
+    print("\n" + "="*110)
+    lev_str = f"{base_config.leverage:.0f}x" if base_config.leverage > 1 else "1x"
+    print(f"[Stats] SCORE THRESHOLD COMPARISON ({lev_str} Leverage, {base_config.timeframe or '1d'} TF)")
+    print("="*110)
+    
+    header = f"{'Metric':<25}"
+    for name in results.keys():
+        header += f" | {name:>20}"
+    print(header)
+    print("-"*110)
+    
+    metrics = [
+        ('Final Equity ($)', 'equity_curve', lambda x: x[-1] if x else 0),
+        ('Total Return (%)', 'total_return', lambda x: x * 100),
+        ('Max Drawdown (%)', 'max_drawdown', lambda x: x * 100),
+        ('Win Rate (%)', 'win_rate', lambda x: x * 100),
+        ('Total Trades', 'total_trades', lambda x: x),
+        ('Profit Factor', 'profit_factor', lambda x: x),
+        ('Avg Trade ($)', 'avg_trade_pnl', lambda x: x),
+    ]
+    
+    for label, attr, fmt_func in metrics:
+        row = f"{label:<25}"
+        for name, res in results.items():
+            if attr == 'equity_curve':
+                val = fmt_func(res.equity_curve)
+            else:
+                val = fmt_func(getattr(res, attr))
+            row += f" | {val:>20.2f}"
+        print(row)
+    
+    print("="*110)
+    
+    # Plot Comparison
+    plot_equity_curve(results, title=f"Refined Score Threshold Comparison (Lev {lev_str})", 
+                     save_path=str(DATA_DIR.parent / 'backtest_score_comparison.png'))
+    
+    plt.show()
+    plt.close()
+
+
 def run_baseline_comparison(df: pd.DataFrame, config: BacktestConfig) -> Dict[str, BacktestResult]:
     """
     Compare 3-stage ML with baseline strategies.
@@ -1747,7 +1938,7 @@ def run_max_positions_comparison(df: pd.DataFrame, base_config: BacktestConfig) 
     print("="*80)
     
     for max_pos in max_positions:
-        print(f"\n🔄 Testing Max Positions = {max_pos}...")
+        print(f"\n[Ref] Testing Max Positions = {max_pos}...")
         
         config = deepcopy(base_config)
         config.max_open_trades = max_pos
@@ -1760,7 +1951,7 @@ def run_max_positions_comparison(df: pd.DataFrame, base_config: BacktestConfig) 
         liquidations = sum(1 for t in result.trades if t.exit_reason == 'LIQUIDATED')
         extreme_pnl_trades = sum(1 for t in result.trades if abs(t.pnl_pct) > 5)  # >500%
         
-        print(f"   ✅ Completed:")
+        print(f"   [Done] Completed:")
         print(f"      Total Trades: {result.total_trades}")
         print(f"      Final Equity: ${result.equity_curve[-1]:,.2f}" if result.equity_curve else "      Final Equity: N/A")
         print(f"      Total Return: {result.total_return:.1%}")
@@ -1874,13 +2065,13 @@ def run_pullback_comparison(df: pd.DataFrame, base_config: BacktestConfig):
     Compare strategy performance: Market Entry vs Pullback Limit Entry.
     """
     print("\n" + "="*60)
-    print("🔄 RUNNING PULLBACK ENTRY COMPARISON")
+    print("[Ref] RUNNING PULLBACK ENTRY COMPARISON")
     print("="*60)
     
     results = {}
     
     # 1. Market Entry (Baseline)
-    print("\n🔹 Running Market Entry (Baseline)...")
+    print("\n[Test] Running Market Entry (Baseline)...")
     base_config.entry_pullback_pct = 0.0
     backtester_market = ThreeStageBacktester(base_config)
     results['Market Entry'] = backtester_market.run_backtest(df, verbose=False)
@@ -1891,7 +2082,7 @@ def run_pullback_comparison(df: pd.DataFrame, base_config: BacktestConfig):
     timeout = 10 # Increase timeout
     
     for pct in pullback_levels:
-        print(f"\n🔹 Running Pullback Entry (Limit: -{pct:.1%}, Timeout: {timeout} bars)...")
+        print(f"\n[Test] Running Pullback Entry (Limit: -{pct:.1%}, Timeout: {timeout} bars)...")
         pullback_config = deepcopy(base_config)
         pullback_config.entry_pullback_pct = pct
         pullback_config.entry_pullback_timeout = timeout
@@ -1944,20 +2135,20 @@ def run_breaker_comparison(df: pd.DataFrame, base_config: BacktestConfig):
     Compare strategy performance: Baseline (no Circuit Breaker) vs Circuit Breaker configs.
     """
     print("\n" + "="*70)
-    print("🛡️ CIRCUIT BREAKER COMPARISON")
+    print("[Guard] CIRCUIT BREAKER COMPARISON")
     print("="*70)
     
     results = {}
     
     # 1. Baseline (no circuit breaker)
-    print("\n🔹 Running Baseline (No Circuit Breaker)...")
+    print("\n[Test] Running Baseline (No Circuit Breaker)...")
     config_base = deepcopy(base_config)
     config_base.use_circuit_breaker = False
     backtester_base = ThreeStageBacktester(config_base)
     results['Baseline'] = backtester_base.run_backtest(df, verbose=False)
     
     # 2. Circuit Breaker with user-specified or default params
-    print(f"\n🔹 Running CB: Conf={base_config.cb_confluence_tf} >= {base_config.cb_confluence_threshold:.0%}, "
+    print(f"\n[Test] Running CB: Conf={base_config.cb_confluence_tf} >= {base_config.cb_confluence_threshold:.0%}, "
           f"Vel={base_config.cb_velocity_threshold:.0%}, Sleep={base_config.cb_sleep_hours}bars...")
     config_cb = deepcopy(base_config)
     config_cb.use_circuit_breaker = True
@@ -1971,7 +2162,7 @@ def run_breaker_comparison(df: pd.DataFrame, base_config: BacktestConfig):
     ]
     
     for name, overrides in cb_variants:
-        print(f"\n🔹 Running {name}...")
+        print(f"\n[Test] Running {name}...")
         config_var = deepcopy(base_config)
         config_var.use_circuit_breaker = True
         for k, v in overrides.items():
@@ -1982,7 +2173,7 @@ def run_breaker_comparison(df: pd.DataFrame, base_config: BacktestConfig):
     # Print comparison table
     print("\n" + "="*110)
     lev_str = f"{base_config.leverage:.0f}x" if base_config.leverage > 1 else "1x"
-    print(f"📊 CIRCUIT BREAKER COMPARISON ({lev_str} Leverage, {base_config.timeframe or '1d'} Timeframe)")
+    print(f"[Stats] CIRCUIT BREAKER COMPARISON ({lev_str} Leverage, {base_config.timeframe or '1d'} Timeframe)")
     print("="*110)
     
     header = f"{'Metric':<25}"
@@ -2028,7 +2219,7 @@ def run_breaker_comparison(df: pd.DataFrame, base_config: BacktestConfig):
             reasons = {}
             for t in res.trades:
                 reasons[t.exit_reason] = reasons.get(t.exit_reason, 0) + 1
-            print(f"\n📋 {name} Exit Reasons: {dict(sorted(reasons.items(), key=lambda x: -x[1]))}")
+            print(f"\n[Info] {name} Exit Reasons: {dict(sorted(reasons.items(), key=lambda x: -x[1]))}")
     
     # Plot equity curves
     plot_equity_curve(
@@ -2043,7 +2234,7 @@ def run_breaker_comparison(df: pd.DataFrame, base_config: BacktestConfig):
 def run_timeout_comparison(df, base_config):
     """Test standard vs different timeout periods (max_bars)."""
     print("\n" + "="*70)
-    print(f"🔍 TIMEOUT OPTIMIZATION (max_bars) - Timeframe: {base_config.timeframe}")
+    print(f"  TIMEOUT OPTIMIZATION (max_bars) - Timeframe: {base_config.timeframe}")
     print("="*70)
     
     # Test different max_bars settings
@@ -2085,7 +2276,7 @@ def run_timeout_comparison(df, base_config):
     
     plot_path = DATA_DIR.parent / f'backtest_timeout_comparison_{base_config.timeframe}.png'
     plt.savefig(plot_path)
-    print(f"📊 Comparison chart saved to: {plot_path}")
+    print(f"[Stats] Comparison chart saved to: {plot_path}")
 
 
 def main():
@@ -2149,6 +2340,14 @@ def main():
     parser.add_argument('--scanner-mfe', type=float, default=0.12, help='Max Favorable Excursion for zone (default: 0.12)')
     parser.add_argument('--scanner-lookback', type=int, default=6, help='Lookback days for scanner entry (default: 6)')
     
+    # Drawdown Guard arguments
+    parser.add_argument('--drawdown-guard', action='store_true', help='Enable Drawdown Guard (Decision Tree risk management)')
+    parser.add_argument('--drawdown-guard-tf', type=str, default='1d', choices=['1d', '12h', '8h'], help='Drawdown Guard timeframe rules (1d, 12h, 8h)')
+    
+    parser.add_argument('--min-score', type=float, default=0.0, help='Minimum refined score (0-1, e.g. 0.66 for Balanced)')
+    parser.add_argument('--compare-score', action='store_true', help='Run comparison across different refined score levels')
+    parser.add_argument('--live-mode', action='store_true', help='Calculate risk based on available balance (mimics Livebot)')
+    
     args = parser.parse_args()
     
     # Load data based on timeframe
@@ -2174,7 +2373,7 @@ def main():
         else:
             data_path = PROCESSED_DIR / 'features_1d_full.parquet'  # Default
             if args.timeframe:
-                print(f"⚠️ Timeframe {args.timeframe} not supported, using 1d data")
+                print(f"[Warning] Timeframe {args.timeframe} not supported, using 1d data")
     
     if args.compare_timeframes:
         df = pd.DataFrame() # Dummy for initialization
@@ -2184,7 +2383,7 @@ def main():
             print("Available files:")
             for tf, fname in timeframe_files.items():
                 fpath = PROCESSED_DIR / fname
-                status = "✓" if fpath.exists() else "✗"
+                status = "[Done]" if fpath.exists() else " "
                 print(f"  {status} {tf}: {fname}")
             print("Run multi_timeframe_pipeline.py first!")
             return
@@ -2217,8 +2416,8 @@ def main():
             print(f"Test period: {len(df_test):,} rows across {unique_symbols} symbols")
             print(f"Date range: {df_test['timestamp'].min()} to {df_test['timestamp'].max()}")
         else:
-            # 🔧 FIX: Use chronological split for testing
-            print("📅 Using default test period (last 6 months chronologically)...")
+            #   FIX: Use chronological split for testing
+            print("  Using default test period (last 6 months chronologically)...")
             df = df.sort_values('timestamp')  # Ensure chronological order
             
             # Use last 6 months for testing (more realistic than random 20%)
@@ -2229,12 +2428,12 @@ def main():
             
             # Fallback to last 20% if not enough recent data
             if len(df_test) < 1000:  # Minimum threshold
-                print("⚠️ Not enough data in last 6 months, using last 20% of chronological data")
+                print("[Warning] Not enough data in last 6 months, using last 20% of chronological data")
                 test_start_idx = int(len(df) * 0.8)
                 df_test = df.iloc[test_start_idx:].copy()
             
             unique_symbols = df_test['symbol'].nunique() if 'symbol' in df_test.columns else 1
-            print(f"✅ Test period: {len(df_test):,} rows across {unique_symbols} symbols")
+            print(f"[Done] Test period: {len(df_test):,} rows across {unique_symbols} symbols")
             print(f"Date range: {df_test['timestamp'].min()} to {df_test['timestamp'].max()}")
     else:
         df_test = None # Dummy
@@ -2272,9 +2471,18 @@ def main():
         cb_confluence_tf=args.cb_confluence_tf,
         cb_confluence_threshold=args.cb_threshold,
         cb_velocity_threshold=args.cb_velocity_threshold,
-        cb_sleep_hours=args.cb_sleep
+        cb_sleep_hours=args.cb_sleep,
+        use_drawdown_guard=args.drawdown_guard,
+        drawdown_guard_tf=args.drawdown_guard_tf,
+        min_refined_score=args.min_score,
+        use_available_balance_for_risk=args.live_mode
     )
     
+    # Run Score comparison if requested
+    if args.compare_score:
+        run_score_comparison(df_test, config)
+        return
+        
     # Run Circuit Breaker comparison if requested
     if args.compare_breaker:
         run_breaker_comparison(df_test, config)
@@ -2356,7 +2564,7 @@ def main():
                 num_individual_charts = int(args.plot_trades)
                 num_individual_charts = min(num_individual_charts, len(result.trades))  # Can't exceed available trades
             except ValueError:
-                print(f"⚠️ Invalid plot-trades value '{args.plot_trades}', defaulting to 8")
+                print(f"[Warning] Invalid plot-trades value '{args.plot_trades}', defaulting to 8")
                 num_individual_charts = 8
         
         # Plot individual trades
@@ -2376,13 +2584,13 @@ def plot_sample_individual_trades(df: pd.DataFrame, trades: List[Trade], lev_str
         num_samples: Number of individual trade charts to create
     """
     if len(trades) < 1:
-        print("⚠️ No trades to plot")
+        print("[Warning] No trades to plot")
         return
     
     # Cap at available trades
     num_samples = min(num_samples, len(trades))
     
-    print(f"📈 Creating {num_samples} individual trade charts...")
+    print(f"[Stats] Creating {num_samples} individual trade charts...")
     
     # Selection strategy based on requested number
     samples = []
@@ -2404,7 +2612,7 @@ def plot_sample_individual_trades(df: pd.DataFrame, trades: List[Trade], lev_str
         filename = f'{i+1:03d}_{label}_{trade.symbol}_{pnl_str}_{lev_str}.png'
         save_path = output_dir / filename
         
-        print(f"  📊 {i+1:2d}/{num_samples}: {label} - {trade.symbol} {trade.direction} ${trade.pnl:+.0f}")
+        print(f"  [Stats] {i+1:2d}/{num_samples}: {label} - {trade.symbol} {trade.direction} ${trade.pnl:+.0f}")
         
         # Create detailed title
         duration_str = f"{trade.bars_held}bars" if trade.bars_held > 0 else "N/A"
@@ -2419,13 +2627,13 @@ def plot_sample_individual_trades(df: pd.DataFrame, trades: List[Trade], lev_str
                 buffer_bars=15  # Smaller buffer for cleaner view
             )
         except Exception as e:
-            print(f"  ⚠️ Failed to plot {label}: {e}")
+            print(f"  [Warning] Failed to plot {label}: {e}")
     
-    print(f"💾 Created {len(samples)} individual trade charts in: {output_dir}")
+    print(f"  Created {len(samples)} individual trade charts in: {output_dir}")
 
 
 def _select_curated_trades(trades: List[Trade], num_samples: int) -> List[Tuple[str, Trade]]:
-    """Select curated high-quality trade samples for small numbers (≤10)."""
+    """Select curated high-quality trade samples for small numbers ( 10)."""
     samples = []
     
     # 1. Best winner
@@ -2550,10 +2758,10 @@ def plot_individual_trade(df: pd.DataFrame, trade: Trade, title: str = None, sav
         num_samples: Number of sample trades to plot
     """
     if len(trades) < 4:
-        print("⚠️ Not enough trades to plot samples")
+        print("[Warning] Not enough trades to plot samples")
         return
     
-    print(f"📈 Creating {num_samples} individual trade charts...")
+    print(f"[Stats] Creating {num_samples} individual trade charts...")
     
     # Sort trades by PnL
     sorted_trades = sorted(trades, key=lambda t: t.pnl)
@@ -2627,7 +2835,7 @@ def plot_individual_trade(df: pd.DataFrame, trade: Trade, title: str = None, sav
         filename = f'{label}_{trade.symbol}_{pnl_str}_{lev_str}.png'
         save_path = output_dir / filename
         
-        print(f"  📊 {label}: {trade.symbol} {trade.direction} - ${trade.pnl:+.0f} ({trade.exit_reason})")
+        print(f"  [Stats] {label}: {trade.symbol} {trade.direction} - ${trade.pnl:+.0f} ({trade.exit_reason})")
         
         # Create detailed title
         duration_str = f"{trade.bars_held}bars" if trade.bars_held > 0 else "N/A"
@@ -2642,9 +2850,9 @@ def plot_individual_trade(df: pd.DataFrame, trade: Trade, title: str = None, sav
                 buffer_bars=20  # Smaller buffer for cleaner view
             )
         except Exception as e:
-            print(f"  ⚠️ Failed to plot {label}: {e}")
+            print(f"  [Warning] Failed to plot {label}: {e}")
     
-    print(f"💾 Created {len(samples)} individual trade charts in: {output_dir}")
+    print(f"  Created {len(samples)} individual trade charts in: {output_dir}")
 
 
 def plot_individual_trade(df: pd.DataFrame, trade: Trade, title: str = None, save_path: str = None, buffer_bars: int = 50):
@@ -2659,15 +2867,15 @@ def plot_individual_trade(df: pd.DataFrame, trade: Trade, title: str = None, sav
         buffer_bars: Number of bars to show before/after trade for context
     """
     if df.empty or not trade:
-        print("⚠️ No data or trade to plot")
+        print("[Warning] No data or trade to plot")
         return
         
     if mpf is None:
-        print("⚠️ mplfinance not available, using basic line plot")
+        print("[Warning] mplfinance not available, using basic line plot")
         _plot_individual_trade_basic(df, trade, title, save_path, buffer_bars)
         return
     
-    print(f"📊 Plotting individual trade: {trade.symbol} {trade.direction} @ {trade.entry_time}")
+    print(f"[Stats] Plotting individual trade: {trade.symbol} {trade.direction} @ {trade.entry_time}")
     
     # Filter to specific symbol if needed
     if 'symbol' in df.columns:
@@ -2693,7 +2901,7 @@ def plot_individual_trade(df: pd.DataFrame, trade: Trade, title: str = None, sav
     df_period = df_plot.iloc[start_idx:end_idx + 1].copy()
     
     if len(df_period) < 5:
-        print("⚠️ Not enough data around trade period")
+        print("[Warning] Not enough data around trade period")
         return
     
     # Prepare data for mplfinance (needs specific column names)
@@ -2709,7 +2917,7 @@ def plot_individual_trade(df: pd.DataFrame, trade: Trade, title: str = None, sav
     ohlc_data = ohlc_data.dropna()
     
     if ohlc_data.empty:
-        print("⚠️ No valid OHLC data for trade period")
+        print("[Warning] No valid OHLC data for trade period")
         return
     
     # Prepare additional plots (lines for TP, SL)
@@ -2849,7 +3057,7 @@ Fees: ${trade.fees_paid:.2f}"""
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"💾 Individual trade plot saved to: {save_path}")
+        print(f"  Individual trade plot saved to: {save_path}")
     
     # plt.show()
     plt.close()
@@ -2924,7 +3132,7 @@ def _plot_individual_trade_basic(df: pd.DataFrame, trade: Trade, title: str = No
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"💾 Individual trade plot saved to: {save_path}")
+        print(f"  Individual trade plot saved to: {save_path}")
     
     # plt.show()
     plt.close()
@@ -2940,10 +3148,10 @@ def plot_all_trades_summary(trades: List[Trade], title: str = "All Trades Summar
         save_path: Path to save the plot
     """
     if not trades:
-        print("⚠️ No trades to plot")
+        print("[Warning] No trades to plot")
         return
         
-    print(f"📊 Plotting summary for {len(trades)} trades across all symbols")
+    print(f"[Stats] Plotting summary for {len(trades)} trades across all symbols")
     
     # Create figure with multiple subplots
     fig, axes = plt.subplots(2, 2, figsize=(16, 12))
@@ -3061,7 +3269,7 @@ def plot_all_trades_summary(trades: List[Trade], title: str = "All Trades Summar
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"💾 All trades summary saved to: {save_path}")
+        print(f"  All trades summary saved to: {save_path}")
     
     # plt.show()
     plt.close()
@@ -3077,10 +3285,10 @@ def plot_all_trades_timeline(trades: List[Trade], title: str = "All Trades Timel
         save_path: Path to save the plot
     """
     if not trades:
-        print("⚠️ No trades to plot")
+        print("[Warning] No trades to plot")
         return
         
-    print(f"📊 Plotting timeline for ALL {len(trades)} trades across all symbols")
+    print(f"[Stats] Plotting timeline for ALL {len(trades)} trades across all symbols")
     
     # Sort trades by entry time
     sorted_trades = sorted(trades, key=lambda t: t.entry_time)
@@ -3168,7 +3376,7 @@ def plot_all_trades_timeline(trades: List[Trade], title: str = "All Trades Timel
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"💾 All trades timeline saved to: {save_path}")
+        print(f"  All trades timeline saved to: {save_path}")
     
     # plt.show()
     plt.close()
@@ -3186,7 +3394,7 @@ def plot_backtest_trades(df: pd.DataFrame, trades: List[Trade], title: str = "Ba
         trade_limit: If set to a number string, plot only the last N trades. If "all" or None, plot all.
     """
     if df.empty or not trades:
-        print("⚠️ No data or trades to plot")
+        print("[Warning] No data or trades to plot")
         return
     
     # Limit trades if requested (use last N trades by exit_time)
@@ -3196,12 +3404,12 @@ def plot_backtest_trades(df: pd.DataFrame, trades: List[Trade], title: str = "Ba
             if n > 0:
                 trades = sorted(trades, key=lambda t: (t.exit_time or t.entry_time))
                 trades = trades[-n:]
-                print(f"📊 Plotting last {len(trades)} trades (limited from {trade_limit})")
+                print(f"[Stats] Plotting last {len(trades)} trades (limited from {trade_limit})")
         except (ValueError, TypeError):
             # ignore invalid trade_limit values and fall back to all trades
-            print(f"⚠️ Invalid trade limit '{trade_limit}', plotting all trades")
+            print(f"[Warning] Invalid trade limit '{trade_limit}', plotting all trades")
     else:
-        print(f"📊 Plotting all {len(trades)} trades")
+        print(f"[Stats] Plotting all {len(trades)} trades")
 
     # Ensure timestamp is index
     df_plot = df.copy()
@@ -3224,19 +3432,19 @@ def plot_backtest_trades(df: pd.DataFrame, trades: List[Trade], title: str = "Ba
             # Sort symbols by trade count
             sorted_symbols = sorted(trade_counts.items(), key=lambda x: -x[1])
             
-            print(f"📊 Found {len(symbols)} symbols with trades:")
+            print(f"[Stats] Found {len(symbols)} symbols with trades:")
             for symbol, count in sorted_symbols[:10]:  # Show top 10
                 print(f"   {symbol}: {count} trades")
             
             # Option 1: Use symbol with most trades (current behavior)
             if trade_counts:
                 best_symbol = sorted_symbols[0][0]
-                print(f"📉 Plotting for single symbol: {best_symbol} ({trade_counts[best_symbol]} trades)")
+                print(f"[Stats] Plotting for single symbol: {best_symbol} ({trade_counts[best_symbol]} trades)")
                 df_plot = df_plot[df_plot['symbol'] == best_symbol] 
                 trades = [t for t in trades if t.symbol == best_symbol]
                 title += f" ({best_symbol})"
             else:
-                print("⚠️ No trades found for any symbol")
+                print("[Warning] No trades found for any symbol")
                 return
 
     # 1. Price Chart with Trades
@@ -3326,7 +3534,7 @@ def plot_backtest_trades(df: pd.DataFrame, trades: List[Trade], title: str = "Ba
                      fontsize=8, color=ann['color'], ha='center', fontweight='bold',
                      bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.8, edgecolor=ann['color']))
     
-    # 🔵 FOCUS ON TRADE AREA: Set x-axis limits to focus around trades only
+    #   FOCUS ON TRADE AREA: Set x-axis limits to focus around trades only
     if trades:
         # Find time range of trades
         all_times = []
@@ -3349,7 +3557,7 @@ def plot_backtest_trades(df: pd.DataFrame, trades: List[Trade], title: str = "Ba
             
             ax1.set_xlim(focus_start, focus_end)
             
-            print(f"📍 Focusing chart on trade period: {focus_start.strftime('%Y-%m-%d')} to {focus_end.strftime('%Y-%m-%d')}")
+            print(f"  Focusing chart on trade period: {focus_start.strftime('%Y-%m-%d')} to {focus_end.strftime('%Y-%m-%d')}")
     
     ax1.set_title(f'{title} - Price & Trades (Color/Size = Confidence)', fontsize=14, fontweight='bold')
     ax1.set_ylabel('Price')
@@ -3404,19 +3612,19 @@ def run_trailing_comparison(df: pd.DataFrame, base_config: BacktestConfig):
     Compare strategy performance WITH and WITHOUT Trailing Stop.
     """
     print("\n" + "="*60)
-    print("🔄 RUNNING TRAILING STOP COMPARISON")
+    print("[Ref] RUNNING TRAILING STOP COMPARISON")
     print("="*60)
     
     results = {}
     
     # 1. Baseline (No Trailing)
-    print("\n🔹 Running Baseline (Fixed SL/TP)...")
+    print("\n[Test] Running Baseline (Fixed SL/TP)...")
     base_config.use_trailing_stop = False
     backtester_base = ThreeStageBacktester(base_config)
     results['Baseline (Fixed SL/TP)'] = backtester_base.run_backtest(df, verbose=False)
     
     # 2. Trailing Stop
-    print(f"\n🔹 Running Trailing Stop (Start: {base_config.trailing_start_pct:.1%}, Step: {base_config.trailing_step_pct:.1%})...")
+    print(f"\n[Test] Running Trailing Stop (Start: {base_config.trailing_start_pct:.1%}, Step: {base_config.trailing_step_pct:.1%})...")
     trailing_config = deepcopy(base_config)
     trailing_config.use_trailing_stop = True
     backtester_trail = ThreeStageBacktester(trailing_config)
@@ -3471,13 +3679,13 @@ def run_kelly_comparison(df: pd.DataFrame, base_config: BacktestConfig):
     Compare strategy performance with EVEN Sizing vs KELLY Sizing.
     """
     print("\n" + "="*60)
-    print("🔄 RUNNING KELLY SIZING COMPARISON")
+    print("[Ref] RUNNING KELLY SIZING COMPARISON")
     print("="*60)
     
     results = {}
     
     # 1. Even Sizing (Fixed Risk per Trade)
-    print("\n🔹 Running Even Sizing (Fixed Risk)...")
+    print("\n[Test] Running Even Sizing (Fixed Risk)...")
     base_config.use_kelly = False
     # Relax constraints for comparison to be visible
     base_config.max_concentration = 1.0  # Allow up to 100% per trade (if risk allows)
@@ -3487,7 +3695,7 @@ def run_kelly_comparison(df: pd.DataFrame, base_config: BacktestConfig):
     results['Even Sizing'] = backtester_even.run_backtest(df, verbose=False)
     
     # 2. Kelly Criterion
-    print(f"\n🔹 Running Kelly Criterion (Fraction: {base_config.kelly_fraction:.2f})...")
+    print(f"\n[Test] Running Kelly Criterion (Fraction: {base_config.kelly_fraction:.2f})...")
     kelly_config = deepcopy(base_config)
     kelly_config.use_kelly = True
     kelly_config.max_concentration = 1.0  # Allow up to 100% per trade
@@ -3539,7 +3747,7 @@ def run_timeframe_comparison(base_config: BacktestConfig):
     Compare strategy performance across all supported timeframes.
     """
     print("\n" + "="*70)
-    print("🚀 RUNNING MULTI-TIMEFRAME COMPARISON")
+    print("[Start] RUNNING MULTI-TIMEFRAME COMPARISON")
     print("="*70)
     
     results: Dict[str, BacktestResult] = {}
@@ -3548,11 +3756,11 @@ def run_timeframe_comparison(base_config: BacktestConfig):
     comparison_timeframes = [tf for tf in SUPPORTED_TIMEFRAMES if tf != '1h']
     
     for tf in comparison_timeframes:
-        print(f"\n🔹 Testing Timeframe: {tf.upper()}...")
+        print(f"\n[Test] Testing Timeframe: {tf.upper()}...")
         
         data_path = PROCESSED_DIR / f'features_{tf}_full.parquet'
         if not data_path.exists():
-            print(f"   ⚠️ Data not found for {tf}, skipping.")
+            print(f"   [Warning] Data not found for {tf}, skipping.")
             continue
             
         try:
@@ -3571,7 +3779,7 @@ def run_timeframe_comparison(base_config: BacktestConfig):
                     df_test = df_test[df_test['timestamp'] <= end_dt]
                 
                 if df_test.empty:
-                    print(f"   ⚠️ No data in range {base_config.start_date} to {base_config.end_date}, skipping.")
+                    print(f"   [Warning] No data in range {base_config.start_date} to {base_config.end_date}, skipping.")
                     continue
             else:
                 # Default: last 6 months or 20%
@@ -3594,10 +3802,10 @@ def run_timeframe_comparison(base_config: BacktestConfig):
             result = backtester.run_backtest(df_test, verbose=False)
             results[tf] = result
             
-            print(f"   ✅ Done: {result.total_trades} trades, {result.total_return:.1%} return")
+            print(f"   [Done] Done: {result.total_trades} trades, {result.total_return:.1%} return")
             
         except Exception as e:
-            print(f"   ❌ Error testing {tf}: {e}")
+            print(f"     Error testing {tf}: {e}")
             
     if not results:
         print("No results to compare!")
@@ -3620,7 +3828,7 @@ def run_timeframe_comparison(base_config: BacktestConfig):
     plot_equity_curve(results, title=f"Timeframe Comparison (Lev {lev_str})", 
                      save_path=str(DATA_DIR.parent / 'backtest_timeframe_comparison_advanced.png'))
     
-    print(f"\n📊 Comparison chart saved to: {DATA_DIR.parent / 'backtest_timeframe_comparison_advanced.png'}")
+    print(f"\n[Stats] Comparison chart saved to: {DATA_DIR.parent / 'backtest_timeframe_comparison_advanced.png'}")
     plt.show()
 
 
