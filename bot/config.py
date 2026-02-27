@@ -24,6 +24,7 @@ class RiskConfig(BaseModel):
     max_concentration: float = 0.20   # Max 20% of account in one coin
     use_kelly: bool = True
     kelly_fraction: float = 0.5
+    max_position_size_usd: float = 10000.0  # Hard cap on position size
 
 class StrategyConfig(BaseModel):
     timeframes: List[str] = ["1d"]

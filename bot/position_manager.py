@@ -238,6 +238,10 @@ class PositionManager:
         if position_size > capital * self.config.exchange.leverage:
             position_size = capital * self.config.exchange.leverage
             
+        # Hard Cap on Position Size (USD)
+        if hasattr(self.config.risk, 'max_position_size_usd'):
+            position_size = min(position_size, self.config.risk.max_position_size_usd)
+            
         return max(0, position_size)
 
     def _scan_for_entry(self, symbol: str, df: pd.DataFrame, timeframe: str):
