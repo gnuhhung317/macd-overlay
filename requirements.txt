@@ -8,3 +8,5 @@ psutil
 scikit-learn
 joblib
 xgboost
+streamlit
+ccxt

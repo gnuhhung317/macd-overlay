@@ -235,7 +235,14 @@ class CCXTExecutor(ExchangeExecutor):
                     
                     if self.config.exchange.name.lower() == 'bitget':
                         try:
-                            # Attempt 1: Assume Unilateral mode (use reduceOnly)
+                            # Attempt to use ccxt's native close_position which handles Hedge / One-Way automatically
+                            self.client.close_position(
+                                symbol=ccxt_symbol,
+                                side=p['side'] # 'long' or 'short'
+                            )
+                        except Exception as e:
+                            print(f"❌ Fallback: Native close_position failed for {ccxt_symbol}: {e}. Trying market order...")
+                            # Fallback to standard order placement if close_position raises an error
                             self.client.create_order(
                                 symbol=ccxt_symbol,
                                 type='market',
@@ -243,24 +250,6 @@ class CCXTExecutor(ExchangeExecutor):
                                 amount=float(p['contracts']),
                                 params=params
                             )
-                        except Exception as e:
-                            # Error 40774 indicates a mode mismatch
-                            if '40774' in str(e):
-                                print(f"🔄 Bitget 40774 detected during Close. Retrying with tradeSide='close' (Hedge Mode)...")
-                                del params['reduceOnly']
-                                params['tradeSide'] = 'close'
-                                # In Hedge mode, we explicitly provide the position side to be closed
-                                params['posSide'] = p['side'] # 'long' or 'short'
-                                
-                                self.client.create_order(
-                                    symbol=ccxt_symbol,
-                                    type='market',
-                                    side=side,
-                                    amount=float(p['contracts']),
-                                    params=params
-                                )
-                            else:
-                                raise e
                     else:
                         # Standard order placement for other exchanges
                         self.client.create_order(
