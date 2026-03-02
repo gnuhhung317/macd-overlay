@@ -276,20 +276,10 @@ class BinanceFetcher:
                     
                     if not existing_ohlcv.empty:
                         min_date = existing_ohlcv['timestamp'].min()
-                        # Proactive check for historical data completeness
-                        if min_date.year >= 2024: # Binance has much older data
-                            print(f"    Existing data starts late ({min_date}), checking for earlier history...")
-                            found_start_ts = self.find_start_date(symbol)
-                            if found_start_ts:
-                                found_start_dt = datetime.fromtimestamp(found_start_ts/1000, tz=timezone.utc)
-                                current_start_ms = existing_ohlcv['timestamp'].min().timestamp() * 1000
-                                if found_start_ts < current_start_ms - (90 * 24 * 3600 * 1000):
-                                    print(f"    Found older data starting {found_start_dt}. Discarding incomplete file.")
-                                    existing_ohlcv = None
-                                else:
-                                    print("    Existing start seems correct.")
-                            else:
-                                print("    No earlier data found.")
+                        # Skip proactive history probing for existing files to save API weight
+                        # Binance has much older data, but probing it sequentially for 500+ coins 
+                        # triggers Rate Limit -1003. 
+                        print("    Existing data found, skipping start date probe.")
                 except:
                     print("    Corrupt parquet, re-fetching.")
                     existing_ohlcv = None

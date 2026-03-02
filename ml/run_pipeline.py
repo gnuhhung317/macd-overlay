@@ -41,7 +41,7 @@ def main():
     
     # Generate labels
     print("\nGenerating labels...")
-    df = generate_labels(df, tp_pct=0.03, sl_pct=0.015, max_bars=10)
+    df = generate_labels(df, tp_pct=0.20, sl_pct=0.10, max_bars=10)
     
     # Save
     save_processed_data(df, 'features_1d_full.parquet')
@@ -51,7 +51,7 @@ def main():
     print("  STEP 2: Backtest - Baseline Performance")
     print("="*70)
     
-    backtester = MACDBacktester(tp_pct=0.03, sl_pct=0.015, max_bars=10)
+    backtester = MACDBacktester(tp_pct=0.20, sl_pct=0.10, max_bars=10)
     
     all_trades = []
     for symbol in df['symbol'].unique():

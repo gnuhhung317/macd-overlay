@@ -16,6 +16,7 @@ from sklearn.model_selection import TimeSeriesSplit, cross_val_score
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, r2_score
+from scipy.stats import spearmanr
 import xgboost as xgb
 import lightgbm as lgb
 
@@ -41,10 +42,10 @@ def get_regression_models() -> Dict:
             subsample=0.8, colsample_bytree=0.8,
             random_state=42, verbose=-1
         ),
-        'RandomForest': RandomForestRegressor(
-            n_estimators=200, max_depth=10, min_samples_split=20,
-            random_state=42, n_jobs=-1
-        ),
+        # 'RandomForest': RandomForestRegressor(
+        #     n_estimators=200, max_depth=10, min_samples_split=20,
+        #     random_state=42, n_jobs=-1
+        # ),
     }
 
 
@@ -121,14 +122,16 @@ def train_sl_predictor(timeframe: str, tune: bool = False) -> TrainingResult:
         y_pred = model.predict(X_test_scaled)
         test_mae = mean_absolute_error(y_test, y_pred)
         test_r2 = r2_score(y_test, y_pred)
+        test_ic, _ = spearmanr(y_test, y_pred)
         
         results[name] = {
             'model': model,
             'cv_score': -scores.mean(),
             'test_mae': test_mae,
-            'test_r2': test_r2
+            'test_r2': test_r2,
+            'test_ic': test_ic
         }
-        print(f"    CV MAE: {-scores.mean():.4f}, Test MAE: {test_mae:.4f}, R²: {test_r2:.4f}")
+        print(f"    CV MAE: {-scores.mean():.4f}, Test MAE: {test_mae:.4f}, R²: {test_r2:.4f}, IC: {test_ic:.4f}")
     
     # Select best (lowest MAE)
     best_name = min(results.keys(), key=lambda k: results[k]['test_mae'])
@@ -148,8 +151,12 @@ def train_sl_predictor(timeframe: str, tune: bool = False) -> TrainingResult:
     }, model_path)
     
     training_time = time.time() - start_time
-    print(f"\n✓ Best: {best_name}, Test MAE: {results[best_name]['test_mae']:.4f}")
+    print(f"\n✓ Best: {best_name}, Test MAE: {results[best_name]['test_mae']:.4f}, IC: {results[best_name]['test_ic']:.4f}")
     print(f"✓ Saved to: {model_path}")
+    
+    # --- EVALUATE ON OTHER EXCHANGES ---
+    from training_utils import evaluate_on_exchanges
+    evaluate_on_exchanges(best_model, scaler, feature_cols, timeframe, 'sl_predictor')
     
     return TrainingResult(
         timeframe=timeframe,

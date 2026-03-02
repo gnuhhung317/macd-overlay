@@ -15,8 +15,12 @@ sys.path.insert(0, str(ROOT_DIR))
 try:
     from bitget_fetcher import BitgetFetcher
     from binance_fetcher import BinanceFetcher
-    import ml.data_pipeline as data_pipeline
-    from ml.multi_timeframe_pipeline import build_timeframe_dataset, build_all_timeframes
+    from bybit_fetcher import BybitFetcher
+    from kraken_fetcher import KrakenFetcher
+    from okx_fetcher import OKXFetcher
+    from mexc_fetcher import MEXCFetcher
+    import data_pipeline
+    from multi_timeframe_pipeline import build_timeframe_dataset, build_all_timeframes
 except ImportError as e:
     print(f"❌ Error importing modules: {e}")
     print("Ensure you are running this from the project root or ml folder.")
@@ -24,7 +28,7 @@ except ImportError as e:
 
 def main():
     parser = argparse.ArgumentParser(description="Unified Sync & Dataset Rebuild")
-    parser.add_argument("--exchange", type=str, choices=['bitget', 'binance'], default='bitget', help="Exchange to fetch from")
+    parser.add_argument("--exchange", type=str, choices=['bitget', 'binance', 'bybit', 'kraken', 'okx', 'mexc'], default='bitget', help="Exchange to fetch from")
     parser.add_argument("--limit", type=int, help="Limit number of coins to fetch")
     parser.add_argument("--min-days", type=int, default=180, help="Minimum days for feature engineering")
     parser.add_argument("--timeframe", type=str, default="1d", help="Target timeframe (1h, 4h, 1d, etc.)")
@@ -43,7 +47,7 @@ def main():
     if args.exchange == 'binance':
         data_dir = ROOT_DIR / 'data'
     else:
-        data_dir = ROOT_DIR / 'bitget-data'
+        data_dir = ROOT_DIR / f'{args.exchange}-data'
     
     data_pipeline.set_data_directory(data_dir)
 
@@ -53,8 +57,16 @@ def main():
         try:
             if args.exchange == 'bitget':
                 fetcher = BitgetFetcher()
-            else:
+            elif args.exchange == 'binance':
                 fetcher = BinanceFetcher()
+            elif args.exchange == 'bybit':
+                fetcher = BybitFetcher()
+            elif args.exchange == 'kraken':
+                fetcher = KrakenFetcher()
+            elif args.exchange == 'okx':
+                fetcher = OKXFetcher()
+            elif args.exchange == 'mexc':
+                fetcher = MEXCFetcher()
                 
             fetcher.run(limit_coins=args.limit)
             print(f"\n✅ Data fetching from {args.exchange.capitalize()} complete.")

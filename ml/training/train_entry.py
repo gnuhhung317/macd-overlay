@@ -41,10 +41,10 @@ def get_classification_models() -> Dict:
             subsample=0.8, colsample_bytree=0.8, class_weight='balanced',
             random_state=42, verbose=-1
         ),
-        'RandomForest': RandomForestClassifier(
-            n_estimators=200, max_depth=10, min_samples_split=20,
-            class_weight='balanced', random_state=42, n_jobs=-1
-        ),
+        # 'RandomForest': RandomForestClassifier(
+        #     n_estimators=200, max_depth=10, min_samples_split=20,
+        #     class_weight='balanced', random_state=42, n_jobs=-1
+        # ),
     }
 
 
@@ -136,6 +136,10 @@ def train_entry_filter(timeframe: str, tune: bool = False) -> TrainingResult:
     training_time = time.time() - start_time
     print(f"\n✓ Best: {best_name}, Test AUC: {results[best_name]['test_auc']:.4f}")
     print(f"✓ Saved to: {model_path}")
+    
+    # --- EVALUATE ON OTHER EXCHANGES ---
+    from training_utils import evaluate_on_exchanges
+    evaluate_on_exchanges(best_model, scaler, feature_cols, timeframe, 'entry_filter')
     
     return TrainingResult(
         timeframe=timeframe,

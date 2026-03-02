@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 # Supported timeframes
-SUPPORTED_TIMEFRAMES = ['1h', '4h', '8h', '12h', '1d', '1w']
+SUPPORTED_TIMEFRAMES = [ '8h', '12h', '1d', '1w']
 
 @dataclass
 class TimeframeConfig:

@@ -8,7 +8,7 @@
         "risk": 0.01,
         "max_positions": 13,
         "threshold": 0.6,
-        "minscore": 0,
+        "minscore": 0.0,
         "use_scanner": true
     },
     {
@@ -20,7 +20,7 @@
         "risk": 0.01,
         "max_positions": 13,
         "threshold": 0.6,
-        "minscore": 0,
+        "minscore": 0.0,
         "use_scanner": true
     },
     {
@@ -32,7 +32,7 @@
         "risk": 0.01,
         "max_positions": 13,
         "threshold": 0.6,
-        "minscore": 0,
+        "minscore": 0.0,
         "use_scanner": true
     }
 ]

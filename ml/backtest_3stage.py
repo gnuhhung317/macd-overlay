@@ -33,7 +33,7 @@ warnings.filterwarnings('ignore')
 from config import SUPPORTED_TIMEFRAMES, get_timeframe_config
 from market_breadth import BreadthEngine, CircuitBreakerConfig
 
-DATA_DIR = Path(__file__).parent.parent / 'data'
+DATA_DIR = Path(__file__).parent.parent / 'bitget-data'
 PROCESSED_DIR = DATA_DIR / 'processed'
 MODEL_DIR = Path(__file__).parent / 'models'
 
@@ -99,7 +99,7 @@ class BacktestConfig:
     
     # scanner entry zone options
     use_scanner_filter: bool = False  # If True, filter trades using SmartScanner Entry Zone logic
-    scanner_mae: float = 0.00  # Max Adverse Excursion for zone calculation
+    scanner_mae: float = 0.04  # Max Adverse Excursion for zone calculation
     scanner_mfe: float = 0.12  # Max Favorable Excursion for zone calculation
     scanner_lookback_days: int = 4  # Wait up to N days for a good entry zone
     allowed_zones: List[str] = field(default_factory=lambda: [ "DISCOUNT", "GOOD ENTRY"])

@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from binance.client import Client
+import ccxt
 from datetime import datetime, timedelta
 import time
 
@@ -12,21 +12,29 @@ class BinanceDataProcessor:
     
     def __init__(self, api_key="", api_secret="", fast_period=12, slow_period=26, signal_period=9, use_futures=True):
         """
-        Khởi tạo data processor
+        Khởi tạo data processor sử dụng CCXT cho Binance
         
         Args:
-            api_key (str): Binance API key (để trống cho public data)
-            api_secret (str): Binance API secret (để trống cho public data)
+            api_key (str): Binance API key
+            api_secret (str): Binance API secret
             fast_period (int): Fast EMA period
             slow_period (int): Slow EMA period
             signal_period (int): Signal SMA period
             use_futures (bool): Sử dụng Futures API (True) hoặc Spot API (False)
         """
-        self.client = Client(api_key, api_secret)
         self.fast_period = fast_period
         self.slow_period = slow_period
         self.signal_period = signal_period
         self.use_futures = use_futures
+        
+        self.client = ccxt.binance({
+            'apiKey': api_key,
+            'secret': api_secret,
+            'enableRateLimit': True,
+            'options': {
+                'defaultType': 'swap' if use_futures else 'spot'
+            }
+        })
         
     def _get_interval_ms(self, interval):
         """

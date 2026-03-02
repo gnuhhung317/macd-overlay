@@ -51,8 +51,8 @@ class ThreeStageMLSystem:
         tp_model_path: str = None,
         entry_threshold: float = 0.5,
         min_rr_ratio: float = 1.0,  # Minimum RR to take trade
-        default_sl: float = 0.02,
-        default_tp: float = 0.04
+        default_sl: float = 0.10,   # Raised from 0.02
+        default_tp: float = 0.20    # Raised from 0.04
     ):
         # Stage 1: Entry Filter
         self.entry_model = None
@@ -430,14 +430,14 @@ def compare_strategies(df: pd.DataFrame) -> Dict:
     
     # Strategy 1: Baseline (no ML)
     print("\n" + "="*60)
-    print("Strategy 1: Baseline (No ML, TP=3%, SL=1.5%)")
+    print("Strategy 1: Baseline (No ML, TP=20%, SL=10%)")
     print("="*60)
     
     baseline_system = ThreeStageMLSystem(
         entry_threshold=0.0,  # Accept all
         min_rr_ratio=0.0,
-        default_sl=0.015,
-        default_tp=0.03
+        default_sl=0.10,      # Raised from 0.015
+        default_tp=0.20       # Raised from 0.03
     )
     results['baseline'] = backtest_3stage_ml(df, baseline_system)
     print_backtest_summary(results['baseline'], "Baseline")
@@ -457,8 +457,8 @@ def compare_strategies(df: pd.DataFrame) -> Dict:
         entry_model_path=str(model_dir / 'entry_filter.joblib'),
         entry_threshold=0.5,
         min_rr_ratio=0.0,
-        default_sl=0.015,
-        default_tp=0.03
+        default_sl=0.10,      # Raised from 0.015
+        default_tp=0.20       # Raised from 0.03
     )
     results['ml_entry'] = backtest_3stage_ml(df, entry_only_system)
     print_backtest_summary(results['ml_entry'], "ML Entry")
@@ -472,8 +472,8 @@ def compare_strategies(df: pd.DataFrame) -> Dict:
         entry_model_path=str(model_dir / 'entry_filter.joblib'),
         entry_threshold=0.6,  # Higher threshold
         min_rr_ratio=0.0,
-        default_sl=0.015,
-        default_tp=0.03
+        default_sl=0.10,      # Raised from 0.015
+        default_tp=0.20       # Raised from 0.03
     )
     results['ml_entry_strict'] = backtest_3stage_ml(df, entry_only_system_strict)
     print_backtest_summary(results['ml_entry_strict'], "ML Entry (Strict)")

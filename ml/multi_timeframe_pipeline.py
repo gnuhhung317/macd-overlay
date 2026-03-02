@@ -134,6 +134,29 @@ def build_timeframe_dataset(
         symbols = symbols[:limit_symbols]
         print(f"Limited to {len(symbols)} symbols")
     
+    # ---------------------------------------------------------
+    # NEW: 1. Process BTC context first for Market Regime
+    # ---------------------------------------------------------
+    print("=> Extracting Macro Market Regime from BTCUSDT...")
+    btc_context = pd.DataFrame()
+    btc_symbol = None
+    if 'BTCUSDT' in symbols:
+        btc_symbol = 'BTCUSDT'
+    elif 'BTC' in symbols:
+        btc_symbol = 'BTC'
+        
+    if btc_symbol:
+        df_1h_btc = load_ohlcv_1h(btc_symbol)
+        if not df_1h_btc.empty:
+            df_btc = resample_to_timeframe(df_1h_btc, timeframe)
+            df_btc = calculate_features_for_timeframe(df_btc, timeframe)
+            if not df_btc.empty:
+                btc_context = df_btc[['timestamp', 'close', 'sma_200', 'adx', 'log_returns']].copy()
+                btc_context.columns = ['timestamp', 'btc_close', 'btc_sma_200', 'btc_adx', 'btc_returns']
+                btc_context['btc_is_bull_regime'] = (btc_context['btc_close'] > btc_context['btc_sma_200']).astype(int)
+                btc_context['btc_trend_strength'] = np.where(btc_context['btc_adx'] > 25, 1, 0)
+    # ---------------------------------------------------------
+    
     all_data = []
     
     for i, symbol in enumerate(symbols, 1):
@@ -165,6 +188,17 @@ def build_timeframe_dataset(
             df = df.drop(columns=['date'])
         else:
             df['funding_rate'] = 0
+            
+        # ---------------------------------------------------------
+        # NEW: 2. Merge BTC Context & Calculate Relative Strength
+        # ---------------------------------------------------------
+        if not btc_context.empty:
+            df = df.merge(btc_context, on='timestamp', how='left')
+            fill_cols = ['btc_is_bull_regime', 'btc_trend_strength', 'btc_returns']
+            df[fill_cols] = df[fill_cols].ffill().fillna(0)
+            df['rs_vs_btc'] = df['log_returns'] - df['btc_returns']
+            df['rs_vs_btc_sma7'] = df['rs_vs_btc'].rolling(7).mean()
+        # ---------------------------------------------------------
         
         all_data.append(df)
         
@@ -187,21 +221,19 @@ def build_timeframe_dataset(
     atr_sl_mult = 1.5
     
     # Fallback fixed targets (used if ATR not available)
-    # Shorter timeframes typically have smaller moves
-    tf_scale = {
-        '1h': 0.5,   # 1.5% TP, 0.75% SL
-        '4h': 7,  # 2.25% TP, 1.125% SL
-        '8h': 7,   # 2.7% TP, 1.35% SL
-        '12h': 7.0,  # 3% TP, 1.5% SL
-        '1d': 7.0,   # 3% TP, 1.5% SL
-        '1w': 14.0   # 6% TP, 3% SL
-    }
-    scale = tf_scale.get(timeframe, 1.0)
-    tp_pct = 0.03 * scale
-    sl_pct = 0.015 * scale
+    # Uniform 20% TP / 10% SL for all timeframes as requested
+    tp_pct = 0.20
+    sl_pct = 0.10
     
     print(f"  ATR multipliers: TP={atr_tp_mult}x, SL={atr_sl_mult}x")
     print(f"  Fallback fixed: TP={tp_pct:.2%}, SL={sl_pct:.2%}")
+    
+    # ---------------------------------------------------------
+    # Apply T-1 Global Shift to predictive features to prevent Look-ahead bias
+    # ---------------------------------------------------------
+    from data_pipeline import apply_global_feature_shift
+    print("\nApplying T-1 Global Shift to features...")
+    df_combined = apply_global_feature_shift(df_combined)
     
     df_labeled = generate_labels(
         df_combined, 
@@ -256,7 +288,7 @@ def build_timeframe_dataset(
 def build_all_timeframes(symbols: list = None, limit_symbols: int = None):
     """Build datasets for all timeframes."""
     # timeframes = ['1h', '4h', '8h', '12h', '1d', '1w']
-    timeframes = ['4h', '8h', '12h', '1d', '1w']
+    timeframes = ['8h', '12h', '1d', '1w']
     
     results = {}
     for tf in timeframes:

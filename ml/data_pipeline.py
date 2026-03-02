@@ -186,6 +186,7 @@ def calculate_features(df: pd.DataFrame) -> pd.DataFrame:
     df['rsi_7'] = calculate_rsi(df['close'], 7)
     
     # RSI Slope (momentum of momentum) - NEW for TP prediction
+    # BUG FIX: diff(-3) looks into the FUTURE. We must use historical diff: diff(3)
     df['rsi_slope'] = df['rsi_14'].diff(3) / 3
     
     # Stochastic
@@ -218,6 +219,30 @@ def calculate_features(df: pd.DataFrame) -> pd.DataFrame:
     # ===== Market Regime =====
     df['is_trending'] = (abs(df['trend_7_21'] - 1) > 0.02).astype(int)
     df['is_volatile'] = (df['volatility_14'] > df['volatility_14'].rolling(50).mean()).astype(int)
+    
+    # ===== Advanced Regime Features =====
+    
+    # 1. Khoảng cách an toàn tới các đường EMA (Tính bằng %)
+    # Giúp mô hình biết giá đã đi quá xa trung bình chưa (rủi ro đảo chiều)
+    df['dist_to_ema_21_pct'] = (df['close'] - df['ema_21']) / df['ema_21']
+    df['dist_to_ema_200_pct'] = (df['close'] - df['ema_200']) / df['ema_200']
+    
+    # 2. ADX Trend State (-1, 0, 1)
+    # Kết hợp ADX và SMA để xác định rõ: Sideway (0), Uptrend mạnh (1), Downtrend mạnh (-1)
+    df['trend_state'] = np.where(
+        df['adx'] < 20, 0,  # Không có xu hướng
+        np.where(df['close'] > df['sma_50'], 1, -1) # Có xu hướng, check xem trend lên hay xuống
+    )
+    
+    # 3. Phân loại thanh khoản (Liquidity Regime)
+    # Lọc các coin rác có volume chồi sụt bất thường
+    # Use moving average of volume directly to calculate standard deviation since apply with lambda on rolling is slow, but we stick to user req
+    # An optimization: rolling with pandas native methods where possible, but apply is ok for now.
+    def calc_cv(x):
+        m = np.mean(x)
+        return np.std(x)/m if m > 0 else 0
+        
+    df['liquidity_regime'] = df['volume_sma_14'].rolling(30).apply(calc_cv, raw=True)
     
     return df
 
@@ -755,7 +780,7 @@ def process_symbol(symbol: str, include_funding: bool = True) -> pd.DataFrame:
 
 
 def build_dataset(symbols: List[str] = None, min_days: int = 365) -> pd.DataFrame:
-    """Build full dataset from all symbols"""
+    """Build full dataset from all symbols with Macro Market Regime"""
     if symbols is None:
         # Get all symbols from ohlcv directory
         symbols = [f.stem.replace('_USDT', '') for f in OHLCV_DIR.glob('*.parquet')]
@@ -764,11 +789,50 @@ def build_dataset(symbols: List[str] = None, min_days: int = 365) -> pd.DataFram
     
     print(f"Processing {len(symbols)} symbols...")
     
+    # ---------------------------------------------------------
+    # NEW: 1. Process BTC context first for Market Regime
+    # ---------------------------------------------------------
+    print("=> Extracting Macro Market Regime from BTCUSDT...")
+    btc_context = pd.DataFrame()
+    btc_symbol = None
+    if 'BTCUSDT' in symbols:
+        btc_symbol = 'BTCUSDT'
+    elif 'BTC' in symbols:
+        btc_symbol = 'BTC'
+        
+    if btc_symbol:
+        btc_df = process_symbol(btc_symbol)
+        if not btc_df.empty:
+            btc_context = btc_df[['timestamp', 'close', 'sma_200', 'adx', 'log_returns']].copy()
+            btc_context.columns = ['timestamp', 'btc_close', 'btc_sma_200', 'btc_adx', 'btc_returns']
+            
+            # Đánh giá Regime của toàn thị trường dựa trên BTC
+            btc_context['btc_is_bull_regime'] = (btc_context['btc_close'] > btc_context['btc_sma_200']).astype(int)
+            # Đo lường độ mạnh xu hướng của BTC
+            btc_context['btc_trend_strength'] = np.where(btc_context['btc_adx'] > 25, 1, 0)
+    # ---------------------------------------------------------
+    
     all_data = []
     for symbol in symbols:
         try:
             df = process_symbol(symbol)
             if not df.empty and len(df) >= min_days:
+                
+                # ---------------------------------------------------------
+                # NEW: 2. Merge BTC Context & Calculate Relative Strength
+                # ---------------------------------------------------------
+                if not btc_context.empty:
+                    df = df.merge(btc_context, on='timestamp', how='left')
+                    
+                    # Trám dữ liệu rỗng (nếu có) bằng ffill
+                    fill_cols = ['btc_is_bull_regime', 'btc_trend_strength', 'btc_returns']
+                    df[fill_cols] = df[fill_cols].ffill().fillna(0)
+                    
+                    # Relative Strength (RS): Coin này đang mạnh hay yếu hơn BTC?
+                    df['rs_vs_btc'] = df['log_returns'] - df['btc_returns']
+                    df['rs_vs_btc_sma7'] = df['rs_vs_btc'].rolling(7).mean()
+                # ---------------------------------------------------------
+                
                 all_data.append(df)
         except Exception as e:
             print(f"  ✗ Error processing {symbol}: {e}")
@@ -783,6 +847,29 @@ def build_dataset(symbols: List[str] = None, min_days: int = 365) -> pd.DataFram
     
     return df_all
 
+
+def apply_global_feature_shift(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Applies a T-1 shift to all predictive features. 
+    This guarantees zero look-ahead bias if trading at the crossover confirm (Open of T+1).
+    """
+    if df.empty:
+        return df
+        
+    df = df.copy()
+    non_shift_cols = {
+        'timestamp', 'symbol', 'open', 'high', 'low', 'close', 'volume',
+        'macd_cross_up', 'macd_cross_down', 'macd_crossover',
+        'date', 'fundingTime'
+    }
+    shift_cols = [c for c in df.columns if c not in non_shift_cols]
+    
+    # We must group by symbol so we don't shift data across different coins
+    df[shift_cols] = df.groupby('symbol', group_keys=False)[shift_cols].shift(1)
+    
+    # Drop rows of the first element that became NaN due to shifting
+    df = df.dropna(subset=shift_cols[:3]) 
+    return df
 
 def save_processed_data(df: pd.DataFrame, filename: str = 'features_1d.parquet'):
     """Save processed data"""
@@ -822,7 +909,9 @@ if __name__ == '__main__':
     df = build_dataset(symbols, min_days=args.min_days)
     
     if not df.empty:
-        # Generate labels
+        print(f"\nApplying T-1 Global Shift to features to prevent Look-ahead bias...")
+        df = apply_global_feature_shift(df)
+        
         print("\nGenerating labels...")
         df = generate_labels(df)
         
