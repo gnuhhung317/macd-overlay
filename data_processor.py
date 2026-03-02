@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-import ccxt
+from binance.client import Client
 from datetime import datetime, timedelta
 import time
 
@@ -27,14 +27,7 @@ class BinanceDataProcessor:
         self.signal_period = signal_period
         self.use_futures = use_futures
         
-        self.client = ccxt.binance({
-            'apiKey': api_key,
-            'secret': api_secret,
-            'enableRateLimit': True,
-            'options': {
-                'defaultType': 'swap' if use_futures else 'spot'
-            }
-        })
+        self.client = Client(api_key=api_key, api_secret=api_secret)
         
     def _get_interval_ms(self, interval):
         """
