@@ -15,7 +15,7 @@ def run_dynamic_strategy(timeframe='8h'):
     start_time = time.time()
     config = BacktestConfig(initial_capital=10000)
     config.start_date = '2020-01-01'
-    config.end_date = '2026-02-01'
+    config.end_date = '2026-03-01'
     config.max_bars = 40
     
     print("\n" + "="*80)

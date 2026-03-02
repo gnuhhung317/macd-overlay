@@ -27,6 +27,29 @@ from training_utils import (
     PROCESSED_DIR, MODELS_DIR
 )
 
+import optuna
+from optuna.samplers import TPESampler
+import warnings
+optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+def objective_xgboost(trial, X_train, y_train, cv):
+    """Hàm mục tiêu cho Optuna để tune XGBoost"""
+    param = {
+        'n_estimators': trial.suggest_int('n_estimators', 100, 500, step=50),
+        'max_depth': trial.suggest_int('max_depth', 3, 9),
+        'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.1, log=True),
+        'subsample': trial.suggest_float('subsample', 0.6, 0.9),
+        'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 0.9),
+        'min_child_weight': trial.suggest_int('min_child_weight', 1, 7),
+        'gamma': trial.suggest_float('gamma', 0, 0.5),
+        'random_state': 42,
+        'eval_metric': 'logloss',
+        'verbosity': 0
+    }
+    model = xgb.XGBClassifier(**param)
+    scores = cross_val_score(model, X_train, y_train, cv=cv, scoring='roc_auc', n_jobs=-1)
+    return scores.mean()
+
 
 def get_classification_models() -> Dict:
     """Get classification models for Entry Filter"""
@@ -98,23 +121,47 @@ def train_entry_filter(timeframe: str, tune: bool = False) -> TrainingResult:
     
     # Train models
     tscv = TimeSeriesSplit(n_splits=5)
-    models = get_classification_models()
     results = {}
     
-    for name, model in models.items():
-        print(f"  Training {name}...")
-        scores = cross_val_score(model, X_train_scaled, y_train, cv=tscv, scoring='roc_auc')
-        model.fit(X_train_scaled, y_train)
+    if tune:
+        print(f"\n🚀 Khởi động Optuna Hyperparameter Tuning cho XGBoost...")
+        study = optuna.create_study(direction='maximize', sampler=TPESampler(seed=42))
+        study.optimize(lambda trial: objective_xgboost(trial, X_train_scaled, y_train, tscv), n_trials=30)
         
-        y_proba = model.predict_proba(X_test_scaled)[:, 1]
+        print("\n✨ Quá trình Tuning hoàn tất!")
+        print(f" 🏆 Best CV AUC: {study.best_value:.4f}")
+        print(" 🎯 Best Parameters:")
+        for key, value in study.best_params.items():
+            print(f"    {key}: {value}")
+            
+        best_xgb = xgb.XGBClassifier(**study.best_params, random_state=42, eval_metric='logloss')
+        best_xgb.fit(X_train_scaled, y_train)
+        
+        y_proba = best_xgb.predict_proba(X_test_scaled)[:, 1]
         test_auc = roc_auc_score(y_test, y_proba)
+        print(f" 📊 Final Test AUC: {test_auc:.4f}")
         
-        results[name] = {
-            'model': model,
-            'cv_score': scores.mean(),
+        results['Tuned_XGBoost'] = {
+            'model': best_xgb,
+            'cv_score': study.best_value,
             'test_auc': test_auc
         }
-        print(f"    CV AUC: {scores.mean():.4f}, Test AUC: {test_auc:.4f}")
+    else:
+        models = get_classification_models()
+        for name, model in models.items():
+            print(f"  Training {name}...")
+            scores = cross_val_score(model, X_train_scaled, y_train, cv=tscv, scoring='roc_auc', n_jobs=-1)
+            model.fit(X_train_scaled, y_train)
+            
+            y_proba = model.predict_proba(X_test_scaled)[:, 1]
+            test_auc = roc_auc_score(y_test, y_proba)
+            
+            results[name] = {
+                'model': model,
+                'cv_score': scores.mean(),
+                'test_auc': test_auc
+            }
+            print(f"    CV AUC: {scores.mean():.4f}, Test AUC: {test_auc:.4f}")
     
     # Select best
     best_name = max(results.keys(), key=lambda k: results[k]['test_auc'])

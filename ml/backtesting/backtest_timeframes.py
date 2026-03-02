@@ -49,6 +49,10 @@ class TimeframeBacktester(ThreeStageBacktester):
         self.sl_features = None
         self.tp_features = None
         
+        # Missing fields from parent
+        self.hourly_data_cache: Dict[str, pd.DataFrame] = {}
+        self.drawdown_guard = None
+        
         self._load_models()
     
     def _load_models(self):
