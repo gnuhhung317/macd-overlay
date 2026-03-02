@@ -9,10 +9,23 @@ from typing import List, Dict, Tuple
 import warnings
 warnings.filterwarnings('ignore')
 
+# Default data directory (Bitget for backward compatibility)
 DATA_DIR = Path(__file__).parent.parent / 'bitget-data'
 OHLCV_DIR = DATA_DIR / 'ohlcv'
 FUNDING_DIR = DATA_DIR / 'funding'
 PROCESSED_DIR = DATA_DIR / 'processed'
+
+def set_data_directory(new_dir: Path):
+    """
+    Dynamically update the data directories.
+    Useful for switching between Bitget and Binance.
+    """
+    global DATA_DIR, OHLCV_DIR, FUNDING_DIR, PROCESSED_DIR
+    DATA_DIR = new_dir
+    OHLCV_DIR = DATA_DIR / 'ohlcv'
+    FUNDING_DIR = DATA_DIR / 'funding'
+    PROCESSED_DIR = DATA_DIR / 'processed'
+    print(f"📁 Data directory set to: {DATA_DIR}")
 
 
 def load_ohlcv_1h(symbol: str) -> pd.DataFrame:

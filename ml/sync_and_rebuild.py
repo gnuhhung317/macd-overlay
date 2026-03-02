@@ -14,7 +14,8 @@ sys.path.insert(0, str(ROOT_DIR))
 
 try:
     from bitget_fetcher import BitgetFetcher
-    from ml.data_pipeline import build_dataset, generate_labels, save_processed_data
+    from binance_fetcher import BinanceFetcher
+    import ml.data_pipeline as data_pipeline
     from ml.multi_timeframe_pipeline import build_timeframe_dataset, build_all_timeframes
 except ImportError as e:
     print(f"❌ Error importing modules: {e}")
@@ -22,7 +23,8 @@ except ImportError as e:
     sys.exit(1)
 
 def main():
-    parser = argparse.ArgumentParser(description="Unified Bitget Sync & Dataset Rebuild")
+    parser = argparse.ArgumentParser(description="Unified Sync & Dataset Rebuild")
+    parser.add_argument("--exchange", type=str, choices=['bitget', 'binance'], default='bitget', help="Exchange to fetch from")
     parser.add_argument("--limit", type=int, help="Limit number of coins to fetch")
     parser.add_argument("--min-days", type=int, default=180, help="Minimum days for feature engineering")
     parser.add_argument("--timeframe", type=str, default="1d", help="Target timeframe (1h, 4h, 1d, etc.)")
@@ -34,15 +36,28 @@ def main():
     
     print("="*80)
     print(f"🚀 UNIFIED SYNC & REBUILD FLOW - {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"🌍 Exchange: {args.exchange.upper()}")
     print("="*80)
+
+    # Set data directory based on exchange
+    if args.exchange == 'binance':
+        data_dir = ROOT_DIR / 'data'
+    else:
+        data_dir = ROOT_DIR / 'bitget-data'
+    
+    data_pipeline.set_data_directory(data_dir)
 
     # 1. Fetch Latest Data
     if not args.skip_fetch:
-        print("\n[STEP 1/2] 📥 Fetching latest data from Bitget...")
+        print(f"\n[STEP 1/2] 📥 Fetching latest data from {args.exchange.capitalize()}...")
         try:
-            fetcher = BitgetFetcher()
+            if args.exchange == 'bitget':
+                fetcher = BitgetFetcher()
+            else:
+                fetcher = BinanceFetcher()
+                
             fetcher.run(limit_coins=args.limit)
-            print("\n✅ Data fetching complete.")
+            print(f"\n✅ Data fetching from {args.exchange.capitalize()} complete.")
         except Exception as e:
             print(f"\n❌ Error during fetching: {e}")
             sys.exit(1)

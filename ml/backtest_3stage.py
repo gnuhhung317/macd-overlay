@@ -33,7 +33,7 @@ warnings.filterwarnings('ignore')
 from config import SUPPORTED_TIMEFRAMES, get_timeframe_config
 from market_breadth import BreadthEngine, CircuitBreakerConfig
 
-DATA_DIR = Path(__file__).parent.parent / 'bitget-data'
+DATA_DIR = Path(__file__).parent.parent / 'data'
 PROCESSED_DIR = DATA_DIR / 'processed'
 MODEL_DIR = Path(__file__).parent / 'models'
 
@@ -91,7 +91,7 @@ class BacktestConfig:
     portfolio_trailing_start_pct: float = 0.30  # Start trailing after 30% floating profit
     portfolio_trailing_step_pct: float = 0.15   # Close all if floating profit drops 15% from its peak
     
-    max_position_size_usd: float = 100.0  # Max size per trade in USD (hard cap)
+    max_position_size_usd: float = 10000.0  # Max size per trade in USD (hard cap)
     
     # limit entry options
     entry_pullback_pct: float = 0.0  # If > 0, place LIMIT order at (Price * (1 - pct)) instead of Market

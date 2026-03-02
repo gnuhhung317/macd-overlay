@@ -11,6 +11,7 @@ from pathlib import Path
 import warnings
 warnings.filterwarnings('ignore')
 
+import data_pipeline
 from data_pipeline import (
     load_ohlcv_1h,
     load_funding,
@@ -20,9 +21,7 @@ from data_pipeline import (
     calculate_rsi,
     calculate_stochastic,
     generate_labels,
-    get_feature_columns,
-    OHLCV_DIR,
-    PROCESSED_DIR
+    get_feature_columns
 )
 
 
@@ -127,7 +126,7 @@ def build_timeframe_dataset(
     
     # Get all symbols
     if symbols is None:
-        parquet_files = list(OHLCV_DIR.glob("*_USDT.parquet"))
+        parquet_files = list(data_pipeline.OHLCV_DIR.glob("*_USDT.parquet"))
         symbols = [f.stem.replace('_USDT', '') for f in parquet_files]
         print(f"Found {len(symbols)} symbols")
     
@@ -246,8 +245,8 @@ def build_timeframe_dataset(
     
     # Save
     if save:
-        PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-        output_path = PROCESSED_DIR / f'features_{timeframe}_full.parquet'
+        data_pipeline.PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+        output_path = data_pipeline.PROCESSED_DIR / f'features_{timeframe}_full.parquet'
         df_labeled.to_parquet(output_path)
         print(f"\n✓ Saved to {output_path}")
     
@@ -316,7 +315,7 @@ def compare_timeframe_performance(model_path: str = None):
     timeframes = ['1h', '4h', '8h', '12h', '1d', '1w']
     
     for tf in timeframes:
-        data_path = PROCESSED_DIR / f'features_{tf}_full.parquet'
+        data_path = data_pipeline.PROCESSED_DIR / f'features_{tf}_full.parquet'
         if not data_path.exists():
             print(f"  {tf}: No data found")
             continue

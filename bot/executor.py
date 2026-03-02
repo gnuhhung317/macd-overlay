@@ -357,12 +357,16 @@ class BinanceExecutor(ExchangeExecutor):
         return round(ticks * tick_size, precision)
 
     def get_balance(self) -> float:
-        """Get USDT Balance"""
+        """Get USDT Balance (Total Equity/Margin Balance)"""
         try:
             balances = self.client.futures_account_balance()
             for b in balances:
                 if b['asset'] == 'USDT':
-                    return float(b['marginBalance']) # Use Margin Balance (Equity) instead of Available
+                    # Support multiple potential keys for better compatibility (Standard vs Portfolio)
+                    # Priority: marginBalance (Equity) -> balance (Wallet) -> crossMarginBalance
+                    val = b.get('marginBalance') or b.get('balance') or b.get('walletBalance') or b.get('totalMarginBalance')
+                    if val is not None:
+                        return float(val)
             return 0.0
         except Exception as e:
             print(f"❌ Error getting balance: {e}")

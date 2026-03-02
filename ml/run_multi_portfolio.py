@@ -21,16 +21,18 @@ def run_portfolio(port_config: dict, start_date=None, end_date=None) -> Backtest
     tf_config = get_timeframe_config(tf_val)
     config = BacktestConfig(
         initial_capital=port_config.get('capital', 100),
-        risk_per_trade=port_config.get('risk', 0.02),
+        risk_per_trade=port_config.get('risk', 0.01),
         leverage=port_config.get('leverage', 1.0),
         margin_mode=port_config.get('margin_mode', 'ISOLATED'),
         timeframe=tf_val,
         max_bars=tf_config.max_bars,
-        max_open_trades=port_config.get('max_positions', 10),
-        entry_threshold=port_config.get('threshold', 0.65),
+        max_open_trades=port_config.get('max_positions', 13),
+        entry_threshold=port_config.get('threshold', 0.6),
+        min_refined_score=port_config.get('minscore', 0.0),
         use_scanner_filter=port_config.get('use_scanner', True),
         start_date=start_date,
-        end_date=end_date
+        end_date=end_date,
+        slippage=0.002
     )
     
     # Enable circuit breaker if configured
@@ -196,7 +198,8 @@ def main():
         cap = res.config.initial_capital
         eq_final = res.equity_curve[-1] if len(res.equity_curve) > 0 else cap
         ret = (eq_final - cap) / cap
-        print(f"   - {name:<20} | capital: ${cap:<7.2f} | trades: {len(res.trades):<4} | return: {ret:>8.2%} | maxDD: {res.max_drawdown:>6.2%} | final eq: ${eq_final:,.2f}")
+        min_score = res.config.min_refined_score
+        print(f"   - {name:<20} | capital: ${cap:<7.2f} | score: {min_score:>4.1f} | trades: {len(res.trades):<4} | return: {ret:>8.2%} | maxDD: {res.max_drawdown:>6.2%} | final eq: ${eq_final:,.2f}")
         
     if args.output:
         df_equity.to_csv(args.output, index_label='timestamp')
