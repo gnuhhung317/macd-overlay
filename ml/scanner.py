@@ -66,6 +66,26 @@ class SmartScanner:
         buffer_days = tf_days.get(timeframe, 100)
         fetch_start = f"{lookback_days + buffer_days} days ago UTC" # Dynamic buffer based on timeframe
         
+        # --- NEW: Fetch BTC Macro Context for ML Inference ---
+        btc_context = pd.DataFrame()
+        try:
+            # We fetch a bit more for BTC to ensure 200 SMA is valid
+            btc_fetch_start = f"{lookback_days + buffer_days + 200} days ago UTC"
+            df_btc = self.processor.get_historical_data("BTCUSDT", timeframe, btc_fetch_start, "now UTC")
+            if not df_btc.empty:
+                # Calculate features on BTC using the exact same multi_timeframe_pipeline logic
+                from ml.multi_timeframe_pipeline import calculate_features_for_timeframe
+                df_btc = calculate_features_for_timeframe(df_btc, timeframe)
+                
+                if not df_btc.empty:
+                    btc_context = df_btc[['timestamp', 'close', 'sma_200', 'adx', 'log_returns']].copy()
+                    btc_context.columns = ['timestamp', 'btc_close', 'btc_sma_200', 'btc_adx', 'btc_returns']
+                    btc_context['btc_is_bull_regime'] = (btc_context['btc_close'] > btc_context['btc_sma_200']).astype(int)
+                    btc_context['btc_trend_strength'] = np.where(btc_context['btc_adx'] > 25, 1, 0)
+        except Exception as e:
+            print(f"[Scanner] Failed to fetch BTC context: {e}")
+        # -----------------------------------------------------
+
         # Get current prices for all symbols efficiently if possible, 
         # but processor might do it one by one.
         # For now, we fetch candles, which contain the close price (approx current).
@@ -133,11 +153,31 @@ class SmartScanner:
                     row = cross_down.iloc[-1]
                     
                 # 6. ML Prediction
-                # We need features for the moment of crossover, or current?
-                # Usually we predict based on the state AT THE SIGNAL.
-                # Pass data UP TO the signal row.
-                # Since df has RangeIndex, loc[:row.name] works perfectly (slices by int index)
-                prediction = engine.predict(symbol, df.loc[:row.name])
+                
+                # --- NEW: Merge BTC Context Before Prediction ---
+                predict_df = df.loc[:row.name].copy()
+                if not btc_context.empty:
+                    # Merge on timestamp
+                    predict_df = predict_df.merge(btc_context, on='timestamp', how='left')
+                    
+                    # Forward fill and fillna with 0
+                    fill_cols = ['btc_is_bull_regime', 'btc_trend_strength', 'btc_returns']
+                    for col in fill_cols:
+                        if col in predict_df.columns:
+                            predict_df[col] = predict_df[col].ffill().fillna(0)
+                        else:
+                            predict_df[col] = 0
+                            
+                    # Calculate Relative Strength
+                    if 'log_returns' in predict_df.columns and 'btc_returns' in predict_df.columns:
+                        predict_df['rs_vs_btc'] = predict_df['log_returns'] - predict_df['btc_returns']
+                        predict_df['rs_vs_btc_sma7'] = predict_df['rs_vs_btc'].rolling(7).mean()
+                    else:
+                        predict_df['rs_vs_btc'] = 0.0
+                        predict_df['rs_vs_btc_sma7'] = 0.0
+                # ------------------------------------------------
+                
+                prediction = engine.predict(symbol, predict_df)
                 if not prediction: continue
                 
                 confidence = prediction.get('entry_confidence', 0.0)

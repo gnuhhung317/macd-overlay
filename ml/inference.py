@@ -123,7 +123,18 @@ class InferenceEngine:
         
         try:
             # Replicate the exact training feature pipeline
+            # If the scanner has already merged BTC features, calculate_features_for_timeframe 
+            # might drop or ignore them if not careful, but looking at multi_timeframe_pipeline, 
+            # it just adds columns. We need to preserve BTC features if they exist.
+            btc_cols = ['btc_is_bull_regime', 'btc_trend_strength', 'btc_returns', 'rs_vs_btc', 'rs_vs_btc_sma7']
+            existing_btc = {c: df[c] for c in btc_cols if c in df.columns}
+            
             df = calculate_features_for_timeframe(df, self.timeframe)
+            
+            # Restore BTC features if they were lost during calculation
+            for c, s in existing_btc.items():
+                if c not in df.columns:
+                    df[c] = s
             
             # Merge funding rate (critical for some models)
             df_funding = load_funding(symbol)

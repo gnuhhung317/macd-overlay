@@ -32,7 +32,7 @@ def run_portfolio(port_config: dict, start_date=None, end_date=None) -> Backtest
         use_scanner_filter=port_config.get('use_scanner', True),
         start_date=start_date,
         end_date=end_date,
-        slippage=0.002
+        slippage=0.01
     )
     
     # Enable circuit breaker if configured
