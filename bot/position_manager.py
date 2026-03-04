@@ -77,19 +77,19 @@ class PositionManager:
         exit_price = 0.0
         pnl = 0.0
         
-        # Check SL/TP
+        # Check SL/TP (Only if they are set > 0)
         if direction == 'LONG':
-            if current_price <= sl_price:
+            if sl_price > 0 and current_price <= sl_price:
                 exit_reason = 'SL_HIT'
                 exit_price = sl_price
-            elif current_price >= tp_price:
+            elif tp_price > 0 and current_price >= tp_price:
                 exit_reason = 'TP_HIT'
                 exit_price = tp_price
         else: # SHORT
-            if current_price >= sl_price:
+            if sl_price > 0 and current_price >= sl_price:
                 exit_reason = 'SL_HIT'
                 exit_price = sl_price
-            elif current_price <= tp_price:
+            elif tp_price > 0 and current_price <= tp_price:
                 exit_reason = 'TP_HIT'
                 exit_price = tp_price
                 
