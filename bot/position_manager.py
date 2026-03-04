@@ -536,8 +536,8 @@ class PositionManager:
                         "direction": real_p['side'],
                         "status": "OPEN",
                         "entry_price": real_p['entry_price'],
-                        "sl_price": 0.0, # SL missing locally, will rely on exchange or timeout
-                        "tp_price": 0.0, 
+                        "sl_price": real_p.get('sl_price', 0.0), # Lấy SL từ exchange
+                        "tp_price": real_p.get('tp_price', 0.0), # Lấy TP từ exchange
                         "size": real_p['size'],
                         "leverage": real_p['leverage'],
                         "raw_data": {"note": "Imported via Reverse Sync"},

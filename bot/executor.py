@@ -278,6 +278,15 @@ class CCXTExecutor(ExchangeExecutor):
                     entry_time_ms = p.get('timestamp') or p.get('lastUpdateTimestamp')
                     entry_time = datetime.fromtimestamp(entry_time_ms / 1000.0) if entry_time_ms else datetime.now()
                     
+                    sl_price = float(p.get('stopLossPrice', 0))
+                    tp_price = float(p.get('takeProfitPrice', 0))
+                    
+                    # Some exchanges hide it in info dict
+                    if sl_price == 0 and 'info' in p:
+                        info = p['info']
+                        sl_price = float(info.get('stopLossPrice', info.get('sl', 0)))
+                        tp_price = float(info.get('takeProfitPrice', info.get('tp', 0)))
+                        
                     active_positions.append({
                         "symbol": raw_symbol,
                         "size": float(p['contracts']),
@@ -286,7 +295,9 @@ class CCXTExecutor(ExchangeExecutor):
                         "pnl": float(p.get('unrealizedPnl', 0)),
                         "leverage": int(p.get('leverage', self.config.exchange.leverage)),
                         "side": p['side'].upper(),
-                        "entry_time": entry_time
+                        "entry_time": entry_time,
+                        "sl_price": sl_price,
+                        "tp_price": tp_price
                     })
             return active_positions
         except Exception as e:
@@ -510,6 +521,21 @@ class BinanceExecutor(ExchangeExecutor):
             positions = self.client.futures_position_information(recvWindow=20000)
             active_positions = []
             
+            # Mặc định Binance futures_position_information không trả về SL/TP
+            # Nên ta phải lấy thêm danh sách lệnh đang chờ (open orders)
+            open_orders = self.client.futures_get_open_orders()
+            sl_tp_map = {} # symbol -> {'sl': price, 'tp': price}
+            
+            for o in open_orders:
+                sym = o['symbol']
+                if sym not in sl_tp_map:
+                    sl_tp_map[sym] = {'sl': 0.0, 'tp': 0.0}
+                    
+                if o['type'] == 'STOP_MARKET' or o['type'] == 'TRAILING_STOP_MARKET':
+                    sl_tp_map[sym]['sl'] = float(o['stopPrice'])
+                elif o['type'] == 'TAKE_PROFIT_MARKET':
+                    sl_tp_map[sym]['tp'] = float(o['stopPrice'])
+                    
             for p in positions:
                 amt = float(p['positionAmt'])
                 if amt != 0:
@@ -522,15 +548,21 @@ class BinanceExecutor(ExchangeExecutor):
                     entry_time_ms = p.get('updateTime', 0)
                     entry_time = datetime.fromtimestamp(entry_time_ms / 1000.0) if entry_time_ms else datetime.now()
                     
+                    sym = p['symbol']
+                    sl_price = sl_tp_map.get(sym, {}).get('sl', 0.0)
+                    tp_price = sl_tp_map.get(sym, {}).get('tp', 0.0)
+                    
                     active_positions.append({
-                        "symbol": p['symbol'],
+                        "symbol": sym,
                         "size": amt,
                         "entry_price": entry_price,
                         "mark_price": mark_price,
                         "pnl": unrealized_pnl,
                         "leverage": leverage,
                         "side": "LONG" if amt > 0 else "SHORT",
-                        "entry_time": entry_time
+                        "entry_time": entry_time,
+                        "sl_price": sl_price,
+                        "tp_price": tp_price
                     })
             return active_positions
         except Exception as e:
