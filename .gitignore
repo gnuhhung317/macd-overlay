@@ -12,3 +12,4 @@ ml/*.csv
 *.parquet
 *.txt
 bot_config*.json
+*.ini

@@ -274,6 +274,10 @@ class CCXTExecutor(ExchangeExecutor):
             for p in all_positions:
                 if float(p.get('contracts', 0)) > 0:
                     raw_symbol = p['symbol'].split(':')[0].replace('/', '')
+                    
+                    entry_time_ms = p.get('timestamp') or p.get('lastUpdateTimestamp')
+                    entry_time = datetime.fromtimestamp(entry_time_ms / 1000.0) if entry_time_ms else datetime.now()
+                    
                     active_positions.append({
                         "symbol": raw_symbol,
                         "size": float(p['contracts']),
@@ -281,7 +285,8 @@ class CCXTExecutor(ExchangeExecutor):
                         "mark_price": float(p.get('markPrice', p['entryPrice'])),
                         "pnl": float(p.get('unrealizedPnl', 0)),
                         "leverage": int(p.get('leverage', self.config.exchange.leverage)),
-                        "side": p['side'].upper()
+                        "side": p['side'].upper(),
+                        "entry_time": entry_time
                     })
             return active_positions
         except Exception as e:
@@ -514,6 +519,9 @@ class BinanceExecutor(ExchangeExecutor):
                     unrealized_pnl = float(p['unRealizedProfit'])
                     leverage = int(p.get('leverage', self.config.exchange.leverage))
                     
+                    entry_time_ms = p.get('updateTime', 0)
+                    entry_time = datetime.fromtimestamp(entry_time_ms / 1000.0) if entry_time_ms else datetime.now()
+                    
                     active_positions.append({
                         "symbol": p['symbol'],
                         "size": amt,
@@ -521,7 +529,8 @@ class BinanceExecutor(ExchangeExecutor):
                         "mark_price": mark_price,
                         "pnl": unrealized_pnl,
                         "leverage": leverage,
-                        "side": "LONG" if amt > 0 else "SHORT"
+                        "side": "LONG" if amt > 0 else "SHORT",
+                        "entry_time": entry_time
                     })
             return active_positions
         except Exception as e:

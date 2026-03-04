@@ -25,7 +25,7 @@ def run_portfolio(port_config: dict, start_date=None, end_date=None) -> Backtest
         leverage=port_config.get('leverage', 1.0),
         margin_mode=port_config.get('margin_mode', 'ISOLATED'),
         timeframe=tf_val,
-        max_bars=tf_config.max_bars,
+        max_bars=8,
         max_open_trades=port_config.get('max_positions', 13),
         entry_threshold=port_config.get('threshold', 0.6),
         min_refined_score=port_config.get('minscore', 0.0),

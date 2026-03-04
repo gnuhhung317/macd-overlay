@@ -526,8 +526,30 @@ class PositionManager:
                     # For now just existence check is enough for safety.
                     pass
                     
-            # 3. (Optional) Reverse Sync: If Exchange has position but Bot doesn't?
-            # We skip this for now to avoid importing random trades.
-            
+            # 3. Reverse Sync: If Exchange has position but Bot doesn't?
+            for symbol, real_p in real_symbols.items():
+                if symbol not in bot_symbols:
+                    print(f"🔄 Reverse Sync: Found {symbol} on exchange but not in local DB. Importing...")
+                    
+                    trade_record = {
+                        "symbol": symbol,
+                        "direction": real_p['side'],
+                        "status": "OPEN",
+                        "entry_price": real_p['entry_price'],
+                        "sl_price": 0.0, # SL missing locally, will rely on exchange or timeout
+                        "tp_price": 0.0, 
+                        "size": real_p['size'],
+                        "leverage": real_p['leverage'],
+                        "raw_data": {"note": "Imported via Reverse Sync"},
+                        "entry_time": real_p.get('entry_time', datetime.now())
+                    }
+                    
+                    trade_id = self.db.add_trade(trade_record)
+                    trade_record['id'] = trade_id
+                    self.active_positions[symbol] = trade_record
+                    print(f"✅ Imported Position: {symbol} (Entry Time: {trade_record['entry_time']})")
+                    
+                    if self.notifier:
+                        self.notifier.send_message(f"🔄 <b>System Recovery:</b> Imported existing position for {symbol}")
         except Exception as e:
             print(f"❌ Sync Error: {e}")

@@ -43,6 +43,12 @@ Nếu bạn vừa deploy code mới mà bot bị crash (script Health check báo
 ansible-playbook -i inventory.ini rollback-bot.yml -e target_version=a1b2c3d
 ```
 
+## Dừng (Thủ tiêu) Bot vĩnh viễn:
+Muốn tắt 1 hoặc toàn bộ bot, không cho chạy nền nữa (ví dụ đổi chiến lược, dời nhà sang code khác):
+```bash
+ansible-playbook -i inventory.ini stop-bot.yml
+```
+
 ## Xem Log Bot trực tiếp trên server (Realtime):
 Nếu muốn xem log chạy liên tục của 1 con bot cụ thể, SSH vào server và gõ lệnh:
 ```bash

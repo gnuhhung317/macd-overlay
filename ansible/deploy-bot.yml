@@ -39,6 +39,12 @@
         dest: "{{ bot_dir }}/bot_config.json" # Adjust path based on where bot expects it
         mode: '0600' # Chế độ bảo mật, chỉ owner được đọc file này
 
+    - name: 3b. Copy thư mục models (AI) từ máy Local lên Server (vì nó bị git ignore)
+      copy:
+        src: "{{ playbook_dir }}/../ml/models/"
+        dest: "{{ bot_dir }}/ml/models/"
+        directory_mode: '0755'
+
     - name: 4. Cài đặt các thư viện Python từ requirements.txt
       pip:
         requirements: "{{ bot_dir }}/requirements.txt" # Adjust path
