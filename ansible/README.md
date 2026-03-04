@@ -43,6 +43,14 @@ Nếu bạn vừa deploy code mới mà bot bị crash (script Health check báo
 ansible-playbook -i inventory.ini rollback-bot.yml -e target_version=a1b2c3d
 ```
 
+## Triển khai (Deploy) PnL Dashboard (Streamlit):
+1. **Chuẩn bị credentials**:
+   Tạo thư mục `dashboard-configs/pnl_dashboard/` ngay trong thư mục `ansible/` và tạo file `credentials.json` chứa API theo mẫu.
+2. **Chạy lệnh cài đặt**:
+```bash
+ansible-playbook -i inventory.ini deploy-dashboard.yml
+```
+
 ## Dừng (Thủ tiêu) Bot vĩnh viễn:
 Muốn tắt 1 hoặc toàn bộ bot, không cho chạy nền nữa (ví dụ đổi chiến lược, dời nhà sang code khác):
 ```bash

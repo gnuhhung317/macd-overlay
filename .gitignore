@@ -13,3 +13,4 @@ ml/*.csv
 *.txt
 bot_config*.json
 *.ini
+*credentials.json
