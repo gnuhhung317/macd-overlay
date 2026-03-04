@@ -1,0 +1,41 @@
+---
+- name: Rollback Bot về phiên bản cũ (Commit Hash hoặc Nhánh)
+  hosts: all_bots
+  become: yes
+  vars:
+    # -------------------------------------------------------------
+    # BẠN CÓ THỂ TRUYỀN BIẾN target_version LÚC CHẠY LỆNH
+    # Ví dụ: ansible-playbook ... -e target_version=abc1234
+    # -------------------------------------------------------------
+    target_version: "main" # Mặc định là nhánh main, nhưng có thể gán bằng 1 mã commit
+    repo_url: "https://github.com/gnuhhung317/macd-overlay.git"
+    bot_command: "/usr/bin/python3 -m bot.main"
+    bot_dir: "/opt/{{ bot_name }}"
+
+  tasks:
+    - name: 1. Rollback code về phiên bản {{ target_version }}
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ bot_dir }}"
+        version: "{{ target_version }}"
+        force: yes
+
+    - name: 2. Cài đặt lại thư viện nếu có thay đổi
+      pip:
+        requirements: "{{ bot_dir }}/requirements.txt"
+        executable: pip3
+
+    - name: 3. Khởi động lại Bot với code cũ
+      systemd:
+        name: "{{ bot_name }}"
+        state: restarted
+
+    - name: 4. Đợi 5 giây để bot khởi chạy
+      pause:
+        seconds: 5
+
+    - name: 5. Kểm tra Health Check sau Rollback
+      command: systemctl is-active {{ bot_name }}
+      register: bot_status
+      failed_when: bot_status.stdout != "active"
+      changed_when: false

@@ -1,0 +1,27 @@
+---
+- name: Kiểm tra trạng thái toàn bộ Bot
+  hosts: all_bots
+  become: yes
+  gather_facts: no
+
+  tasks:
+    - name: 1. Kiểm tra trạng thái tiến trình Systemd
+      command: systemctl is-active {{ bot_name }}
+      register: service_status
+      ignore_errors: yes
+      changed_when: false
+
+    - name: 2. Lấy 10 dòng log gần nhất của Bot
+      command: journalctl -u {{ bot_name }} -n 10 --no-pager
+      register: bot_logs
+      changed_when: false
+
+    - name: 3. Hiển thị kết quả
+      debug:
+        msg: 
+          - "======================================"
+          - "BOT NAME: {{ bot_name }}"
+          - "TRẠNG THÁI: {{ 'ĐANG CHẠY (ACTIVE)' if service_status.stdout == 'active' else 'ĐÃ DỪNG/LỖI (INACTIVE/FAILED)' }}"
+          - "LOG GẦN NHẤT:"
+          - "{{ bot_logs.stdout_lines }}"
+          - "======================================"

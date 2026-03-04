@@ -1,0 +1,72 @@
+---
+- name: Deploy Bot using Git
+  hosts: all_bots
+  become: yes
+  vars:
+    # -------------------------------------------------------------
+    # CẤU HÌNH CẦN THAY ĐỔI 
+    # -------------------------------------------------------------
+    repo_url: "https://github.com/gnuhhung317/macd-overlay.git" # URL Github/Gitlab của bạn
+    repo_branch: "main"                                           # Nhánh code muốn deploy
+    bot_command: "/usr/bin/python3 -m bot.main"                   # File chạy chính của bot (sửa lại tên file nếu cần)
+
+    # Cấu hình mặc định (ít khi phải đổi)
+    bot_dir: "/opt/{{ bot_name }}"
+    local_config_dir: "bots-configs/{{ bot_name }}"
+
+  tasks:
+    - name: 1. Cài đặt các gói phần mềm cần thiết (Git, Python, Pip)
+      apt:
+        name: 
+          - git
+          - python3
+          - python3-pip
+          - python3-venv
+        state: present
+        update_cache: yes
+      when: ansible_os_family == "Debian"   # Dành cho Ubuntu/Debian
+
+    - name: 2. Clone hoặc Pull code mới nhất từ Git về Server
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ bot_dir }}"
+        version: "{{ repo_branch }}"
+        force: yes # Ghi đè file nếu có thay đổi lặt vặt trên server
+
+    - name: 3. Copy file config riêng biệt cho từng bot (từ máy Local lên Server)
+      copy:
+        src: "{{ local_config_dir }}/bot_config.json"
+        dest: "{{ bot_dir }}/bot_config.json" # Adjust path based on where bot expects it
+        mode: '0600' # Chế độ bảo mật, chỉ owner được đọc file này
+
+    - name: 4. Cài đặt các thư viện Python từ requirements.txt
+      pip:
+        requirements: "{{ bot_dir }}/requirements.txt" # Adjust path
+        executable: pip3
+
+    - name: 5. Tạo file Systemd Service để chạy bot ngầm và tự khởi động lại khi crash
+      template:
+        src: templates/bot.service.j2
+        dest: /etc/systemd/system/{{ bot_name }}.service
+      notify: Reload Systemd
+
+    - name: 6. Khởi động Bot và thiết lập chạy cùng server khi reboot
+      systemd:
+        name: "{{ bot_name }}"
+        state: restarted
+        enabled: yes
+
+    - name: 7. Đợi 5 giây để bot khởi động
+      pause:
+        seconds: 5
+
+    - name: 8. Kiểm tra xem bot có đang chạy ổn định không (Health Check)
+      command: systemctl is-active {{ bot_name }}
+      register: bot_status
+      failed_when: bot_status.stdout != "active"
+      changed_when: false
+
+  handlers:
+    - name: Reload Systemd
+      systemd:
+        daemon_reload: yes

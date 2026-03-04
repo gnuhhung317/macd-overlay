@@ -1,0 +1,26 @@
+[Unit]
+Description=Trading Bot - {{ bot_name }}
+# Đợi mạng lên xong mới chạy service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory={{ bot_dir }}
+# Lệnh chạy bot. Chú ý đường dẫn
+ExecStart={{ bot_command }}
+
+# Tự động restart nếu code bị crash 
+Restart=always
+RestartSec=10
+
+# Đẩy hết log (print) về system journal để xem bằng lệnh journalctl
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier={{ bot_name }}
+
+# Lưu ý môi trường: Nếu chạy file python cần đọc env hoặc load biến
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
