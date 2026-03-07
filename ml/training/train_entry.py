@@ -104,6 +104,8 @@ def train_entry_filter(timeframe: str, tune: bool = False) -> TrainingResult:
         raise FileNotFoundError(f"Data not found: {data_path}")
     
     df = pd.read_parquet(data_path)
+    # Ensure time-based sorting before split to avoid symbol-based split
+    df = df.sort_values('timestamp').reset_index(drop=True)
     X, y, feature_cols = prepare_entry_data(df)
     
     print(f"Samples: {len(X)}, Features: {len(feature_cols)}")

@@ -41,6 +41,14 @@
       "models_dir": "ml/models/4h",
       "entry_threshold": 0.5,
       "description": "1-hour timeframe - Disabled by default (needs trained models)"
+    },
+    "1w": {
+      "enabled": true,
+      "telegram_chat_id": "-5113373606",
+      "scan_interval": 86400,
+      "models_dir": "ml/models/1d",
+      "entry_threshold": 0.5,
+      "description": "Weekly timeframe - Highest confidence, lowest frequency"
     }
   },
   "coins": [

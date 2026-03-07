@@ -177,8 +177,8 @@ class MultiTimeframeConfig:
         Returns:
             List of intervals in priority order
         """
-        # Priority: 4h > 1d > 8h > 12h > 1h
-        priority = ['4h', '1d', '8h', '12h', '1h']
+        # Priority: 1w > 4h > 1d > 8h > 12h > 1h
+        priority = ['1w', '4h', '1d', '8h', '12h', '1h']
         enabled = self.get_enabled_timeframes()
         return [tf for tf in priority if tf in enabled]
     
