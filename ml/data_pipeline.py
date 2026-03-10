@@ -323,6 +323,25 @@ def calculate_features(df: pd.DataFrame) -> pd.DataFrame:
     df['day_sin'] = np.sin(2 * np.pi * df['day_of_week'] / 6)
     df['day_cos'] = np.cos(2 * np.pi * df['day_of_week'] / 6)
     
+    # ===== Phase 12: Pre-Ignition Detector =====
+    # 1. Keltner Channels & Squeeze Index
+    df['keltner_width'] = 3 * df['atr_21']  # Using atr_21 which is calculated above
+    df['squeeze_ratio'] = df['bb_width'] / (df['keltner_width'] + 1e-9)
+    
+    # 2. Volume Quietness (Depletion)
+    df['vol_depletion'] = df['volume'] / (df['volume_sma_20'] + 1e-9)
+    
+    # 3. Chaikin Money Flow (CMF)
+    # CMF = Sum(Money Flow Volume, 20) / Sum(Volume, 20)
+    # Money Flow Multiplier = [(Close - Low) - (High - Close)] / (High - Low)
+    mf_mult = ((df['close'] - df['low']) - (df['high'] - df['close'])) / (df['high'] - df['low'] + 1e-9)
+    mf_vol = mf_mult * df['volume']
+    df['cmf_20'] = mf_vol.rolling(20).sum() / (df['volume'].rolling(20).sum() + 1e-9)
+    
+    # 4. Pre-Ignition Confluence Score
+    # Thấp squeeze + thấp volume + neutral price action
+    df['pre_ignition_score'] = (1 - df['squeeze_ratio']) + (1 - df['vol_depletion'])
+    
     return df
 
 
@@ -488,6 +507,7 @@ def _generate_labels_triple_barrier(
     df['trade_result'] = ''
     df['tp_pct_used'] = np.nan  # Track actual TP% used
     df['sl_pct_used'] = np.nan  # Track actual SL% used
+    df['ignition'] = np.nan     # New Ignition Label for Multi-Task
     
     # Get crossover indices
     cross_up_mask = df['macd_cross_up'] == 1
@@ -527,19 +547,14 @@ def _generate_labels_triple_barrier(
     results = []
     tp_pcts_used = []
     sl_pcts_used = []
+    ignition_labels = []
     
-        # Phase 11: Structural TP/SL using Swing High/Low (30 bars)
-        window_lookback = 30
-        lookback_start = max(0, idx - window_lookback)
-        lookback_end = idx + 1
+    for idx in crossover_indices:
+        entry_price = close[idx]
+        is_long = is_long_arr[idx]
         
-        swing_high = high[lookback_start:lookback_end].max()
-        swing_low = low[lookback_start:lookback_end].min()
-        
-        # Buffer for SL and Target (cushion)
-        buffer = atr[idx] * 0.2 if atr_pct is not None else 0
-        
-        if is_long:
+        # Calculate dynamic N for Ignition (40% of max_bars)
+        n_ignition = max(3, int(max_bars * 0.4))
             tp_price = swing_high  # Resistance
             sl_price = swing_low - buffer   # Support
         else:
@@ -564,6 +579,7 @@ def _generate_labels_triple_barrier(
             results.append('NOISE_LOW_RR')
             tp_pcts_used.append(actual_tp_pct)
             sl_pcts_used.append(actual_sl_pct)
+            ignition_labels.append(0.5)
             continue
 
         # Get future window
@@ -576,6 +592,7 @@ def _generate_labels_triple_barrier(
             labels.append(np.nan); max_profits.append(np.nan); max_drawdowns.append(np.nan)
             bars_to_tps.append(np.nan); bars_to_sls.append(np.nan); results.append('')
             tp_pcts_used.append(np.nan); sl_pcts_used.append(np.nan)
+            ignition_labels.append(np.nan)
             continue
         
         # Calculate max profit and drawdown
@@ -598,6 +615,20 @@ def _generate_labels_triple_barrier(
         bars_to_sl = (sl_hits[0] + 1) if len(sl_hits) > 0 else max_bars
         hit_tp = len(tp_hits) > 0
         hit_sl = len(sl_hits) > 0
+        
+        # Check for Ignition: Volume > 2*SMA20 and abs(Close-Open) > 1 * ATR (within n_ignition)
+        future_open = df['open'].values[future_start:min(idx + n_ignition + 1, n)]
+        future_close = close[future_start:min(idx + n_ignition + 1, n)]
+        future_vol = df['volume'].values[future_start:min(idx + n_ignition + 1, n)]
+        future_vsma20 = df['volume_sma_20'].values[future_start:min(idx + n_ignition + 1, n)]
+        future_atr = atr[future_start:min(idx + n_ignition + 1, n)] if atr_pct is not None else np.zeros(len(future_open))
+        
+        ignited = False
+        for j in range(len(future_open)):
+            if future_vol[j] > 2.0 * future_vsma20[j] and abs(future_close[j] - future_open[j]) > 1.0 * future_atr[j]:
+                ignited = True
+                break
+        ignition_labels.append(1.0 if ignited else 0.0)
         
         # Phase 11: Comprehensive Sigmoid Score (MAE Penalty for Wins)
         # Score = Sigmoid(3.0 * (MFE / Target) - 2.5 * (MAE / Stop))
@@ -638,6 +669,7 @@ def _generate_labels_triple_barrier(
     df.loc[crossover_indices, 'trade_result'] = results
     df.loc[crossover_indices, 'tp_pct_used'] = tp_pcts_used
     df.loc[crossover_indices, 'sl_pct_used'] = sl_pcts_used
+    df.loc[crossover_indices, 'ignition'] = ignition_labels
     
     if len(crossover_indices) > 0:
         symbol = df['symbol'].iloc[0] if 'symbol' in df.columns else "Unknown"
