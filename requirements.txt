@@ -8,5 +8,6 @@ psutil
 scikit-learn
 joblib
 xgboost
+lightgbm
 streamlit
 ccxt

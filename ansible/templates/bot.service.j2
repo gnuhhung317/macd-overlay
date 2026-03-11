@@ -15,8 +15,8 @@ Restart=always
 RestartSec=10
 
 # Đẩy hết log (print) về system journal để xem bằng lệnh journalctl
-StandardOutput=syslog
-StandardError=syslog
+StandardOutput=journal
+StandardError=journal
 SyslogIdentifier={{ bot_name }}
 
 # Lưu ý môi trường: Nếu chạy file python cần đọc env hoặc load biến

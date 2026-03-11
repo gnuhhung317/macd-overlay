@@ -16,9 +16,12 @@ class SniperScanner:
         self.config = config
         self.processor = data_processor if data_processor else BinanceDataProcessor(use_futures=True)
         
-        self.base_dir = Path(r"d:\Code\Projects\self-projects\macd-overlay - Copy")
+        # Absolute root path detection
+        self.base_dir = Path(__file__).resolve().parent.parent
         self.model_path = self.base_dir / "ml" / "training" / "models" / "1h" / "ensemble_lgbm_tabular.joblib"
         self.meta_path = self.base_dir / "ml" / "training" / "models" / "1h" / "ensemble_meta.joblib"
+        
+        print(f"🔍 [SniperScanner] Checking models at: {self.model_path}")
         
         self.clf = None
         self.features = []
