@@ -31,7 +31,7 @@ class BacktestConfig:
     end_date: str = None
     leverage: float = 1.0
     # Limit Order Params
-    long_atr_offset: float = -0.1
+    long_atr_offset: float = -0.12
     short_atr_offset: float = 0.5
     limit_wait_bars: int = 5
 

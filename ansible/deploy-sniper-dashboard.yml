@@ -14,10 +14,29 @@
         version: "main"
         force: yes
 
+    - name: 1b. Copy local requirements.txt (with new dependencies)
+      copy:
+        src: "{{ playbook_dir }}/../requirements.txt"
+        dest: "{{ bot_dir }}/requirements.txt"
+        mode: '0644'
+
+    - name: 1c. Copy local sniper/ folder (with patched dashboard)
+      copy:
+        src: "{{ playbook_dir }}/../sniper/"
+        dest: "{{ bot_dir }}/sniper/"
+        mode: '0755'
+
+    - name: 1d. Copy local models (Required for scanning)
+      copy:
+        src: "{{ playbook_dir }}/../ml/training/models/"
+        dest: "{{ bot_dir }}/ml/training/models/"
+        directory_mode: '0755'
+
     - name: 2. Install Python dependencies
       pip:
         requirements: "{{ bot_dir }}/requirements.txt"
         state: present
+        executable: pip3
 
     - name: 3. Setup Sniper Sync Service
       template:

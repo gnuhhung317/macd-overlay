@@ -33,6 +33,18 @@
         version: "{{ repo_branch }}"
         force: yes 
 
+    - name: 2b. Copy local requirements.txt (Đảm bảo có lightgbm, dash, etc.)
+      copy:
+        src: "{{ playbook_dir }}/../requirements.txt"
+        dest: "{{ bot_dir }}/requirements.txt"
+        mode: '0644'
+
+    - name: 2c. Copy local sniper_bot/ folder (Đảm bảo có fix path model)
+      copy:
+        src: "{{ playbook_dir }}/../sniper_bot/"
+        dest: "{{ bot_dir }}/sniper_bot/"
+        mode: '0755'
+
     - name: 3. Copy file config riêng biệt cho Sniper
       copy:
         src: "{{ local_config_dir }}/sniper_bot_config.json"
