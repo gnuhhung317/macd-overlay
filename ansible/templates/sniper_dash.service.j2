@@ -1,0 +1,18 @@
+[Unit]
+Description=AI Sniper Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory={{ bot_dir }}
+ExecStart=/usr/bin/python3 -m sniper.sniper_dashboard
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sniper-dash
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

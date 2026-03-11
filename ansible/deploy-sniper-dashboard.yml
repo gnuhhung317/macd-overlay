@@ -1,0 +1,55 @@
+---
+- name: Deploy AI Sniper Dashboard Stack
+  hosts: sniper_bots
+  become: yes
+  gather_facts: no
+  vars:
+    bot_dir: "/opt/sniper_testnet"
+
+  tasks:
+    - name: 1. Pull latest source code
+      git:
+        repo: "https://github.com/gnuhhung317/macd-overlay.git"
+        dest: "{{ bot_dir }}"
+        version: "main"
+        force: yes
+
+    - name: 2. Install Python dependencies
+      pip:
+        requirements: "{{ bot_dir }}/requirements.txt"
+        state: present
+
+    - name: 3. Setup Sniper Sync Service
+      template:
+        src: "templates/sniper_sync.service.j2"
+        dest: "/etc/systemd/system/sniper-sync.service"
+      notify: Reload Systemd
+
+    - name: 4. Setup Sniper Dashboard Service
+      template:
+        src: "templates/sniper_dash.service.j2"
+        dest: "/etc/systemd/system/sniper-dash.service"
+      notify: Reload Systemd
+
+    - name: 5. Enable and Start Services
+      systemd:
+        name: "{{ item }}"
+        state: restarted
+        enabled: yes
+      loop:
+        - sniper-sync
+        - sniper-dash
+
+    - name: 6. Verify Services Status
+      command: systemctl is-active {{ item }}
+      loop:
+        - sniper-sync
+        - sniper-dash
+      register: service_status
+      failed_when: service_status.stdout != "active"
+      changed_when: false
+
+  handlers:
+    - name: Reload Systemd
+      systemd:
+        daemon_reload: yes

@@ -1,0 +1,18 @@
+[Unit]
+Description=AI Sniper Sync Worker
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory={{ bot_dir }}
+ExecStart=/usr/bin/python3 -m sniper.sync_worker
+Restart=always
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sniper-sync
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

@@ -11,3 +11,6 @@ xgboost
 lightgbm
 streamlit
 ccxt
+dash
+dash-bootstrap-components
+pyarrow
