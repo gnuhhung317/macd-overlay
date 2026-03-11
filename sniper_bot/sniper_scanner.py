@@ -184,19 +184,21 @@ class SniperScanner:
             df['rs_vs_btc_sma7'] = 0
             df['btc_corr'] = 0
             
-        # 15. MTF (1D) Integration
+        # 15. MTF (1D) Integration (Match train_sniper.py shift(1) logic)
         if df_1d is not None and not df_1d.empty:
-            ema_200_1d = df_1d['close'].ewm(span=200).mean().iloc[-1]
+            # Shift(1) to get the last fully closed Day context
+            ema_200_1d_series = df_1d['close'].ewm(span=200).mean().shift(1)
+            ema_200_1d = ema_200_1d_series.iloc[-1]
             df['ema_200_1d_dist'] = (df['close'] - ema_200_1d) / df['close']
             
-            # Simple RSI for 1D
-            d1d = df_1d['close'].diff()
-            g1d = (d1d.where(d1d > 0, 0)).rolling(window=14).mean()
-            l1d = (-d1d.where(d1d < 0, 0)).rolling(window=14).mean()
-            rs_1d = g1d / (l1d + 1e-9)
-            rsi_14_1d = 100 - (100 / (1 + rs_1d))
+            # Use the same SMA-based RSI calculation as sync_worker/train_sniper
+            delta = df_1d['close'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            rs = gain / (loss + 1e-9)
+            rsi_14_1d_series = (100 - (100 / (1 + rs))).shift(1)
             
-            df['rsi_14_1d'] = rsi_14_1d.iloc[-1]
+            df['rsi_14_1d'] = rsi_14_1d_series.iloc[-1]
         else:
             df['ema_200_1d_dist'] = 0
             df['rsi_14_1d'] = 50
@@ -263,20 +265,23 @@ class SniperScanner:
                 last_idx = df.index[-1]
                 row = df.loc[last_idx]
                 
-                # Optional Stage 1 Pre-Filter (Ignition Bar) -> using robust logic
+                # Stage 1 Filter: Ignition Bar (EXACTLY as in train_sniper.py)
                 vol_sma = df['volume'].rolling(20).mean().shift(1).loc[last_idx]
                 resistance_50 = df['high'].rolling(50).max().shift(1).loc[last_idx]
                 
-                c1 = (row['close'] > row['open']) and (row['close'] > row['ema_20'])
-                c2 = ((row['close'] - row['open']) / row['open']) > 0.015
-                c3 = (vol_sma * 1.5 < row['volume'] < vol_sma * 4.0)
-                c4 = (55 <= row['rsi_14'] <= 72)
+                cond_green_bar = (row['close'] > row['open']) and (row['close'] > row['ema_20'])
+                cond_body_size = ((row['close'] - row['open']) / row['open']) > 0.015
+                cond_vol_ignition = (vol_sma * 1.5 < row['volume'] < vol_sma * 4.0)
+                cond_rsi_fresh = (55 <= row['rsi_14'] <= 72)
                 
                 dist_to_res = (resistance_50 - row['close']) / (row['close'] + 1e-9)
-                c5 = dist_to_res > -0.05
+                cond_near_res = dist_to_res > -0.05
                 
-                if not (c1 and c2 and c3 and c4 and c5):
-                    continue # Not an ignition bar, no signal
+                if not (cond_green_bar and cond_body_size and cond_vol_ignition and cond_rsi_fresh and cond_near_res):
+                    continue # Not an ignition bar matching training data
+                
+                # If we are here, it's a valid Ignition Bar
+                # print(f"🔥 Ignition Bar Found: {symbol} | Vol: {row['volume']/vol_sma:.1f}x | RSI: {row['rsi_14']:.1f}")
                     
                 # Stage 2: ML Scoring
                 x_input = df.loc[[last_idx], self.features].apply(pd.to_numeric, errors='coerce').fillna(0)

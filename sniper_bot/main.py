@@ -116,6 +116,8 @@ class SniperBot:
                         print(f"📡 Scanning {len(self.config.coins)} coins on {tf} (Sniper Model)...")
                         try:
                             signals = self.scanner.scan(self.config.coins, tf)
+                            if signals:
+                                print(f"🎯 Found {len(signals)} potential signals!")
                             
                             # PRIORITIZATION: Sort signals by confidence (descending)
                             signals.sort(key=lambda x: x.get('confidence', 0), reverse=True)

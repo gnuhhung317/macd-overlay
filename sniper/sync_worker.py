@@ -389,26 +389,42 @@ def sync_all(lookback=1):
                                 if f_row['low'] <= s['tp_price']:
                                     s['is_win'] = True; updated_status_count += 1; break
 
-            # --- SCAN FOR NEW SIGNALS IN LOOKBACK SCOPE ---
-            lookback_df = full_df.iloc[-lookback:] if lookback > 0 else full_df.iloc[-1:]
-
-            for idx in range(len(lookback_df)):
-                curr_row = lookback_df.iloc[idx:idx+1]
+                # Stage 1: Closed Candle Check
+                completed_df = full_df.iloc[:-1] # Always use COMPLETED candle
+                if completed_df.empty: continue
+                
+                curr_row = completed_df.iloc[-1:] 
                 ts = curr_row['timestamp'].iloc[0]
                 sig_id = f"{sym}_{ts.strftime('%Y%m%d%H%M')}"
                 
                 if sig_id in existing_ids:
                     continue
 
-                # Tầng 1: Lọc Thô bằng SYNC_RULES
-                is_bull = (curr_row['close'].values[0] > curr_row['open'].values[0])
-                above_ema = (curr_row['close'].values[0] > curr_row['ema_20'].values[0])
-                body_size = abs(curr_row['close'].values[0] - curr_row['open'].values[0]) / (curr_row['open'].values[0] + 1e-9)
+                # Stage 1: Ignition Filter (EXACTLY as in train_sniper.py)
+                # Note: df['volume_sma_20'] in extract_features_live is rolling(20).mean()
+                # We need the value BEFORE this bar: .shift(1)
+                vol_sma_series = completed_df['volume'].rolling(20).mean().shift(1)
+                vol_sma_val = vol_sma_series.iloc[-1]
                 
-                if is_bull and above_ema and body_size > SYNC_RULES['BODY_SIZE_MIN']:
-                    # Tầng 2: AI Check
-                    X = curr_row[features].apply(pd.to_numeric, errors='coerce')
-                    if X.isnull().any().any(): continue 
+                close_val = curr_row['close'].iloc[0]
+                open_val = curr_row['open'].iloc[0]
+                rsi_val = curr_row['rsi_14'].iloc[0]
+                ema20_val = curr_row['ema_20'].iloc[0]
+                res50_val = curr_row['resistance_50'].iloc[0]
+                
+                cond_green_bar = (close_val > open_val) and (close_val > ema20_val)
+                cond_body_size = ((close_val - open_val) / open_val) > 0.015
+                cond_vol_ignition = (vol_sma_val * 1.5 < curr_row['volume'].iloc[0] < vol_sma_val * 4.0)
+                cond_rsi_fresh = (55 <= rsi_val <= 72)
+                
+                dist_to_res = (res50_val - close_val) / (close_val + 1e-9)
+                cond_near_res = dist_to_res > -0.05
+
+                if not (cond_green_bar and cond_body_size and cond_vol_ignition and cond_rsi_fresh and cond_near_res):
+                    continue
+                
+                # Tầng 2: AI Check
+                X = curr_row[features].apply(pd.to_numeric, errors='coerce')
                         
                     probas = clf.predict_proba(X)
                     prob_long, prob_short = probas[0, 1], probas[0, 2]
