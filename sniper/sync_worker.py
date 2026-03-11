@@ -426,70 +426,70 @@ def sync_all(lookback=1):
                 # Tầng 2: AI Check
                 X = curr_row[features].apply(pd.to_numeric, errors='coerce')
                         
-                    probas = clf.predict_proba(X)
-                    prob_long, prob_short = probas[0, 1], probas[0, 2]
-                    final_prob = max(prob_long, prob_short)
+                probas = clf.predict_proba(X)
+                prob_long, prob_short = probas[0, 1], probas[0, 2]
+                final_prob = max(prob_long, prob_short)
+                
+                if final_prob >= threshold:
+                    side = "LONG" if prob_long > prob_short else "SHORT"
+                    atr_pct = (curr_row['atr_14'].values[0] / curr_row['close'].values[0]) * 100
+                    tp_pct_val = (atr_pct * 4.0)
+                    sl_pct_val = (atr_pct * 1.5) if side == "LONG" else (atr_pct * 2.0)
                     
-                    if final_prob >= threshold:
-                        side = "LONG" if prob_long > prob_short else "SHORT"
-                        atr_pct = (curr_row['atr_14'].values[0] / curr_row['close'].values[0]) * 100
-                        tp_pct_val = (atr_pct * 4.0)
-                        sl_pct_val = (atr_pct * 1.5) if side == "LONG" else (atr_pct * 2.0)
-                        
-                        entry_price = float(curr_row['close'].iloc[0])
-                        tp_price = entry_price * (1 + (tp_pct_val/100)) if side == "LONG" else entry_price * (1 - (tp_pct_val/100))
-                        sl_price = entry_price * (1 - (sl_pct_val/100)) if side == "LONG" else entry_price * (1 + (sl_pct_val/100))
+                    entry_price = float(curr_row['close'].iloc[0])
+                    tp_price = entry_price * (1 + (tp_pct_val/100)) if side == "LONG" else entry_price * (1 - (tp_pct_val/100))
+                    sl_price = entry_price * (1 - (sl_pct_val/100)) if side == "LONG" else entry_price * (1 + (sl_pct_val/100))
 
-                        # Evaluate historical excursion if not live
-                        hist_mfe, hist_mae = 0.0, 0.0
-                        is_win = None
-                        future_bars = full_df.iloc[lookback_df.index[idx]+1:]
-                        if not future_bars.empty:
-                            if side == "LONG":
-                                hist_mfe = (future_bars['high'].max() - entry_price) / entry_price * 100
-                                hist_mae = (future_bars['low'].min() - entry_price) / entry_price * 100
-                                for _, f_row in future_bars.iterrows():
-                                    if f_row['low'] <= sl_price: is_win = False; break
-                                    if f_row['high'] >= tp_price: is_win = True; break
-                            else:
-                                hist_mfe = (entry_price - future_bars['low'].min()) / entry_price * 100
-                                hist_mae = (entry_price - future_bars['high'].max()) / entry_price * 100
-                                for _, f_row in future_bars.iterrows():
-                                    if f_row['high'] >= sl_price: is_win = False; break
-                                    if f_row['low'] <= tp_price: is_win = True; break
+                    # Evaluate historical excursion if not live
+                    hist_mfe, hist_mae = 0.0, 0.0
+                    is_win = None
+                    future_bars = full_df.iloc[lookback_df.index[idx]+1:]
+                    if not future_bars.empty:
+                        if side == "LONG":
+                            hist_mfe = (future_bars['high'].max() - entry_price) / entry_price * 100
+                            hist_mae = (future_bars['low'].min() - entry_price) / entry_price * 100
+                            for _, f_row in future_bars.iterrows():
+                                if f_row['low'] <= sl_price: is_win = False; break
+                                if f_row['high'] >= tp_price: is_win = True; break
+                        else:
+                            hist_mfe = (entry_price - future_bars['low'].min()) / entry_price * 100
+                            hist_mae = (entry_price - future_bars['high'].max()) / entry_price * 100
+                            for _, f_row in future_bars.iterrows():
+                                if f_row['high'] >= sl_price: is_win = False; break
+                                if f_row['low'] <= tp_price: is_win = True; break
 
-                        all_signals.append({
-                            'id': sig_id,
-                            'symbol': sym,
-                            'timestamp': ts.isoformat(),
-                            'side': side,
-                            'price': entry_price,
-                            'prob': float(final_prob),
-                            'tp_price': float(tp_price),
-                            'sl_price': float(sl_price),
-                            'tp_pct': round(float(tp_pct_val), 2),
-                            'sl_pct': round(float(sl_pct_val), 2),
-                            'atr_pct': round(float(atr_pct), 2),
-                            'is_win': is_win,
-                            'mfe': round(hist_mfe, 2),
-                            'mae': round(hist_mae, 2),
-                            'xai': {
-                                'upper_wick_ratio': float(curr_row['upper_wick_ratio'].iloc[0]),
-                                'dist_to_ema50_atr': float(curr_row['dist_to_ema50_atr'].iloc[0]),
-                                'volume_ratio': float(curr_row['volume_ratio'].iloc[0]),
-                                'rsi_14': float(curr_row['rsi_14'].iloc[0]),
-                                'vol_compression': float(curr_row['vol_compression'].iloc[0]),
-                                'volume_zscore': float(curr_row['volume_zscore'].iloc[0]),
-                                'btc_is_bull_regime': int(curr_row['btc_is_bull_regime'].iloc[0]) if 'btc_is_bull_regime' in curr_row.columns else 0,
-                                'adx': float(curr_row['adx'].iloc[0]) if 'adx' in curr_row.columns else 20.0,
-                                'macd_slope': float(curr_row['macd_slope'].iloc[0]) if 'macd_slope' in curr_row.columns else 0.0,
-                                'stoch_k': float(curr_row['stoch_k'].iloc[0]) if 'stoch_k' in curr_row.columns else 50.0
-                            },
-                            'probas': [float(p) for p in probas[0]]
-                        })
-                        existing_ids.add(sig_id)
-                        new_detected_count += 1
-                        print(f"   [AI] 🔥 KÈO DETECTED: {sym} {side} ({final_prob:.2%})", flush=True)
+                    all_signals.append({
+                        'id': sig_id,
+                        'symbol': sym,
+                        'timestamp': ts.isoformat(),
+                        'side': side,
+                        'price': entry_price,
+                        'prob': float(final_prob),
+                        'tp_price': float(tp_price),
+                        'sl_price': float(sl_price),
+                        'tp_pct': round(float(tp_pct_val), 2),
+                        'sl_pct': round(float(sl_pct_val), 2),
+                        'atr_pct': round(float(atr_pct), 2),
+                        'is_win': is_win,
+                        'mfe': round(hist_mfe, 2),
+                        'mae': round(hist_mae, 2),
+                        'xai': {
+                            'upper_wick_ratio': float(curr_row['upper_wick_ratio'].iloc[0]),
+                            'dist_to_ema50_atr': float(curr_row['dist_to_ema50_atr'].iloc[0]),
+                            'volume_ratio': float(curr_row['volume_ratio'].iloc[0]),
+                            'rsi_14': float(curr_row['rsi_14'].iloc[0]),
+                            'vol_compression': float(curr_row['vol_compression'].iloc[0]),
+                            'volume_zscore': float(curr_row['volume_zscore'].iloc[0]),
+                            'btc_is_bull_regime': int(curr_row['btc_is_bull_regime'].iloc[0]) if 'btc_is_bull_regime' in curr_row.columns else 0,
+                            'adx': float(curr_row['adx'].iloc[0]) if 'adx' in curr_row.columns else 20.0,
+                            'macd_slope': float(curr_row['macd_slope'].iloc[0]) if 'macd_slope' in curr_row.columns else 0.0,
+                            'stoch_k': float(curr_row['stoch_k'].iloc[0]) if 'stoch_k' in curr_row.columns else 50.0
+                        },
+                        'probas': [float(p) for p in probas[0]]
+                    })
+                    existing_ids.add(sig_id)
+                    new_detected_count += 1
+                    print(f"   [AI] 🔥 KÈO DETECTED: {sym} {side} ({final_prob:.2%})", flush=True)
 
             if i > 0 and i % 50 == 0:
                 print(f"   [Sync] Tiến độ quét: {i}/{len(symbol_map)}", flush=True)
