@@ -34,31 +34,58 @@ def prepare_cascade_data_optimized(parquet_path):
     
     import pyarrow.parquet as pq
     all_parquet_cols = pq.read_schema(parquet_path).names
-    btc_cols_in_file = [c for c in all_parquet_cols if c.startswith('btc_')]
     
-    # 1. Load data với các cột cần thiết
-    cols_to_load = list(set(MODEL_FEATURES + btc_cols_in_file + [
+    # --- BƯỚC 1: XỬ LÝ DỮ LIỆU VĨ MÔ (BTC) - LOAD ÍT TỐN RAM ---
+    btc_price_col = next((c for c in ['btc_close_x', 'btc_close_y', 'btc_close'] if c in all_parquet_cols), None)
+    if btc_price_col:
+        print(f"📊 Đang tách biệt và tính toán dữ liệu Vĩ mô (BTC Regime) từ '{btc_price_col}'...")
+        btc_raw = pd.read_parquet(parquet_path, columns=['timestamp', btc_price_col])
+        btc_raw['timestamp'] = pd.to_datetime(btc_raw['timestamp']).dt.tz_localize(None)
+        
+        btc_df = btc_raw.drop_duplicates(subset=['timestamp']).sort_values('timestamp').copy()
+        btc_df.rename(columns={btc_price_col: 'btc_close'}, inplace=True)
+        
+        # Tính toán Macro trên chuỗi liên tục
+        btc_df['btc_returns'] = btc_df['btc_close'].pct_change()
+        btc_df['btc_vol_24h'] = btc_df['btc_returns'].rolling(24).std()
+        btc_df['btc_ema_20'] = btc_df['btc_close'].ewm(span=20).mean()
+        btc_df['btc_ema_50'] = btc_df['btc_close'].ewm(span=50).mean()
+        del btc_raw
+        gc.collect()
+    else:
+        print("⚠️ CẢNH BÁO: Không tìm thấy cột giá BTC hợp lệ!")
+        btc_df = pd.DataFrame()
+
+    # --- BƯỚC 2: LOAD DỮ LIỆU ALTCOIN CÓ BỘ LỌC (TIẾT KIỆM RAM) ---
+    cols_to_load = list(set(MODEL_FEATURES + [
         'symbol', 'timestamp', 'open', 'close', 'high', 'low', 'volume', 'usd_vol_24h'
     ]))
-    
-    # Filter out columns that don't exist in the parquet file (like newly calculated features)
     cols_to_load = [c for c in cols_to_load if c in all_parquet_cols]
     
-    df = pd.read_parquet(parquet_path, columns=cols_to_load)
-    
-    # --- CHỈ HỌC QUÁ KHỨ (Train < 2025) ---
+    # Chỉ load dữ liệu trước 2025 và volume đủ lớn ngay từ ổ đĩa
+    print(f"📥 Đang tải dữ liệu Altcoin (Filters: Train < 2025 & Vol > 1M)...")
+    df = pd.read_parquet(
+        parquet_path, 
+        columns=cols_to_load,
+        filters=[('timestamp', '<', pd.Timestamp('2025-01-01')), ('usd_vol_24h', '>=', 1000000)]
+    )
     df['timestamp'] = pd.to_datetime(df['timestamp']).dt.tz_localize(None)
-    df = df[df['timestamp'] < pd.to_datetime('2025-01-01')].copy()
-    
+
+    # Merge Macro vào df
+    if not btc_df.empty:
+        df = df.merge(btc_df[['timestamp', 'btc_close', 'btc_returns', 'btc_vol_24h', 'btc_ema_20', 'btc_ema_50']], 
+                      on='timestamp', how='left')
+        del btc_df
+        gc.collect()
+
     if df.empty:
-        print("❌ Không có dữ liệu Train trước 2025!")
+        print("❌ Không có dữ liệu thỏa mãn bộ lọc!")
         return pd.DataFrame()
-    
-    # Đảm bảo có btc_returns để phân tích sau này
-    if 'btc_returns' not in df.columns and 'btc_close' in df.columns:
-        df['btc_returns'] = df.groupby('symbol')['btc_close'].pct_change()
-    
-    # 2. TÍNH ATR (14) để dùng cho Feature & Label
+        
+    # Đảm bảo dữ liệu được sắp xếp theo thời gian cho các chỉ báo Altcoin sau này
+    df = df.sort_values(['symbol', 'timestamp']).reset_index(drop=True)
+
+    # 3. TÍNH ATR (14) để dùng cho Feature & Label
     def calc_atr(df_group):
         high_low = df_group['high'] - df_group['low']
         high_close = np.abs(df_group['high'] - df_group['close'].shift())
@@ -97,12 +124,16 @@ def prepare_cascade_data_optimized(parquet_path):
     df['resistance_50'] = df.groupby('symbol')['high'].transform(lambda x: x.rolling(50).max().shift(1))
     vol_sma_20 = df.groupby('symbol')['volume'].transform(lambda x: x.rolling(20).mean().shift(1))
 
-    # 6. BỘ LỌC MỒI LỬA (IGNITION BAR)
+    # 6. BỘ LỌC MỒI LỬA (IGNITION BAR) DÀNH CHO META-LABELING
+    df['ema_20'] = df.groupby('symbol')['close'].transform(lambda x: x.ewm(span=20).mean())
+    df['resistance_50'] = df.groupby('symbol')['high'].transform(lambda x: x.rolling(50).max().shift(1))
+    vol_sma_20 = df.groupby('symbol')['volume'].transform(lambda x: x.rolling(20).mean().shift(1))
+
     cond_green_bar = (df['close'] > df['open']) & (df['close'] > df['ema_20'])
     cond_body_size = ((df['close'] - df['open']) / df['open']) > 0.015 
     cond_vol_ignition = (df['volume'] > vol_sma_20 * 1.5) & (df['volume'] < vol_sma_20 * 4.0)
     cond_rsi_fresh = (df['rsi_14'] >= 55) & (df['rsi_14'] <= 72)
-    dist_to_res = (df['resistance_50'] - df['close']) / df['close']
+    dist_to_res = (df['resistance_50'] - df['close']) / (df['close'] + 1e-9)
     cond_near_res = dist_to_res > -0.05 
 
     mask_golden = cond_green_bar & cond_body_size & cond_vol_ignition & cond_rsi_fresh & cond_near_res
@@ -110,6 +141,7 @@ def prepare_cascade_data_optimized(parquet_path):
     if 'usd_vol_24h' in df.columns:
         mask_golden = mask_golden & (df['usd_vol_24h'] >= 1000000)
 
+    golden_df = df[mask_golden].reset_index(drop=True)    
     # 7. LỌC VÀ TRẢ VỀ KẾT QUẢ
     golden_df = df[mask_golden].dropna(subset=MODEL_FEATURES + ['label']).sort_values('timestamp').reset_index(drop=True)
     
@@ -193,19 +225,9 @@ def train_cascade_sniper(golden_df):
 def analyze_btc_regime_impact(df):
     print("🌡️ ĐANG PHÂN TÍCH NHIỆT KẾ BTC ĐỂ TÌM LUẬT CỨNG...")
     
-    # Kiểm tra nếu thiếu btc_returns thì tính nhanh
-    if 'btc_returns' not in df.columns:
-         df['btc_returns'] = df.groupby('symbol')['btc_close'].pct_change()
+    # --- ĐÃ SỬA: Không tính toán lại trên dữ liệu nến rời rạc ---
+    # Các cột btc_vol_24h, btc_ema_20, btc_ema_50 đã được tính ở prepare_cascade_data_optimized
     
-    # Ép kiểu và xử lý NaN để tránh lỗi rolling
-    df['btc_returns'] = df['btc_returns'].fillna(0)
-    
-    # Giả sử df đã có các cột: btc_close, btc_sma_200 (hoặc ema), btc_returns
-    # Ta tạo thêm các biến động (Volatility) của BTC
-    df['btc_vol_24h'] = df['btc_returns'].rolling(24).std()
-    df['btc_ema_20'] = df['btc_close'].ewm(span=20).mean()
-    df['btc_ema_50'] = df['btc_close'].ewm(span=50).mean()
-
     # Định nghĩa các trạng thái (Regimes)
     conditions = [
         (df['btc_close'] > df['btc_ema_20']), # BTC Uptrend ngắn hạn
@@ -252,9 +274,9 @@ if __name__ == "__main__":
         model, best_threshold = train_cascade_sniper(golden_df)
         
         # 4. Lưu Model
-        OUTPUT_MODEL_DIR.mkdir(parents=True, exist_ok=True)
-        joblib.dump(model, OUTPUT_MODEL_PATH)
-        joblib.dump({'features': MODEL_FEATURES, 'threshold': best_threshold}, OUTPUT_META_PATH)
+        # OUTPUT_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+        # joblib.dump(model, OUTPUT_MODEL_PATH)
+        # joblib.dump({'features': MODEL_FEATURES, 'threshold': best_threshold}, OUTPUT_META_PATH)
         
         print(f"\n✅ Đã lưu model mới tại: {OUTPUT_MODEL_PATH}")
         print(f"Best Threshold (Top 20%): {best_threshold:.4f}")

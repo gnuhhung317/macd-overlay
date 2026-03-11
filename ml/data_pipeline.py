@@ -555,11 +555,20 @@ def _generate_labels_triple_barrier(
         
         # Calculate dynamic N for Ignition (40% of max_bars)
         n_ignition = max(3, int(max_bars * 0.4))
-            tp_price = swing_high  # Resistance
-            sl_price = swing_low - buffer   # Support
+        if use_atr and atr_pct is not None:
+            if is_long:
+                tp_price = entry_price * (1 + atr_pct[idx] * atr_tp_mult)
+                sl_price = entry_price * (1 - atr_pct[idx] * atr_sl_mult)
+            else:
+                tp_price = entry_price * (1 - atr_pct[idx] * atr_tp_mult)
+                sl_price = entry_price * (1 + atr_pct[idx] * atr_sl_mult)
         else:
-            tp_price = swing_low   # Support
-            sl_price = swing_high + buffer  # Resistance
+            if is_long:
+                tp_price = entry_price * (1 + tp_pct)
+                sl_price = entry_price * (1 - sl_pct)
+            else:
+                tp_price = entry_price * (1 - tp_pct)
+                sl_price = entry_price * (1 + sl_pct)
             
         # Recalculate actual percentages for filtering
         actual_tp_pct = abs(tp_price - entry_price) / entry_price

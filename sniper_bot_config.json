@@ -1,0 +1,46 @@
+{
+    "telegram": {
+        "enabled": true,
+        "token": "8251489418:AAESiUiS3pihQIDb0qDfPm7vEcM-8Zw50EY",
+        "chat_id": "6465176588"
+    },
+    "exchange": {
+        "name": "binance",
+        "api_key": "yUs6hv3lcNV3rUhZJzcMpr8BsT0KBTW7MobF8UxaRvipVN1L3tfhY6u4DF5PLWag",
+        "api_secret": "GGkyLBmapUAliJFcC5obDQRDyeU6bebWabCPJ0ntrf5FnuzjTOuFWPxAc6Gns0bm",
+        "passphrase": "",
+        "leverage": 20,
+        "dry_run": false,
+        "use_testnet": true,
+        "margin_mode": "ISOLATED"
+    },
+    "risk": {
+        "max_open_positions": 10,
+        "max_risk_per_trade": 0.02,
+        "max_position_size_usd": 10000.0
+    },
+    "strategy": {
+        "timeframes": [
+            "1h"
+        ],
+        "entry_threshold": 0.6,
+        "min_volume_usdt": 10000.0,
+        "timeout_candles": 48,
+        "long_atr_offset": -0.1,
+        "short_atr_offset": 0.5,
+        "limit_wait_bars": 5,
+        "sl_atr_multiplier_long": 1.0,
+        "tp_atr_multiplier_long": 2.0,
+        "sl_atr_multiplier_short": 1.5,
+        "tp_atr_multiplier_short": 2.5
+    },
+    "coins": [
+        "BTCUSDT",
+        "ETHUSDT",
+        "SOLUSDT",
+        "BNBUSDT",
+        "XRPUSDT"
+    ],
+    "use_all_symbols": true,
+    "max_symbols": 0
+}
