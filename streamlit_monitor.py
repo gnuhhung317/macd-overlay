@@ -398,8 +398,8 @@ def render_sidebar():
         with col2:
             coin['interval'] = st.selectbox(
                 "TF",
-                options=['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '12h', '1d'],
-                index=['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '12h', '1d'].index(coin['interval']),
+                options=['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '12h', '1d', '1w'],
+                index=['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '12h', '1d', '1w'].index(coin['interval']),
                 key=f"interval_{i}",
                 label_visibility="collapsed"
             )
@@ -435,7 +435,7 @@ def render_sidebar():
     with col2:
         new_interval = st.selectbox(
             "Interval",
-            options=['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '12h', '1d'],
+            options=['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '12h', '1d', '1w'],
             index=4,
             key="new_interval"
         )

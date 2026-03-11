@@ -10,8 +10,8 @@ class ExchangeExecutor(ABC):
         pass
 
     @abstractmethod
-    def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float, trailing_callback: float = 0.0, activation_price: float = 0.0) -> Dict[str, Any]:
-        """Place market order with TP/SL and optional Trailing Stop"""
+    def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float, trailing_callback: float = 0.0, activation_price: float = 0.0, order_type: str = 'MARKET', price: float = 0.0) -> Dict[str, Any]:
+        """Place order (MARKET/LIMIT) with TP/SL and optional Trailing Stop"""
         pass
 
     @abstractmethod
@@ -38,9 +38,11 @@ class DryRunExecutor(ExchangeExecutor):
     def get_balance(self) -> float:
         return self.balance
 
-    def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float, trailing_callback: float = 0.0, activation_price: float = 0.0) -> Dict[str, Any]:
+    def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float, trailing_callback: float = 0.0, activation_price: float = 0.0, order_type: str = 'MARKET', price: float = 0.0) -> Dict[str, Any]:
         display_tp = "None (Trailing Stop)" if trailing_callback > 0 else tp_price
-        print(f"⚠️ [DRY RUN] Placing {side} {symbol} | Size: {size} | Lev: {leverage}x | SL: {sl_price} | TP: {display_tp}")
+        order_type = order_type.upper()
+        price_str = f" @ {price}" if order_type == 'LIMIT' else " @ Market"
+        print(f"⚠️ [DRY RUN] Placing {order_type} {side} {symbol} | Size: {size} | Lev: {leverage}x{price_str} | SL: {sl_price} | TP: {display_tp}")
         if trailing_callback > 0:
             act_str = f" | Act: {activation_price}" if activation_price > 0 else ""
             print(f"⚠️ [DRY RUN] Placing TRAILING STOP for {symbol} | Callback: {trailing_callback}%{act_str}")
@@ -91,6 +93,14 @@ class CCXTExecutor(ExchangeExecutor):
             
         self.client = exchange_class(exchange_args)
         
+        # Enable Sandbox/Testnet mode if required
+        if hasattr(config.exchange, 'use_testnet') and config.exchange.use_testnet:
+            try:
+                self.client.enable_demo_trading(True)
+                print(f"[Executor] {exchange_id.upper()} Sandbox Mode (Testnet) Enabled")
+            except Exception as e:
+                print(f"⚠️ Error enabling sandbox mode for {exchange_id}: {e}")
+        
         # Load markets for precision and symbol details
         try:
             self.client.load_markets()
@@ -136,7 +146,7 @@ class CCXTExecutor(ExchangeExecutor):
 
             # 3. Calculate Quantity
             ticker = self.client.fetch_ticker(ccxt_symbol)
-            current_price = float(ticker['last'])
+            current_price = price if order_type.upper() == 'LIMIT' and price > 0 else float(ticker['last'])
             
             quantity = size / current_price
             
@@ -147,8 +157,10 @@ class CCXTExecutor(ExchangeExecutor):
                 return {}
 
             ccxt_side = 'buy' if side.upper() == 'LONG' else 'sell'
+            ccxt_type = order_type.lower()
             
-            print(f"🚀 Placing {side} {ccxt_symbol}: Qty {quantity} @ Market via CCXT")
+            price_log = f"@ {price}" if ccxt_type == 'limit' else "@ Market"
+            print(f"🚀 Placing {side} {ccxt_symbol}: Qty {quantity} {price_log} via CCXT")
             
             # Set SL/TP params using unified CCXT structure for better exchange compatibility
             params = {
@@ -166,9 +178,10 @@ class CCXTExecutor(ExchangeExecutor):
                     # Attempt 1: Assume Unilateral mode (omit tradeSide)
                     order = self.client.create_order(
                         symbol=ccxt_symbol,
-                        type='market',
+                        type=ccxt_type,
                         side=ccxt_side,
                         amount=quantity,
+                        price=price if ccxt_type == 'limit' else None,
                         params=params
                     )
                 except Exception as e:
@@ -181,9 +194,10 @@ class CCXTExecutor(ExchangeExecutor):
                         
                         order = self.client.create_order(
                             symbol=ccxt_symbol,
-                            type='market',
+                            type=ccxt_type,
                             side=ccxt_side,
                             amount=quantity,
+                            price=price if ccxt_type == 'limit' else None,
                             params=params
                         )
                     else:
@@ -192,9 +206,10 @@ class CCXTExecutor(ExchangeExecutor):
                 # Standard order placement for other exchanges
                 order = self.client.create_order(
                     symbol=ccxt_symbol,
-                    type='market',
+                    type=ccxt_type,
                     side=ccxt_side,
                     amount=quantity,
+                    price=price if ccxt_type == 'limit' else None,
                     params=params
                 )
             
@@ -318,8 +333,12 @@ class BinanceExecutor(ExchangeExecutor):
         if not self.config.exchange.api_key or not self.config.exchange.api_secret:
              print("⚠️ API Key/Secret missing for Binance Executor!")
         
-        self.client = Client(self.config.exchange.api_key, self.config.exchange.api_secret)
-        print("[Executor] Initialized Binance Executor (Real Trading)")
+        # Use testnet if configured
+        use_testnet = getattr(self.config.exchange, 'use_testnet', False)
+        self.client = Client(self.config.exchange.api_key, self.config.exchange.api_secret, testnet=use_testnet)
+        
+        mode_str = "Testnet" if use_testnet else "Real"
+        print(f"[Executor] Initialized Binance Executor ({mode_str} Trading)")
         
         # Cache symbol info for precision
         self.symbol_info = {}
@@ -403,7 +422,10 @@ class BinanceExecutor(ExchangeExecutor):
             
             # 2. Convert USDT Size to Quantity
             price_tick = self.client.futures_symbol_ticker(symbol=symbol)
-            current_price = float(price_tick['price'])
+            ref_price = float(price_tick['price'])
+            
+            # Use provided price for limit orders if available
+            current_price = price if order_type.upper() == 'LIMIT' and price > 0 else ref_price
             
             quantity = size / current_price
             prec = self._get_precision(symbol)
@@ -414,15 +436,23 @@ class BinanceExecutor(ExchangeExecutor):
                 return {}
 
             binance_side = SIDE_BUY if side.upper() == 'LONG' else SIDE_SELL
+            binance_type = ORDER_TYPE_LIMIT if order_type.upper() == 'LIMIT' else ORDER_TYPE_MARKET
             
-            # 3. Market Open
-            print(f"🚀 Placing {side} {symbol}: Qty {quantity} @ Market")
-            order = self.client.futures_create_order(
-                symbol=symbol,
-                side=binance_side,
-                type=ORDER_TYPE_MARKET,
-                quantity=quantity
-            )
+            # 3. Order Open
+            price_log = f"@ {price}" if binance_type == ORDER_TYPE_LIMIT else "@ Market"
+            print(f"🚀 Placing {side} {symbol}: Qty {quantity} {price_log}")
+            
+            order_params = {
+                'symbol': symbol,
+                'side': binance_side,
+                'type': binance_type,
+                'quantity': quantity
+            }
+            if binance_type == ORDER_TYPE_LIMIT:
+                order_params['price'] = self.format_price(symbol, price)
+                order_params['timeInForce'] = TIME_IN_FORCE_GTC
+                
+            order = self.client.futures_create_order(**order_params)
             
             # 4. Place SL & TP (Reduce Only)
             

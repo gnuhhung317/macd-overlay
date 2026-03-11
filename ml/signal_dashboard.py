@@ -222,14 +222,16 @@ AVG_MAE_STATS = {
     '4h': 0.035,   # ~3.5% (Bin 0.6-0.7)
     '8h': 0.045,   # ~4.5%
     '12h': 0.055,  # ~5.5%
-    '1d': 0.065    # ~6.5%
+    '1d': 0.065,   # ~6.5%
+    '1w': 0.10     # ~10% (Weekly estimate)
 }
 
 AVG_MFE_STATS = {
     '4h': 0.11,
     '8h': 0.14,
     '12h': 0.16,
-    '1d': 0.22
+    '1d': 0.22,
+    '1w': 0.35     # ~35% (Weekly estimate)
 }
 
 def get_entry_status(signal_type, cross_price, current_price, mae_pct, mfe_pct):
@@ -356,8 +358,9 @@ def display_signal_table(timeframe, signals, current_prices, use_refined=False):
         return
         
     # --- Confidence Filter ---
-    # User requirement: min confidence 0.6 (60%)
-    df = df[df['Confidence'] >= 60.0]
+    # User requirement: min confidence 0.5 (50%) for 1w, 0.6 (60%) for others
+    min_conf = 50.0 if timeframe == '1w' else 60.0
+    df = df[df['Confidence'] >= min_conf]
     
     # --- Refined Filter (If enabled) ---
     if use_refined:
@@ -365,7 +368,7 @@ def display_signal_table(timeframe, signals, current_prices, use_refined=False):
         df = df[df['Score'] >= 0.6]
     
     if df.empty:
-        st.info("Không có tín hiệu nào đạt mức tin cậy tối thiểu (60%) hoặc không khớp bộ lọc Refined.")
+        st.info(f"Không có tín hiệu nào đạt mức tin cậy tối thiểu ({min_conf:.0f}%) hoặc không khớp bộ lọc Refined.")
         return
         
     # --- Status Filter (Above Table) ---
@@ -413,7 +416,8 @@ def display_signal_table(timeframe, signals, current_prices, use_refined=False):
     for s in signals:
         conf = s['confidence'] * 100
         score = s.get('refined_score', 1.0)
-        if conf >= 60.0 and (not use_refined or score >= 0.6):
+        min_conf = 50.0 if timeframe == '1w' else 60.0
+        if conf >= min_conf and (not use_refined or score >= 0.6):
             journal_signals.append(s)
             
     if journal_signals:
@@ -504,7 +508,7 @@ Việc sử dụng Điểm số (Score) giúp bạn cân bằng giữa **Số l�
         st.session_state.ticker_cache = current_prices
 
     # Tabs for Timeframes
-    timeframes = ['4h', '8h', '12h', '1d']
+    timeframes = ['4h', '8h', '12h', '1d', '1w']
     tabs = st.tabs([tf.upper() for tf in timeframes])
     
     for i, tf in enumerate(timeframes):
@@ -521,10 +525,11 @@ Việc sử dụng Điểm số (Score) giúp bạn cân bằng giữa **Số l�
                 default_idx = 1 # 7 days
                 if tf == '4h': default_idx = 0 # 3 days
                 if tf == '1d': default_idx = 3 # 30 days
+                if tf == '1w': default_idx = 4 # 60 days
                 
                 lookback_days = st.selectbox(
                     "Lookback (Days)", 
-                    [3, 7, 14, 30, 60, 90], 
+                    [3, 7, 14, 30, 60, 90, 180, 365], 
                     index=default_idx,
                     key=f"lookback_{tf}"
                 )

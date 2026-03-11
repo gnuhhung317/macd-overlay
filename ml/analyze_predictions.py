@@ -1,418 +1,206 @@
+import os
+import sys
 import pandas as pd
 import numpy as np
+import torch
 import joblib
-from pathlib import Path
-import sys
 import matplotlib.pyplot as plt
+import seaborn as sns
+from pathlib import Path
+from datetime import datetime
+from typing import Dict, List, Tuple
 
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add current and root directory to sys.path
+sys.path.append(os.getcwd())
+sys.path.append(str(Path(os.getcwd()).parent))
 
-from ml.multi_timeframe_pipeline import PROCESSED_DIR
+from ml.training.transformer_model import HybridScorer
 
-MODELS_DIR = Path(__file__).parent / 'models'
+# --- CONFIGURATION ---
+MODEL_PATH = Path('ml/models/1d/hybrid')
+DATA_PATH = Path('bitget-data/ohlcv')
+TIMEFRAME = '1d'
+TEST_START_DATE = '2024-01-01' 
+SEQ_FEATURES = ['log_returns', 'high_low_range', 'body_size', 'volatility_14', 'macd', 'macd_slope', 'volume_ratio', 'volume_zscore']
+CONTEXT_FEATURES = ['btc_is_bull_regime', 'btc_trend_strength', 'adx', 'hour_sin', 'hour_cos', 'day_sin', 'day_cos', 'btc_corr', 'trend_state', 'is_trending', 'is_volatile', 'macd_acceleration', 'volume_spike', 'vol_ratio_alpha', 'ema_200_1d_dist', 'rsi_14_1d']
+SIGNAL_FEATURES = ['rsi_14', 'rsi_slope', 'stoch_k', 'stoch_d', 'roc_7', 'roc_14', 'volume_ratio', 'volume_zscore', 'volume_trend', 'rs_vs_btc', 'rs_vs_btc_sma7', 'vol_compression', 'dist_to_high_30d', 'dist_to_low_30d', 'dist_to_ema_21_pct', 'dist_to_ema_50_pct', 'dist_to_ema_200_pct', 'price_vs_sma_30', 'momentum_30', 'is_bullish_cross']
 
-def load_data_and_model(timeframe='4h'):
-    """Load processed data and all trained models (Entry, SL, TP)."""
-    data_path = PROCESSED_DIR / f'features_{timeframe}_full.parquet'
-    model_dir = MODELS_DIR / timeframe
-    
-    if not data_path.exists():
-        print(f"❌ Data not found: {data_path}")
-        return None, None
-        
-    print(f"📂 Loading data from {data_path}...")
-    df = pd.read_parquet(data_path)
-    
-    models = {}
-    
-    # Load Entry Model
-    entry_path = model_dir / 'entry_filter.joblib'
-    if entry_path.exists():
-        data = joblib.load(entry_path)
-        models['entry'] = {
-            'model': data['model'], 
-            'scaler': data.get('scaler'),
-            'features': data['feature_names']
-        }
-        print(f"🤖 Loaded Entry Model")
-    else:
-        print(f"❌ Entry Model not found: {entry_path}")
-        return None, None
+def calculate_hybrid_features(df, btc_context=None):
+    df = df.copy()
+    df['log_returns'] = np.log(df['close'] / df['close'].shift(1))
+    df['volatility_14'] = df['log_returns'].rolling(14).std()
+    df['body_size'] = abs(df['close'] - df['open']) / df['open']
+    df['high_low_range'] = (df['high'] - df['low']) / df['low']
+    df['volume_ratio'] = df['volume'] / df['volume'].rolling(20).mean()
+    df['volume_zscore'] = (df['volume'] - df['volume'].rolling(20).mean()) / df['volume'].rolling(20).std()
+    df['volume_spike'] = (df['volume'] > df['volume'].rolling(20).mean() * 2).astype(int)
+    df['volume_trend'] = df['volume'].rolling(5).mean() / df['volume'].rolling(20).mean()
+    df['ema_21'] = df['close'].ewm(span=21).mean()
+    df['ema_50'] = df['close'].ewm(span=50).mean()
+    df['ema_200'] = df['close'].ewm(span=200).mean()
+    df['sma_30'] = df['close'].rolling(30).mean()
+    df['sma_50'] = df['close'].rolling(50).mean()
+    tr = pd.concat([df['high'] - df['low'], abs(df['high'] - df['close'].shift(1)), abs(df['low'] - df['close'].shift(1))], axis=1).max(axis=1)
+    df['atr_14'] = tr.rolling(14).mean()
+    df['vol_compression'] = df['atr_14'] / df['atr_14'].rolling(100).mean().replace(0, np.nan)
+    delta = df['close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss.replace(0, np.nan)
+    df['rsi_14'] = 100 - (100 / (1 + rs))
+    df['rsi_slope'] = df['rsi_14'].diff(3)
+    l14 = df['low'].rolling(14).min(); h14 = df['high'].rolling(14).max()
+    df['stoch_k'] = 100 * (df['close'] - l14) / (h14 - l14).replace(0, np.nan)
+    df['stoch_d'] = df['stoch_k'].rolling(3).mean()
+    df['roc_7'] = df['close'].pct_change(7); df['roc_14'] = df['close'].pct_change(14)
+    df['price_vs_sma_30'] = df['close'] / (df['sma_30'] + 1e-9); df['momentum_30'] = df['close'].pct_change(30)
+    pdm = df['high'].diff(); mdm = -df['low'].diff()
+    pdm = pdm.where((pdm > mdm) & (pdm > 0), 0); mdm = mdm.where((mdm > pdm) & (mdm > 0), 0)
+    atr_s = tr.rolling(14).mean()
+    pdi = 100 * (pdm.rolling(14).mean() / atr_s.replace(0, np.nan))
+    mdi = 100 * (mdm.rolling(14).mean() / atr_s.replace(0, np.nan))
+    df['adx'] = (100 * abs(pdi - mdi) / (pdi + mdi).replace(0, np.nan)).rolling(14).mean()
+    df['dist_to_high_30d'] = (df['close'] - df['high'].rolling(30).max()) / df['close']
+    df['dist_to_low_30d'] = (df['close'] - df['low'].rolling(30).min()) / df['close']
+    for e in [21, 50, 200]: df[f'dist_to_ema_{e}_pct'] = (df['close'] - df[f'ema_{e}']) / df['close']
+    df['trend_state'] = np.where(df['close'] > df['sma_50'], 1, np.where(df['close'] < df['sma_50'], -1, 0))
+    df['is_trending'] = (df['adx'] > 25).astype(int); df['is_volatile'] = (df['vol_compression'] > 1.5).astype(int)
+    df['hour_sin'] = np.sin(2 * np.pi * df['timestamp'].dt.hour / 24); df['hour_cos'] = np.cos(2 * np.pi * df['timestamp'].dt.hour / 24)
+    df['day_sin'] = np.sin(2 * np.pi * df['timestamp'].dt.dayofweek / 7); df['day_cos'] = np.cos(2 * np.pi * df['timestamp'].dt.dayofweek / 7)
+    ef = df['close'].ewm(span=12).mean(); es = df['close'].ewm(span=26).mean()
+    df['macd'] = ef - es; df['macd_signal'] = df['macd'].ewm(span=9).mean()
+    df['macd_slope'] = df['macd'].diff(); df['macd_acceleration'] = df['macd_slope'].diff()
+    df['macd_cross_up'] = ((df['macd'] > df['macd_signal']) & (df['macd'].shift(1) <= df['macd_signal'].shift(1))).astype(int)
+    df['macd_cross_down'] = ((df['macd'] < df['macd_signal']) & (df['macd'].shift(1) >= df['macd_signal'].shift(1))).astype(int)
+    df['is_bullish_cross'] = df['macd_cross_up']; df['vol_ratio_alpha'] = df['volume_ratio'] * df['volatility_14']
+    df['ema_200_1d_dist'] = df['dist_to_ema_200_pct']; df['rsi_14_1d'] = df['rsi_14']
+    if btc_context is not None and not btc_context.empty:
+        df = df.merge(btc_context, on='timestamp', how='left')
+        for c in ['btc_is_bull_regime', 'btc_trend_strength', 'btc_returns']: df[c] = df[c].ffill().fillna(0)
+        df['rs_vs_btc'] = df['log_returns'] - df['btc_returns']
+        df['rs_vs_btc_sma7'] = df['rs_vs_btc'].rolling(7).mean()
+        df['btc_corr'] = df['log_returns'].rolling(14).corr(df['btc_returns']).fillna(0)
+    return df.dropna(subset=['macd'])
 
-    # Load SL Model
-    sl_path = model_dir / 'sl_predictor.joblib'
-    if sl_path.exists():
-        data = joblib.load(sl_path)
-        models['sl'] = {
-            'model': data['model'], 
-            'scaler': data.get('scaler'),
-            'features': data['feature_names']
-        }
-        print(f"🤖 Loaded SL Model")
-    
-    # Load TP Model
-    tp_path = model_dir / 'tp_predictor.joblib'
-    if tp_path.exists():
-        data = joblib.load(tp_path)
-        models['tp'] = {
-            'model': data['model'], 
-            'scaler': data.get('scaler'),
-            'features': data['feature_names'],
-            'predict_rr': data.get('predict_rr', False)
-        }
-        print(f"🤖 Loaded TP Model")
+class PredictionAnalyzer:
+    def __init__(self, model_path: Path):
+        self.model_path = model_path
+        self.lgbm = joblib.load(model_path / 'ensemble_lgbm_tabular.joblib')
+        self.meta = joblib.load(model_path / 'ensemble_meta.joblib')
+        num_symbols = self.meta.get('num_symbols', 0)
+        window_size = self.meta.get('window_size', 50)
+        self.nn_model = HybridScorer(
+            seq_in_dim=len(SEQ_FEATURES),
+            context_in_dim=len(CONTEXT_FEATURES),
+            signal_in_dim=len(SIGNAL_FEATURES),
+            num_symbols=num_symbols,
+            window_size=window_size
+        )
+        self.nn_model.load_state_dict(torch.load(model_path / 'ensemble_transformer.pth', map_location='cpu'))
+        self.nn_model.eval()
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.nn_model.to(self.device)
 
-    return df, models
-
-def analyze_signals(df, models, horizon=10):
-    """
-    Run detailed analysis on signals using Dynamic TP/SL predictions.
-    Optimized Loop using NumPy for high performance.
-    """
-    # OPTIMIZATION: Reset index to ensure integer alignment and avoid Index Traps
-    df = df.reset_index(drop=True)
-    
-    # Extract Numpy Arrays (Fast Access)
-    opens = df['open'].values
-    highs = df['high'].values
-    lows = df['low'].values
-    closes = df['close'].values
-    symbols = df['symbol'].values if 'symbol' in df.columns else np.full(len(df), 'UNKNOWN')
-    
-    # 1. Identify Signals (Boolean Mask)
-    # Ensure is_bullish_cross exists
-    if 'is_bullish_cross' not in df.columns:
-        df['is_bullish_cross'] = df['macd_cross_up'] # assuming 0/1
+    def get_predictions(self, symbol: str, df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+        window_size = self.meta['window_size']
+        results = []
+        signals = df[(df['macd_cross_up'] == 1) | (df['macd_cross_down'] == 1)].index
         
-    signal_mask = (df['macd_cross_up'] == 1) | (df['macd_cross_down'] == 1)
-    
-    # Get Integer Indices of signals
-    signal_indices = np.where(signal_mask)[0]
-    
-    if len(signal_indices) == 0:
-        print("⚠️ No signals found.")
-        return
-
-    print(f"🔍 Analyzing {len(signal_indices)} signals with Dynamic TP/SL...")
-    
-    # 2. Batch Predictions
-    # A. Entry Confidence
-    entry_model = models['entry']
-    X_entry = df.loc[signal_mask, entry_model['features']].fillna(0).replace([np.inf, -np.inf], 0)
-    if entry_model['scaler']:
-        X_entry = entry_model['scaler'].transform(X_entry)
-    confidences = entry_model['model'].predict_proba(X_entry)[:, 1]
-    
-    # B. SL Predictions
-    if 'sl' in models:
-        sl_model = models['sl']
-        X_sl = df.loc[signal_mask, sl_model['features']].fillna(0).replace([np.inf, -np.inf], 0)
-        if sl_model['scaler']:
-            X_sl = sl_model['scaler'].transform(X_sl)
-        sl_preds = sl_model['model'].predict(X_sl)
-        # Clip SL to reasonable bounds (0.5% to 10%)
-        sl_preds = np.clip(sl_preds, 0.005, 0.10)
-    else:
-        sl_preds = np.full(len(signal_indices), 0.015) # Default 1.5%
-
-    # C. TP Predictions
-    if 'tp' in models:
-        tp_model = models['tp']
-        X_tp = df.loc[signal_mask, tp_model['features']].fillna(0).replace([np.inf, -np.inf], 0)
-        if tp_model['scaler']:
-            X_tp = tp_model['scaler'].transform(X_tp)
-        tp_preds = tp_model['model'].predict(X_tp)
-        
-        # If model predicts RR, multiply by SL
-        if tp_model.get('predict_rr', False):
-             tp_preds = tp_preds * sl_preds
-             
-        # Clip TP (0.5% to 20%)
-        tp_preds = np.clip(tp_preds, 0.005, 0.20)
-    else:
-        tp_preds = np.full(len(signal_indices), 0.03) # Default 3%
-        
-    
-    # Pre-fetch attributes mapped to signal array
-    entry_prices = closes[signal_indices]
-    entry_symbols = symbols[signal_indices]
-    is_longs = df.loc[signal_mask, 'macd_cross_up'].values == 1
-    
-    # 3. Simulation Loop (Optimized)
-    results = []
-    
-    # Loop over indices
-    for i in range(len(signal_indices)):
-        idx = signal_indices[i]
-        entry_price = entry_prices[i]
-        entry_symbol = entry_symbols[i]
-        is_long = is_longs[i]
-        confidence = confidences[i]
-        
-        # Dynamic TP/SL for this trade
-        # Note: In inference.py we apply a 1.5x multiplier to SL. Let's replicate that safety factor.
-        sl_target = -sl_preds[i] * 1.5 # Negative for loss
-        tp_target = tp_preds[i] 
-        
-        # Look ahead window indices
-        start_future = idx + 1
-        end_future = min(idx + 1 + horizon, len(closes))
-        
-        if start_future >= len(closes):
-            continue
+        # Symbol Encoding
+        try:
+            sym_idx = self.meta['sym_encoder'].transform([symbol])[0]
+        except:
+            sym_idx = 0
             
-        # Check Symbol Boundary Violation using vector slice
-        # If the window spans across symbols, truncate it
-        future_symbols = symbols[start_future:end_future]
-        
-        # We only want rows where symbol is the same as entry
-        # Ideally, data is sorted by symbol, then time.
-        # If so, just finding the first mismatch is enough.
-        # Speed hack: check if last symbol matches first. If NO, find split.
-        if len(future_symbols) > 0 and future_symbols[-1] != entry_symbol:
-             # Find first index where symbol changes
-             mismatches = np.where(future_symbols != entry_symbol)[0]
-             if len(mismatches) > 0:
-                 end_future = start_future + mismatches[0]
-                 
-        if start_future >= end_future:
-            continue
+        for idx in signals:
+            if idx < window_size: continue
+            row = df.iloc[idx]
+            seq = df.iloc[idx - window_size + 1 : idx + 1][SEQ_FEATURES].fillna(0).values.astype(float)
+            seq_t = torch.tensor(seq, dtype=torch.float32).unsqueeze(0).to(self.device).float()
+            ctx = row[CONTEXT_FEATURES].values.astype(float).reshape(1, -1)
+            sig = row[SIGNAL_FEATURES].values.astype(float).reshape(1, -1)
+            ctx_t = torch.tensor(ctx, dtype=torch.float32).to(self.device)
+            sig_t = torch.tensor(sig, dtype=torch.float32).to(self.device)
+            sym_t = torch.tensor([sym_idx]).long().to(self.device)
             
-        # Get window slices (NumPy views, zero copy overhead)
-        w_highs = highs[start_future:end_future]
-        w_lows = lows[start_future:end_future]
-        w_closes = closes[start_future:end_future]
-        
-        if len(w_closes) == 0:
-            continue
+            with torch.no_grad():
+                nn_logit = self.nn_model(seq_t, ctx_t, sig_t, sym_t)
+                nn_prob = torch.sigmoid(nn_logit).item()
+                emb = self.nn_model.get_embeddings(seq_t, ctx_t, sig_t, sym_t)
             
-        # --- Metrics Calculation ---
-        
-        # 1. MFE / MAE
-        if is_long:
-            max_h = np.max(w_highs)
-            min_l = np.min(w_lows)
+            lgbm_input = np.hstack([emb, ctx, sig])
+            lgbm_prob = self.lgbm.predict_proba(lgbm_input)[0, 1]
+            ensemble_prob = (nn_prob + lgbm_prob) / 2
             
-            mfe_pct = (max_h - entry_price) / entry_price
-            mae_pct = (min_l - entry_price) / entry_price
-            
-            bars_to_mfe = np.argmax(w_highs) + 1
-            bars_to_mae = np.argmin(w_lows) + 1
-        else:
-            # Short
-            max_h = np.max(w_highs)
-            min_l = np.min(w_lows)
-            
-            # Short MFE: Price down (min_l) is good
-            mfe_pct = (entry_price - min_l) / entry_price
-            # Short MAE: Price up (max_h) is bad
-            mae_pct = (entry_price - max_h) / entry_price
-            
-            bars_to_mfe = np.argmin(w_lows) + 1
-            bars_to_mae = np.argmax(w_highs) + 1
-            
-        # 2. First Hit Logic (Vectorized Check)
-        outcome = "TIMEOUT"
-        realized_pnl = 0.0
-        
-        if is_long:
-            tp_price_level = entry_price * (1 + tp_target)
-            # SL is negative target, so 1 - 0.02 = 0.98
-            sl_price_level = entry_price * (1 + sl_target)
-            
-            hit_tp = w_highs >= tp_price_level
-            hit_sl = w_lows <= sl_price_level
-        else:
-            tp_price_level = entry_price * (1 - tp_target)
-            # SL is negative target, so 1 - (-0.02) = 1.02
-            sl_price_level = entry_price * (1 - sl_target)
-            
-            hit_tp = w_lows <= tp_price_level
-            hit_sl = w_highs >= sl_price_level
-            
-        # Find first occurrence index
-        first_tp_idx = np.argmax(hit_tp) if np.any(hit_tp) else 9999
-        first_sl_idx = np.argmax(hit_sl) if np.any(hit_sl) else 9999
-        
-        if first_sl_idx == 9999 and first_tp_idx == 9999:
-            outcome = "TIMEOUT"
-            last_c = w_closes[-1]
-            if is_long:
-                realized_pnl = (last_c - entry_price) / entry_price
+            future_prices = df.iloc[idx+1 : idx+16]['close']
+            if future_prices.empty: continue
+            if row['macd_cross_up'] == 1:
+                target = 1 if (future_prices.max() - row['close']) / row['close'] >= 0.05 else 0
+                actual_ret = (future_prices.max() - row['close']) / row['close']
             else:
-                realized_pnl = (entry_price - last_c) / entry_price
-                
-        elif first_sl_idx <= first_tp_idx:
-            # SL hit first or same bar (Conservative)
-            outcome = "SL_HIT"
-            realized_pnl = sl_target
-        else:
-            outcome = "TP_HIT"
-            realized_pnl = tp_target
-        
-        results.append({
-            'confidence': confidence,
-            'mfe': mfe_pct,
-            'mae': mae_pct,
-            'bars_to_mfe': bars_to_mfe,
-            'bars_to_mae': bars_to_mae,
-            'outcome': outcome,
-            'realized_pnl': realized_pnl,
-            'predicted_sl': sl_preds[i], # Raw SL prediction
-            'predicted_tp': tp_preds[i], # Raw TP prediction
-            'projected_rr': tp_preds[i] / sl_preds[i],
-            'is_long': is_long
-        })
-        
-    return pd.DataFrame(results)
+                target = 1 if (row['close'] - future_prices.min()) / row['close'] >= 0.05 else 0
+                actual_ret = (row['close'] - future_prices.min()) / row['close']
+            results.append({'timestamp': row['timestamp'], 'nn_prob': nn_prob, 'lgbm_prob': lgbm_prob, 'ensemble_prob': ensemble_prob, 'target': target, 'return': actual_ret, 'disagreement': abs(nn_prob - lgbm_prob)})
+        return pd.DataFrame(results)
 
-def generate_markdown_report(all_stats, filename='ML_SIGNAL_QUALITY_REPORT.md'):
-    """Generate a comprehensive Markdown report for multiple timeframes."""
+def run_analysis():
+    analyzer = PredictionAnalyzer(MODEL_PATH)
+    print("Loading data and building context...")
+    btc_df = pd.read_parquet(DATA_PATH / 'BTCUSDT_USDT.parquet')
+    btc_df['timestamp'] = pd.to_datetime(btc_df['timestamp'], unit='ms')
+    btc_df = btc_df.set_index('timestamp').resample('1D').agg({'open':'first','high':'max','low':'min','close':'last','volume':'sum'}).dropna().reset_index()
+    btc_df['log_returns'] = np.log(btc_df['close'] / btc_df['close'].shift(1))
+    btc_df['sma_200'] = btc_df['close'].rolling(200).mean()
+    tr = pd.concat([btc_df['high'] - btc_df['low'], abs(btc_df['high'] - btc_df['close'].shift(1)), abs(btc_df['low'] - btc_df['close'].shift(1))], axis=1).max(axis=1)
+    atr = tr.rolling(14).mean(); pdm = btc_df['high'].diff(); mdm = -btc_df['low'].diff()
+    pdm = pdm.where((pdm > mdm) & (pdm > 0), 0); mdm = mdm.where((mdm > pdm) & (mdm > 0), 0)
+    pdi = 100 * (pdm.rolling(14).mean() / atr.replace(0, np.nan)); mdi = 100 * (mdm.rolling(14).mean() / atr.replace(0, np.nan))
+    btc_df['btc_adx'] = (100 * abs(pdi - mdi) / (pdi + mdi).replace(0, np.nan)).rolling(14).mean()
+    btc_context = btc_df[['timestamp','close','sma_200','btc_adx','log_returns']].copy()
+    btc_context.columns = ['timestamp','btc_close','btc_sma_200','btc_adx','btc_returns']
+    btc_context['btc_is_bull_regime'] = (btc_context['btc_close'] > btc_context['btc_sma_200']).astype(int)
+    btc_context['btc_trend_strength'] = (btc_context['btc_adx'] > 25).astype(int)
     
-    # Specific Insights per Timeframe
-    tf_insights = {
-        '4h': """
-**🔎 Phân Tích Khung 4h**:
-*   **Đặc điểm**: Tần suất tín hiệu dày đặc nhất. Thích hợp cho **Scalping/Day Trading**.
-*   **Điểm mạnh**: E-Ratio ở mức High Confidence (0.6-0.7) đạt **3.25**, rất ấn tượng.
-*   **Khuyến nghị**: Có thể đánh volume vừa phải, Entry nhanh, Exit nhanh (avg hold 4-7 nến).
-""",
-        '8h': """
-**🔎 Phân Tích Khung 8h**:
-*   **Đặc điểm**: Bộ lọc nhiễu tốt hơn 4h. Winrate nhóm 0.6-0.7 đạt **89.0%**.
-*   **Điểm mạnh**: Sự cân bằng hoàn hảo giữa độ chính xác và số lượng cơ hội.
-*   **Khuyến nghị**: Khung thời gian "xương sống" cho Swing ngắn hạn.
-""",
-        '12h': """
-**🔎 Phân Tích Khung 12h**:
-*   **Đặc điểm**: Độ chính xác cực cao (Winrate 95.4% ở range 0.7-0.8).
-*   **Cảnh báo Volatilty**: Stress Test cho thấy có cú sập sâu (-60.79%), nhưng SL Dynamic đã chặn lỗ ở -15%.
-*   **Khuyến nghị**: Dùng để bắt các con sóng trung hạn.
-""",
-        '1d': """
-**🔎 Phân Tích Khung 1d**:
-*   **Đặc điểm**: **Swing King**. Lợi nhuận trung bình mỗi kèo thắng (High Conf) lên tới **+11% - 13%**.
-*   **Rủi ro**: Avg MAE khá lớn (~6% đến 10%). Tức là vào lệnh xong giá thường rung lắc mạnh trước khi bay.
-*   **Khuyến nghị**: **GIẢM VOLUME**. Vì SL rất xa (Dynamic SL có thể lên tới 10-15%), nên cần quản lý vốn chặt chẽ.
-"""
-    }
-
-    with open(filename, 'w', encoding='utf-8') as f:
-        # 1. Header & Educational Section
-        f.write("# 📊 ML Signal Quality Report (Multi-Timeframe)\n\n")
-        f.write("Generated by `ml/analyze_predictions.py` using **First Hit Logic** and **Dynamic TP/SL**.\n\n")
-        
-        f.write("## 💡 How to Interpret MFE & MAE\n")
-        f.write("To understand the 'personality' of your signals, look at these 3 metrics:\n\n")
-        
-        f.write("### 1. MFE (Max Favorable Excursion) - \"Tiền Mỡ\"\n")
-        f.write("*   **Định nghĩa**: Mức lãi tối đa đạt được trong 10 nến (trước khi đóng lệnh).\n")
-        f.write("*   **Insight**: MFE cho biết **Tiềm năng** của tín hiệu.\n")
-        f.write("    *   Nếu `Avg MFE` cao (+5%) mà `Avg PnL` thấp (+1%) $\\rightarrow$ Bạn đang **chốt lời quá tệ** (hoặc Trailing Stop quá chặt).\n")
-        f.write("    *   Nếu `Avg MFE` thấp $\\rightarrow$ Tín hiệu yếu, giá không chạy ngay.\n\n")
-        
-        f.write("### 2. MAE (Max Adverse Excursion) - \"Mức Gồng Lỗ\"\n")
-        f.write("*   **Định nghĩa**: Mức lỗ sâu nhất mà giá chạm tới trong quá trình giữ lệnh.\n")
-        f.write("*   **Insight**: MAE cho biết **Độ chuẩn xác** của Entry.\n")
-        f.write("    *   Nếu `Avg MAE` thấp (ví dụ -1%) mà Winrate cao $\\rightarrow$ Entry kiểu **Sniper** (Vào là xanh).\n")
-        f.write("    *   Nếu `Avg MAE` cao (ví dụ -10%) mà vẫn Win $\\rightarrow$ Entry xấu, thắng do may mắn hoặc gồng giỏi.\n\n")
-        
-        f.write("### 3. E-Ratio (Edge Ratio) - \"Lợi Thế Tự Nhiên\"\n")
-        f.write("*   $$E = \\frac{\\text{Avg MFE}}{|\\text{Avg MAE}|}$$\n")
-        f.write("*   **Insight**: Tỷ lệ R:R tự nhiên của tín hiệu.\n")
-        f.write("    *   **E > 1.0**: Kèo thơm. Tiềm năng ăn nhiều hơn thua.\n")
-        f.write("    *   **E < 1.0**: Kèo thối. Rủi ro cao hơn lợi nhuận ngay từ khi vào lệnh.\n")
-        f.write("    *   *Mục tiêu*: Chỉ trade các nhóm có **E-Ratio > 2.0**.\n\n")
-        
-        f.write("---\n\n")
-        
-        # 2. Timeframe Stats
-        for tf, stats, stress_test in all_stats:
-            f.write(f"## ⏳ Timeframe: {tf}\n")
+    symbols = [f.stem.replace('_USDT', '') for f in DATA_PATH.glob('*.parquet')]
+    symbols = [s for s in symbols if not any(x in s for x in ['-26','-25','-24'])][:50]
+    all_results = []
+    for sym in symbols:
+        try:
+            pt = DATA_PATH / f"{sym}_USDT.parquet"
+            if not pt.exists(): continue
+            df = pd.read_parquet(pt)
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            df = df.set_index('timestamp').resample('1D').agg({'open':'first','high':'max','low':'min','close':'last','volume':'sum'}).dropna().reset_index()
+            if len(df) < 250: continue
+            df = calculate_hybrid_features(df, btc_context)
+            df = df[df['timestamp'] >= pd.Timestamp(TEST_START_DATE)]
+            if len(df) < 10: continue
+            df[CONTEXT_FEATURES] = analyzer.meta['ctx_scaler'].transform(df[CONTEXT_FEATURES].fillna(0))
+            df[SIGNAL_FEATURES] = analyzer.meta['sig_scaler'].transform(df[SIGNAL_FEATURES].fillna(0))
+            df[SEQ_FEATURES] = analyzer.meta['seq_scaler'].transform(df[SEQ_FEATURES].fillna(0))
+            all_results.append(analyzer.get_predictions(sym, df))
+            print(f"Processed {sym}")
+        except Exception as e: print(f"Error {sym}: {e}")
             
-            # Write specific insight if available
-            if tf in tf_insights:
-                f.write(tf_insights[tf] + "\n")
-            
-            # Main Stats Table
-            f.write("| Bin (Conf) | Count | Win% | Avg PnL | Avg MFE | Avg MAE | Pro.R:R | E-Ratio | Time(MFE) |\n")
-            f.write("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n")
-            
-            for idx, row in stats.iterrows():
-                if row['count'] == 0:
-                    continue
-                f.write(f"| {idx} | {int(row['count']):,} | {row['win_rate']:.1%} | {row['avg_pnl']:.2%} | {row['avg_mfe']:.2%} | {row['avg_mae']:.2%} | {row['avg_proj_rr']:.2f} | {row['e_ratio']:.2f} | {row['avg_bars_mfe']:.1f} |\n")
-            
-            f.write("\n")
-            
-            # Stress Test Section
-            if stress_test:
-                f.write("> [!WARNING] **Stress Test (Confidence >= 0.7)**\n")
-                f.write(f"> * **Worst Drawdown (MAE)**: `{stress_test['worst_loss']:.2%}`\n")
-                f.write(f"> * **Worst Realized PnL**: `{stress_test['worst_pnl']:.2%}`\n")
-                f.write(f"> * **Avg Loss**: `{stress_test['avg_loss']:.2%}`\n")
-            else:
-                f.write("> [!NOTE] Not enough high confidence signals for stress test.\n")
-            
-            f.write("\n---\n\n")
-            
-    print(f"\n✅ Created report: {filename}")
-
-def aggregate_stats(results_df):
-    """Aggregate stats for a dataframe."""
-    bins = [0.0, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-    labels = ['<0.5', '0.5-0.6', '0.6-0.7', '0.7-0.8', '0.8-0.9', '>0.9']
-    results_df['bin'] = pd.cut(results_df['confidence'], bins=bins, labels=labels)
+    if not all_results: print("No results."); return
+    master_df = pd.concat(all_results)
+    print("Generating Reports...")
+    master_df['bin'] = pd.qcut(master_df['ensemble_prob'], 10, labels=False, duplicates='drop')
+    decile_stats = master_df.groupby('bin').agg({'target': 'mean', 'return': 'mean'}).reset_index()
+    plt.figure(figsize=(12, 5))
+    plt.subplot(1, 2, 1); sns.barplot(x='bin', y='target', data=decile_stats, palette='viridis'); plt.title('Win Rate by Decile (Target 1)')
+    plt.subplot(1, 2, 2); sns.barplot(x='bin', y='return', data=decile_stats, palette='rocket'); plt.title('Avg Return by Decile')
+    plt.savefig('decile_analysis.png')
+    plt.figure(figsize=(10, 5)); sns.kdeplot(master_df['nn_prob'], label='Transformer', fill=True, alpha=0.3); sns.kdeplot(master_df['lgbm_prob'], label='LightGBM', fill=True, alpha=0.3); plt.title('Prob Distribution'); plt.legend(); plt.savefig('prob_distribution.png')
     
-    stats = results_df.groupby('bin').agg(
-        count=('confidence', 'count'),
-        win_rate=('realized_pnl', lambda x: (x > 0).mean()),
-        avg_pnl=('realized_pnl', 'mean'),
-        avg_mfe=('mfe', 'mean'),
-        avg_mae=('mae', 'mean'),
-        avg_bars_mfe=('bars_to_mfe', 'mean'),
-        avg_proj_rr=('projected_rr', 'mean'),
-    )
+    # Feature Importance (Simplified column names)
+    emb_cols = [f'emb_{i}' for i in range(64)]
+    all_feat_names = emb_cols + CONTEXT_FEATURES + SIGNAL_FEATURES
+    feat_imp = pd.DataFrame({'feature': all_feat_names, 'importance': analyzer.lgbm.feature_importances_}).sort_values('importance', ascending=False)
+    plt.figure(figsize=(10, 8)); sns.barplot(x='importance', y='feature', data=feat_imp.head(20)); plt.title('Top 20 Features (with Embeddings)'); plt.savefig('feature_importance.png')
     
-    # Calculate Custom Metrics
-    stats['e_ratio'] = stats['avg_mfe'] / abs(stats['avg_mae']).replace(0, 0.0001)
-    
-    # Stress Test
-    high_conf = results_df[results_df['confidence'] >= 0.7]
-    stress_test = None
-    if len(high_conf) > 0:
-        losses = high_conf[high_conf['realized_pnl'] < 0]
-        stress_test = {
-            'worst_loss': high_conf['mae'].min(),
-            'worst_pnl': high_conf['realized_pnl'].min(),
-            'avg_loss': losses['realized_pnl'].mean() if len(losses) > 0 else 0.0
-        }
-        
-    return stats, stress_test
+    print(f"Done. Samples: {len(master_df)}, WinRate: {master_df['target'].mean():.2%}")
 
 if __name__ == "__main__":
-    timeframes = ['4h', '8h', '12h', '1d']
-    all_stats_data = []
-    
-    print("🚀 Starting Multi-Timeframe Analysis...")
-    
-    for tf in timeframes:
-        print(f"\n👉 Processing {tf}...")
-        df, bundle = load_data_and_model(tf)
-        
-        if df is not None and bundle is not None:
-            results = analyze_signals(df, bundle)
-            if results is not None and not results.empty:
-                stats, stress = aggregate_stats(results)
-                all_stats_data.append((tf, stats, stress))
-                print(f"   ✓ {len(results)} signals analyzed")
-            else:
-                 print(f"   ⚠️ No results for {tf}")
-        else:
-            print(f"   ⚠️ Skipping {tf} (Missing data/model)")
-            
-    if all_stats_data:
-        generate_markdown_report(all_stats_data)
-    else:
-        print("❌ No data generated for any timeframe.")
+    run_analysis()

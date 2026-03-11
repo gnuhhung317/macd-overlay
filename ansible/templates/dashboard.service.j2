@@ -1,0 +1,17 @@
+[Unit]
+Description={{ bot_name }} Service (Streamlit Dashboard)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory={{ bot_dir }}/pnl_dashboard
+# Chạy Streamlit web app ở port 8765
+ExecStart=/usr/local/bin/streamlit run app.py --server.port 8765 --server.address 0.0.0.0
+Restart=always
+RestartSec=5
+# Đảm bảo output Python in ra log (không bị buffer)
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

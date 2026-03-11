@@ -1,0 +1,74 @@
+---
+- name: Cài đặt và cập nhật PnL Dashboard (Streamlit)
+  hosts: dashboards
+  become: yes
+  gather_facts: no
+  vars:
+    # Thư mục gốc chứa source code chung
+    repo_url: "https://github.com/gnuhhung317/macd-overlay.git"
+    bot_dir: "/opt/{{ bot_name }}"
+    bot_version: "main"
+
+  tasks:
+    - name: 1. Đảm bảo thư mục cài đặt tồn tại
+      file:
+        path: "{{ bot_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: 2. Kéo mã nguồn mới nhất từ Github (Tất cả source)
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ bot_dir }}"
+        version: "{{ bot_version }}"
+        force: yes
+
+    - name: 3. Copy file cấu hình credentials.json (từ máy Local lên Server)
+      copy:
+        # Đường dẫn thư mục chứa config riêng cho Dashboard
+        src: "{{ playbook_dir }}/dashboard-configs/{{ bot_name }}/credentials.json"
+        dest: "{{ bot_dir }}/pnl_dashboard/credentials.json"
+        mode: '0600'
+      ignore_errors: yes  
+
+    - name: 3b. Copy file requirements.txt (từ máy Local lên Server)
+      copy:
+        # Đường dẫn thư mục chứa requirements.txt riêng cho Dashboard
+        src: "{{ playbook_dir }}/dashboard-configs/{{ bot_name }}/requirements.txt"
+        dest: "{{ bot_dir }}/pnl_dashboard/requirements.txt"
+        mode: '0600'
+      # Bỏ qua báo lỗi nếu bạn cố tình quên tạo file
+      ignore_errors: yes 
+
+    - name: 4. Cài đặt các thư viện Python cho Dashboard
+      pip:
+        requirements: "{{ bot_dir }}/pnl_dashboard/requirements.txt"
+        state: present
+
+    - name: 5. Copy file cấu hình Systemd để chạy ẩn Dashboard
+      template:
+        src: "templates/dashboard.service.j2"
+        dest: "/etc/systemd/system/{{ bot_name }}.service"
+      notify:
+        - Reload Systemd
+
+    - name: 6. Khởi động lại Dashboard Service
+      systemd:
+        name: "{{ bot_name }}"
+        state: restarted
+        enabled: yes
+
+    - name: 7. Đợi 5 giây để Dashboard khởi động
+      pause:
+        seconds: 5
+
+    - name: 8. Kiểm tra xem Dashboard có đang chạy ổn định không
+      command: systemctl is-active {{ bot_name }}
+      register: service_status
+      failed_when: service_status.stdout != "active"
+      changed_when: false
+
+  handlers:
+    - name: Reload Systemd
+      systemd:
+        daemon_reload: yes

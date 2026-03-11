@@ -30,8 +30,13 @@ except ImportError:
     print("[Warning] mplfinance not installed. Install with: pip install mplfinance")
 import warnings
 warnings.filterwarnings('ignore')
+import torch
 from config import SUPPORTED_TIMEFRAMES, get_timeframe_config
 from market_breadth import BreadthEngine, CircuitBreakerConfig
+import sys
+# Hybrid / Transformer imports
+sys.path.insert(0, str(Path(__file__).parent))
+from training.transformer_model import HybridScorer
 
 DATA_DIR = Path(__file__).parent.parent / 'bitget-data'
 PROCESSED_DIR = DATA_DIR / 'processed'
@@ -183,6 +188,10 @@ class ThreeStageBacktester:
         self.sl_features = None
         self.tp_features = None
         
+        # Hybrid Model
+        self.hybrid_model = None
+        self.hybrid_meta = None
+        
         # Cache for 1H data
         self.hourly_data_cache: Dict[str, pd.DataFrame] = {}
         
@@ -213,6 +222,23 @@ class ThreeStageBacktester:
             # print(f"[Done] Stage 1 loaded: {len(self.entry_features)} features from {entry_path.parent.name}")
         else:
             print(f"[Warning] Entry filter not found at {entry_path}")
+        
+        # Hybrid Transformer Scorer (Stage 1 replacement)
+        hybrid_path = model_dir / 'hybrid_transformer.pth'
+        meta_path = model_dir / 'hybrid_transformer_meta.joblib'
+        if hybrid_path.exists() and meta_path.exists():
+            try:
+                self.hybrid_meta = joblib.load(meta_path)
+                seq_in_dim = len(self.hybrid_meta['seq_feature_cols'])
+                tab_in_dim = len(self.hybrid_meta['tab_feature_cols'])
+                window_size = self.hybrid_meta['window_size']
+                
+                self.hybrid_model = HybridScorer(seq_in_dim=seq_in_dim, tab_in_dim=tab_in_dim, window_size=window_size)
+                self.hybrid_model.load_state_dict(torch.load(hybrid_path, weights_only=True, map_location='cpu'))
+                self.hybrid_model.eval()
+                print(f"[Done] Hybrid Transformer loaded from {hybrid_path}")
+            except Exception as e:
+                print(f"[Error] Failed to load Hybrid Transformer: {e}")
         
         # Stage 2: SL Predictor
         sl_path = model_dir / 'sl_predictor.joblib'
@@ -318,13 +344,86 @@ class ThreeStageBacktester:
         
         return vals
     
-    def _predict_entry_batch(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
+    def _predict_entry_batch(self, df: pd.DataFrame, df_by_symbol: Dict[str, pd.DataFrame] = None) -> Tuple[np.ndarray, np.ndarray]:
+        # Priority 1: Hybrid Transformer
+        if self.hybrid_model is not None and df_by_symbol is not None and not df.empty:
+            return self._predict_hybrid_batch(df, df_by_symbol)
+            
+        # Priority 2: Standard Entry Filter (XGBoost/LGBM)
         if self.entry_model is None or df.empty:
             return np.ones(len(df), dtype=bool), np.ones(len(df)) * 0.5
         X = df.reindex(columns=self.entry_features, fill_value=0).values
         X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
         if self.entry_scaler is not None: X = self.entry_scaler.transform(X)
         proba = self.entry_model.predict_proba(X)[:, 1]
+        should_enter = proba >= self.config.entry_threshold
+        return should_enter, proba
+
+    def _predict_hybrid_batch(self, df: pd.DataFrame, df_by_symbol: Dict[str, pd.DataFrame]) -> Tuple[np.ndarray, np.ndarray]:
+        """Inference for HybridScorer"""
+        meta = self.hybrid_meta
+        window_size = meta['window_size']
+        seq_cols = meta['seq_feature_cols']
+        tab_cols = meta['tab_feature_cols']
+        
+        # 1. Prepare Tabular Data
+        # Hack: is_bullish_cross might be missing in original features, but added during training
+        X_tab_raw = df.reindex(columns=tab_cols, fill_value=0)
+        # Ensure is_bullish_cross is correct (it might be in tab_cols but df had macd_cross_up)
+        if 'is_bullish_cross' in tab_cols:
+            X_tab_raw['is_bullish_cross'] = df['macd_cross_up'].values
+            
+        X_tab = X_tab_raw.values
+        X_tab = np.nan_to_num(X_tab, nan=0.0, posinf=0.0, neginf=0.0)
+        if meta['tab_scaler'] is not None:
+            X_tab = meta['tab_scaler'].transform(X_tab)
+            
+        # 2. Extract and Prepare Sequence Data
+        # This is the tricky part - we need lookback for each row in df
+        sequences = []
+        for _, row in df.iterrows():
+            symbol = row['symbol']
+            ts = row['timestamp']
+            
+            # Find row in symbol history
+            full_df_s = df_by_symbol.get(symbol)
+            if full_df_s is None:
+                sequences.append(np.zeros((window_size, len(seq_cols))))
+                continue
+                
+            # Find the index of this timestamp
+            idx_series = full_df_s.index[full_df_s['timestamp'] == ts]
+            if idx_series.empty:
+                sequences.append(np.zeros((window_size, len(seq_cols))))
+                continue
+                
+            idx = idx_series[0]
+            if idx < window_size - 1:
+                # Pad with zeros if not enough history
+                seq_raw = full_df_s.iloc[0 : idx + 1][seq_cols]
+                pad_len = window_size - len(seq_raw)
+                seq = np.zeros((window_size, len(seq_cols)))
+                seq[pad_len:] = seq_raw.fillna(0).values
+            else:
+                seq = full_df_s.iloc[idx - window_size + 1 : idx + 1][seq_cols].fillna(0).values
+            
+            sequences.append(seq)
+            
+        sequences = np.array(sequences, dtype=np.float32)
+        # Scale sequences (efficient batch scaling)
+        orig_shape = sequences.shape # (B, W, D)
+        sequences_flat = sequences.reshape(-1, orig_shape[-1])
+        if meta['seq_scaler'] is not None:
+            sequences_flat = meta['seq_scaler'].transform(sequences_flat)
+        sequences = sequences_flat.reshape(orig_shape)
+        
+        # 3. Predict with Torch
+        with torch.no_grad():
+            t_seq = torch.from_numpy(sequences).float()
+            t_tab = torch.from_numpy(X_tab).float()
+            proba = self.hybrid_model(t_seq, t_tab).squeeze().numpy()
+            
+        if proba.ndim == 0: proba = np.array([proba]) # Handle single sample
         should_enter = proba >= self.config.entry_threshold
         return should_enter, proba
 
@@ -812,7 +911,7 @@ class ThreeStageBacktester:
             if verbose: print(f"  Batch predicting {len(all_signals)} potential entry signals...")
             df_signals = pd.DataFrame([s['row'] for s in all_signals])
             
-            should_enter_arr, conf_arr = self._predict_entry_batch(df_signals)
+            should_enter_arr, conf_arr = self._predict_entry_batch(df_signals, df_by_symbol)
             sl_arr = self._predict_sl_batch(df_signals)
             tp_arr = self._predict_tp_batch(df_signals, sl_arr)
             

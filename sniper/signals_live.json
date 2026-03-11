@@ -1,0 +1,3788 @@
+[
+    {
+        "id": "IDOLUSDT_202603101800",
+        "symbol": "IDOLUSDT",
+        "timestamp": "2026-03-10T18:00:00",
+        "side": "SHORT",
+        "price": 0.0202,
+        "prob": 0.6872778070719928,
+        "tp_price": 0.01858285714285714,
+        "sl_price": 0.02100857142857143,
+        "tp_pct": 8.01,
+        "sl_pct": 4.0,
+        "atr_pct": 2.0,
+        "is_win": false,
+        "mfe": 0.0,
+        "mae": 0.0,
+        "xai": {
+            "upper_wick_ratio": 0.13207522249958153,
+            "dist_to_ema50_atr": 2.5755959841615432,
+            "volume_ratio": 0.9620563369522785,
+            "rsi_14": 80.43429300865117,
+            "vol_compression": 1.2421752349583495,
+            "volume_zscore": -0.031415707983671895,
+            "btc_is_bull_regime": 1,
+            "adx": 67.11052703162188,
+            "macd_slope": 2.8229522684771607e-05,
+            "stoch_k": 82.95454545454538
+        },
+        "probas": [
+            0.23690608717152234,
+            0.07581610575648495,
+            0.6872778070719928
+        ]
+    },
+    {
+        "id": "1000XECUSDT_202603101200",
+        "symbol": "1000XECUSDT",
+        "timestamp": "2026-03-10T12:00:00",
+        "side": "SHORT",
+        "price": 0.00718,
+        "prob": 0.6191986171202125,
+        "tp_price": 0.006851428571428571,
+        "sl_price": 0.007344285714285714,
+        "is_win": null,
+        "mfe": 1.81,
+        "mae": 0.0,
+        "xai": {
+            "upper_wick_ratio": 0.3636355371919616,
+            "dist_to_ema50_atr": 3.754662608263741,
+            "rsi_14": 80.3551339787935,
+            "vol_compression": 1.9189712348093861
+        },
+        "tp_pct": 4.58,
+        "sl_pct": 2.29,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "FLUXUSDT_202603101200",
+        "symbol": "FLUXUSDT",
+        "timestamp": "2026-03-10T12:00:00",
+        "side": "SHORT",
+        "price": 0.05791,
+        "prob": 0.6344395155787405,
+        "tp_price": 0.054598571428571434,
+        "sl_price": 0.05956571428571429,
+        "is_win": false,
+        "mfe": 0.24,
+        "mae": -1.42,
+        "xai": {
+            "upper_wick_ratio": 0.1460673610234583,
+            "dist_to_ema50_atr": 2.3088932319546793,
+            "rsi_14": 69.17278670390769,
+            "vol_compression": 1.763915988613992
+        },
+        "tp_pct": 5.72,
+        "sl_pct": 2.86,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "JCTUSDT_202603101200",
+        "symbol": "JCTUSDT",
+        "timestamp": "2026-03-10T12:00:00",
+        "side": "SHORT",
+        "price": 0.001712,
+        "prob": 0.6001887732962957,
+        "tp_price": 0.0015971428571428573,
+        "sl_price": 0.0017694285714285715,
+        "is_win": false,
+        "mfe": 0.06,
+        "mae": -0.76,
+        "xai": {
+            "upper_wick_ratio": 0.14633789419770146,
+            "dist_to_ema50_atr": 2.1085618078060113,
+            "rsi_14": 53.99622026458146,
+            "vol_compression": 1.0165934539318566
+        },
+        "tp_pct": 6.71,
+        "sl_pct": 3.35,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "SIGNUSDT_202603101100",
+        "symbol": "SIGNUSDT",
+        "timestamp": "2026-03-10T11:00:00",
+        "side": "LONG",
+        "price": 0.05556,
+        "prob": 0.6003021884698523,
+        "tp_price": 0.06778571428571428,
+        "sl_price": 0.05097535714285714,
+        "is_win": null,
+        "mfe": 0.43,
+        "mae": -4.79,
+        "xai": {
+            "upper_wick_ratio": 0.6399998171429098,
+            "dist_to_ema50_atr": 0.945607487935749,
+            "rsi_14": 56.589581995368654,
+            "vol_compression": 1.603667709433458
+        },
+        "tp_pct": 22.0,
+        "sl_pct": 8.25,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "AINUSDT_202603101000",
+        "symbol": "AINUSDT",
+        "timestamp": "2026-03-10T10:00:00",
+        "side": "SHORT",
+        "price": 0.05613,
+        "prob": 0.6106181683294617,
+        "tp_price": 0.03321285714285714,
+        "sl_price": 0.06758857142857143,
+        "is_win": null,
+        "mfe": 6.45,
+        "mae": -3.85,
+        "xai": {
+            "upper_wick_ratio": 0.12499997051887549,
+            "dist_to_ema50_atr": 2.628890962928631,
+            "rsi_14": 71.95465226922789,
+            "vol_compression": 1.9602260383713954
+        },
+        "tp_pct": 40.83,
+        "sl_pct": 20.41,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "NOMUSDT_202603101000",
+        "symbol": "NOMUSDT",
+        "timestamp": "2026-03-10T10:00:00",
+        "side": "SHORT",
+        "price": 0.003478,
+        "prob": 0.7750791423070159,
+        "tp_price": 0.0032380000000000004,
+        "sl_price": 0.003598,
+        "is_win": null,
+        "mfe": 0.29,
+        "mae": -2.1,
+        "xai": {
+            "upper_wick_ratio": 0.2922058947669164,
+            "dist_to_ema50_atr": 1.354996292887253,
+            "rsi_14": 61.64839058866932,
+            "vol_compression": 1.5531722086647057
+        },
+        "tp_pct": 6.9,
+        "sl_pct": 3.45,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "SXTUSDT_202603101000",
+        "symbol": "SXTUSDT",
+        "timestamp": "2026-03-10T10:00:00",
+        "side": "SHORT",
+        "price": 0.023,
+        "prob": 0.684964418671569,
+        "tp_price": 0.01783142857142857,
+        "sl_price": 0.025584285714285716,
+        "is_win": null,
+        "mfe": 2.57,
+        "mae": -4.52,
+        "xai": {
+            "upper_wick_ratio": 0.5024387792981564,
+            "dist_to_ema50_atr": 3.2628576507263976,
+            "rsi_14": 77.62735829521165,
+            "vol_compression": 1.6784053812760624
+        },
+        "tp_pct": 22.47,
+        "sl_pct": 11.24,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "HEMIUSDT_202603100900",
+        "symbol": "HEMIUSDT",
+        "timestamp": "2026-03-10T09:00:00",
+        "side": "SHORT",
+        "price": 0.00761,
+        "prob": 0.6394504787852585,
+        "tp_price": 0.007075714285714286,
+        "sl_price": 0.007877142857142857,
+        "is_win": null,
+        "mfe": 1.05,
+        "mae": -3.02,
+        "xai": {
+            "upper_wick_ratio": 0.24999843750976694,
+            "dist_to_ema50_atr": 2.2831364459629264,
+            "rsi_14": 64.9990900127398,
+            "vol_compression": 1.3374304653101894
+        },
+        "tp_pct": 7.02,
+        "sl_pct": 3.51,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "UAIUSDT_202603100900",
+        "symbol": "UAIUSDT",
+        "timestamp": "2026-03-10T09:00:00",
+        "side": "SHORT",
+        "price": 0.2848,
+        "prob": 0.6249578262072611,
+        "tp_price": 0.24577142857142859,
+        "sl_price": 0.3043142857142857,
+        "is_win": true,
+        "mfe": 5.02,
+        "mae": -0.46,
+        "xai": {
+            "upper_wick_ratio": 0.07086613615227375,
+            "dist_to_ema50_atr": -1.16894463250683,
+            "rsi_14": 60.108288059277356,
+            "vol_compression": 0.5785838116830381
+        },
+        "tp_pct": 13.7,
+        "sl_pct": 6.85,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "ROSEUSDT_202603100700",
+        "symbol": "ROSEUSDT",
+        "timestamp": "2026-03-10T07:00:00",
+        "side": "SHORT",
+        "price": 0.01233,
+        "prob": 0.6024251086334294,
+        "tp_price": 0.01145,
+        "sl_price": 0.012770000000000002,
+        "is_win": null,
+        "mfe": 1.05,
+        "mae": -1.62,
+        "xai": {
+            "upper_wick_ratio": 0.12903184183276808,
+            "dist_to_ema50_atr": 2.3661915512608234,
+            "rsi_14": 60.768576338408685,
+            "vol_compression": 1.087982948141233
+        },
+        "tp_pct": 7.14,
+        "sl_pct": 3.57,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "TAKEUSDT_202603100700",
+        "symbol": "TAKEUSDT",
+        "timestamp": "2026-03-10T07:00:00",
+        "side": "SHORT",
+        "price": 0.02162,
+        "prob": 0.6093918365344267,
+        "tp_price": 0.019468571428571432,
+        "sl_price": 0.022695714285714284,
+        "is_win": null,
+        "mfe": 1.9,
+        "mae": -1.8,
+        "xai": {
+            "upper_wick_ratio": 0.12931023335324768,
+            "dist_to_ema50_atr": 1.027011607835163,
+            "rsi_14": 54.99980750067376,
+            "vol_compression": 1.1653650281538976
+        },
+        "tp_pct": 9.95,
+        "sl_pct": 4.98,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "BDXNUSDT_202603100400",
+        "symbol": "BDXNUSDT",
+        "timestamp": "2026-03-10T04:00:00",
+        "side": "SHORT",
+        "price": 0.00871,
+        "prob": 0.6837326247498844,
+        "tp_price": 0.007947142857142857,
+        "sl_price": 0.009091428571428573,
+        "is_win": null,
+        "mfe": 2.18,
+        "mae": -1.15,
+        "xai": {
+            "upper_wick_ratio": 0.19354776274915042,
+            "dist_to_ema50_atr": 2.6392405103516006,
+            "rsi_14": 68.69481588919794,
+            "vol_compression": 1.4181780510468736
+        },
+        "tp_pct": 8.76,
+        "sl_pct": 4.38,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "CUSDT_202603100400",
+        "symbol": "CUSDT",
+        "timestamp": "2026-03-10T04:00:00",
+        "side": "SHORT",
+        "price": 0.04939,
+        "prob": 0.6112380718747937,
+        "tp_price": 0.04714428571428573,
+        "sl_price": 0.050512857142857144,
+        "is_win": false,
+        "mfe": 2.98,
+        "mae": -0.43,
+        "xai": {
+            "upper_wick_ratio": 0.14772718879136812,
+            "dist_to_ema50_atr": 3.1864925656129253,
+            "rsi_14": 73.91280668666049,
+            "vol_compression": 1.9330102871981656
+        },
+        "tp_pct": 4.55,
+        "sl_pct": 2.27,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "HEMIUSDT_202603100400",
+        "symbol": "HEMIUSDT",
+        "timestamp": "2026-03-10T04:00:00",
+        "side": "SHORT",
+        "price": 0.0074,
+        "prob": 0.6008722454895348,
+        "tp_price": 0.006948571428571429,
+        "sl_price": 0.007625714285714286,
+        "is_win": false,
+        "mfe": 0.81,
+        "mae": -5.95,
+        "xai": {
+            "upper_wick_ratio": 0.19999900000499998,
+            "dist_to_ema50_atr": 1.2524239852546364,
+            "rsi_14": 57.830349849520594,
+            "vol_compression": 1.37851039995298
+        },
+        "tp_pct": 6.1,
+        "sl_pct": 3.05,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "LYNUSDT_202603100400",
+        "symbol": "LYNUSDT",
+        "timestamp": "2026-03-10T04:00:00",
+        "side": "SHORT",
+        "price": 0.29933,
+        "prob": 0.6066454493886063,
+        "tp_price": 0.25477,
+        "sl_price": 0.32160999999999995,
+        "is_win": false,
+        "mfe": 0.44,
+        "mae": -13.81,
+        "xai": {
+            "upper_wick_ratio": 0.19730183833880052,
+            "dist_to_ema50_atr": -0.40399211643991156,
+            "rsi_14": 56.12632184464099,
+            "vol_compression": 0.7290502301246962
+        },
+        "tp_pct": 14.89,
+        "sl_pct": 7.44,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "RECALLUSDT_202603100400",
+        "symbol": "RECALLUSDT",
+        "timestamp": "2026-03-10T04:00:00",
+        "side": "SHORT",
+        "price": 0.04624,
+        "prob": 0.6449254607146913,
+        "tp_price": 0.04322285714285714,
+        "sl_price": 0.04774857142857144,
+        "is_win": false,
+        "mfe": 0.61,
+        "mae": -2.98,
+        "xai": {
+            "upper_wick_ratio": 0.0,
+            "dist_to_ema50_atr": 0.3492788013808921,
+            "rsi_14": 46.09913820616199,
+            "vol_compression": 1.358835838198647
+        },
+        "tp_pct": 6.52,
+        "sl_pct": 3.26,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "SHELLUSDT_202603100400",
+        "symbol": "SHELLUSDT",
+        "timestamp": "2026-03-10T04:00:00",
+        "side": "SHORT",
+        "price": 0.02835,
+        "prob": 0.6188124430684325,
+        "tp_price": 0.02667,
+        "sl_price": 0.02919,
+        "is_win": null,
+        "mfe": 1.76,
+        "mae": -1.87,
+        "xai": {
+            "upper_wick_ratio": 0.3037034787381643,
+            "dist_to_ema50_atr": 1.7596607622008895,
+            "rsi_14": 58.66109399397011,
+            "vol_compression": 1.631754038384103
+        },
+        "tp_pct": 5.93,
+        "sl_pct": 2.96,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "SOLVUSDT_202603100400",
+        "symbol": "SOLVUSDT",
+        "timestamp": "2026-03-10T04:00:00",
+        "side": "SHORT",
+        "price": 0.003822,
+        "prob": 0.6159082486715237,
+        "tp_price": 0.003631714285714286,
+        "sl_price": 0.003917142857142857,
+        "is_win": null,
+        "mfe": 0.92,
+        "mae": -1.52,
+        "xai": {
+            "upper_wick_ratio": 0.04938210639374948,
+            "dist_to_ema50_atr": 1.1361308519670472,
+            "rsi_14": 57.48662019156801,
+            "vol_compression": 1.2427315866959299
+        },
+        "tp_pct": 4.98,
+        "sl_pct": 2.49,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "BULLAUSDT_202603100300",
+        "symbol": "BULLAUSDT",
+        "timestamp": "2026-03-10T03:00:00",
+        "side": "SHORT",
+        "price": 0.0235,
+        "prob": 0.7142790511394562,
+        "tp_price": 0.021768571428571425,
+        "sl_price": 0.024365714285714286,
+        "is_win": true,
+        "mfe": 60.17,
+        "mae": -0.6,
+        "xai": {
+            "upper_wick_ratio": 0.1308409992140204,
+            "dist_to_ema50_atr": -0.5165407154054102,
+            "rsi_14": 55.87276754960452,
+            "vol_compression": 1.1214990722855225
+        },
+        "tp_pct": 7.37,
+        "sl_pct": 3.68,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "MEMEUSDT_202603100200",
+        "symbol": "MEMEUSDT",
+        "timestamp": "2026-03-10T02:00:00",
+        "side": "SHORT",
+        "price": 0.0005861,
+        "prob": 0.6308563016293485,
+        "tp_price": 0.0005397571428571428,
+        "sl_price": 0.0006092714285714286,
+        "is_win": null,
+        "mfe": 0.6,
+        "mae": -2.44,
+        "xai": {
+            "upper_wick_ratio": 0.36456434560700224,
+            "dist_to_ema50_atr": 1.3064947738344121,
+            "rsi_14": 62.40462796365042,
+            "vol_compression": 1.1287868233769187
+        },
+        "tp_pct": 7.91,
+        "sl_pct": 3.95,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "RIFUSDT_202603100200",
+        "symbol": "RIFUSDT",
+        "timestamp": "2026-03-10T02:00:00",
+        "side": "SHORT",
+        "price": 0.03583,
+        "prob": 0.6418755857871655,
+        "tp_price": 0.03294714285714286,
+        "sl_price": 0.037271428571428566,
+        "is_win": null,
+        "mfe": 2.68,
+        "mae": -0.14,
+        "xai": {
+            "upper_wick_ratio": 0.15873003275394165,
+            "dist_to_ema50_atr": 2.7506271554843162,
+            "rsi_14": 76.44049658187248,
+            "vol_compression": 1.1969354495725788
+        },
+        "tp_pct": 8.05,
+        "sl_pct": 4.02,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "TAKEUSDT_202603100200",
+        "symbol": "TAKEUSDT",
+        "timestamp": "2026-03-10T02:00:00",
+        "side": "SHORT",
+        "price": 0.02134,
+        "prob": 0.6701616058091271,
+        "tp_price": 0.01926571428571429,
+        "sl_price": 0.02237714285714286,
+        "is_win": null,
+        "mfe": 3.84,
+        "mae": -3.14,
+        "xai": {
+            "upper_wick_ratio": 0.05660366678553214,
+            "dist_to_ema50_atr": 0.5697291435878539,
+            "rsi_14": 49.3186129535201,
+            "vol_compression": 1.0634091234722187
+        },
+        "tp_pct": 9.72,
+        "sl_pct": 4.86,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "CTKUSDT_202603100100",
+        "symbol": "CTKUSDT",
+        "timestamp": "2026-03-10T01:00:00",
+        "side": "SHORT",
+        "price": 0.1764,
+        "prob": 0.7275575370076484,
+        "tp_price": 0.16197142857142857,
+        "sl_price": 0.1836142857142857,
+        "is_win": null,
+        "mfe": 1.76,
+        "mae": -1.7,
+        "xai": {
+            "upper_wick_ratio": 0.09090906336088836,
+            "dist_to_ema50_atr": 2.5260916129531306,
+            "rsi_14": 72.68903287199741,
+            "vol_compression": 1.2622682983466276
+        },
+        "tp_pct": 8.18,
+        "sl_pct": 4.09,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "HEMIUSDT_202603100000",
+        "symbol": "HEMIUSDT",
+        "timestamp": "2026-03-10T00:00:00",
+        "side": "SHORT",
+        "price": 0.00737,
+        "prob": 0.7580484818129026,
+        "tp_price": 0.006964285714285714,
+        "sl_price": 0.007572857142857142,
+        "is_win": false,
+        "mfe": 2.04,
+        "mae": -6.38,
+        "xai": {
+            "upper_wick_ratio": 0.04999975000125217,
+            "dist_to_ema50_atr": 1.2091733559434268,
+            "rsi_14": 67.74040586180313,
+            "vol_compression": 1.077964175597493
+        },
+        "tp_pct": 5.5,
+        "sl_pct": 2.75,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "METISUSDT_202603100000",
+        "symbol": "METISUSDT",
+        "timestamp": "2026-03-10T00:00:00",
+        "side": "SHORT",
+        "price": 3.201,
+        "prob": 0.7289394058208702,
+        "tp_price": 2.9852857142857143,
+        "sl_price": 3.308857142857143,
+        "is_win": null,
+        "mfe": 1.72,
+        "mae": -3.03,
+        "xai": {
+            "upper_wick_ratio": 0.17567567330167913,
+            "dist_to_ema50_atr": 0.3360729154837179,
+            "rsi_14": 58.53018157631879,
+            "vol_compression": 1.2318968726032378
+        },
+        "tp_pct": 6.74,
+        "sl_pct": 3.37,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "MYXUSDT_202603100000",
+        "symbol": "MYXUSDT",
+        "timestamp": "2026-03-10T00:00:00",
+        "side": "SHORT",
+        "price": 0.3182,
+        "prob": 0.6299572126589824,
+        "tp_price": 0.2976857142857143,
+        "sl_price": 0.32845714285714284,
+        "is_win": false,
+        "mfe": 0.66,
+        "mae": -18.16,
+        "xai": {
+            "upper_wick_ratio": 0.12499998263889323,
+            "dist_to_ema50_atr": 1.7339127071813667,
+            "rsi_14": 74.64785052570728,
+            "vol_compression": 0.6168507802591594
+        },
+        "tp_pct": 6.45,
+        "sl_pct": 3.22,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "NOMUSDT_202603100000",
+        "symbol": "NOMUSDT",
+        "timestamp": "2026-03-10T00:00:00",
+        "side": "SHORT",
+        "price": 0.003425,
+        "prob": 0.8009813963549334,
+        "tp_price": 0.003286142857142857,
+        "sl_price": 0.003494428571428572,
+        "is_win": false,
+        "mfe": 3.8,
+        "mae": -3.68,
+        "xai": {
+            "upper_wick_ratio": 0.06060514234632948,
+            "dist_to_ema50_atr": 1.1327456964324505,
+            "rsi_14": 60.86544871361356,
+            "vol_compression": 1.1531205232709674
+        },
+        "tp_pct": 4.05,
+        "sl_pct": 2.03,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "SANTOSUSDT_202603100000",
+        "symbol": "SANTOSUSDT",
+        "timestamp": "2026-03-10T00:00:00",
+        "side": "SHORT",
+        "price": 1.269,
+        "prob": 0.7030511570497324,
+        "tp_price": 1.2272857142857143,
+        "sl_price": 1.2898571428571428,
+        "is_win": false,
+        "mfe": 1.1,
+        "mae": -5.59,
+        "xai": {
+            "upper_wick_ratio": 0.0,
+            "dist_to_ema50_atr": 0.8830800314390254,
+            "rsi_14": 60.714270535718164,
+            "vol_compression": 0.9519228399867331
+        },
+        "tp_pct": 3.29,
+        "sl_pct": 1.64,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "TRUTHUSDT_202603100000",
+        "symbol": "TRUTHUSDT",
+        "timestamp": "2026-03-10T00:00:00",
+        "side": "SHORT",
+        "price": 0.009476,
+        "prob": 0.6219953910927464,
+        "tp_price": 0.008948857142857142,
+        "sl_price": 0.009739571428571429,
+        "is_win": false,
+        "mfe": 1.71,
+        "mae": -2.12,
+        "xai": {
+            "upper_wick_ratio": 0.5048296984789877,
+            "dist_to_ema50_atr": 1.0501636751825132,
+            "rsi_14": 63.750504221355314,
+            "vol_compression": 0.882358947628465
+        },
+        "tp_pct": 5.56,
+        "sl_pct": 2.78,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "COLLECTUSDT_202603091500",
+        "symbol": "COLLECTUSDT",
+        "timestamp": "2026-03-09T15:00:00",
+        "side": "SHORT",
+        "price": 0.05251,
+        "prob": 0.6011424829370983,
+        "tp_price": 0.04478142857142857,
+        "sl_price": 0.05637428571428571,
+        "is_win": true,
+        "mfe": 16.47,
+        "mae": -10.38,
+        "xai": {
+            "upper_wick_ratio": 0.0933333195061747,
+            "dist_to_ema50_atr": 4.903797063389951,
+            "rsi_14": 82.18969703242637,
+            "vol_compression": 2.242265153975368
+        },
+        "tp_pct": 14.72,
+        "sl_pct": 7.36,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "AIXBTUSDT_202603091200",
+        "symbol": "AIXBTUSDT",
+        "timestamp": "2026-03-09T12:00:00",
+        "side": "LONG",
+        "price": 0.02469,
+        "prob": 0.6639940572993406,
+        "tp_price": 0.027772857142857137,
+        "sl_price": 0.023533928571428574,
+        "is_win": null,
+        "mfe": 6.28,
+        "mae": -1.22,
+        "xai": {
+            "upper_wick_ratio": 0.12244872969647189,
+            "dist_to_ema50_atr": -0.029774410264439482,
+            "rsi_14": 59.61857284921665,
+            "vol_compression": 1.2583803998300485
+        },
+        "tp_pct": 12.49,
+        "sl_pct": 4.68,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "ONUSDT_202603091000",
+        "symbol": "ONUSDT",
+        "timestamp": "2026-03-09T10:00:00",
+        "side": "SHORT",
+        "price": 0.08463,
+        "prob": 0.6576730732203488,
+        "tp_price": 0.07345857142857143,
+        "sl_price": 0.09021571428571427,
+        "is_win": null,
+        "mfe": 2.66,
+        "mae": -4.8,
+        "xai": {
+            "upper_wick_ratio": 0.13963957673893154,
+            "dist_to_ema50_atr": 2.7348065380208944,
+            "rsi_14": 68.1144121818206,
+            "vol_compression": 1.197099208655468
+        },
+        "tp_pct": 13.2,
+        "sl_pct": 6.6,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "GLMUSDT_202603090900",
+        "symbol": "GLMUSDT",
+        "timestamp": "2026-03-09T09:00:00",
+        "side": "SHORT",
+        "price": 0.12508,
+        "prob": 0.6399150168487918,
+        "tp_price": 0.11856571428571427,
+        "sl_price": 0.12833714285714284,
+        "is_win": null,
+        "mfe": 2.06,
+        "mae": -1.24,
+        "xai": {
+            "upper_wick_ratio": 0.33126924728506646,
+            "dist_to_ema50_atr": 0.12026505059184261,
+            "rsi_14": 49.036061866883635,
+            "vol_compression": 1.1991031578049574
+        },
+        "tp_pct": 5.21,
+        "sl_pct": 2.6,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "IRUSDT_202603090800",
+        "symbol": "IRUSDT",
+        "timestamp": "2026-03-09T08:00:00",
+        "side": "SHORT",
+        "price": 0.052,
+        "prob": 0.640109245471587,
+        "tp_price": 0.049131428571428576,
+        "sl_price": 0.05343428571428571,
+        "is_win": true,
+        "mfe": 12.75,
+        "mae": -1.92,
+        "xai": {
+            "upper_wick_ratio": 0.2708332204861602,
+            "dist_to_ema50_atr": -0.7258778935208701,
+            "rsi_14": 56.4898005745506,
+            "vol_compression": 1.5716913368558039
+        },
+        "tp_pct": 5.52,
+        "sl_pct": 2.76,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "ATOMUSDT_202603090500",
+        "symbol": "ATOMUSDT",
+        "timestamp": "2026-03-09T05:00:00",
+        "side": "SHORT",
+        "price": 1.759,
+        "prob": 0.618268258163863,
+        "tp_price": 1.6715714285714285,
+        "sl_price": 1.8027142857142855,
+        "is_win": false,
+        "mfe": 2.05,
+        "mae": -2.44,
+        "xai": {
+            "upper_wick_ratio": 0.07894736634349328,
+            "dist_to_ema50_atr": -0.16438154690166928,
+            "rsi_14": 62.3188342575095,
+            "vol_compression": 1.5358591627282137
+        },
+        "tp_pct": 4.97,
+        "sl_pct": 2.49,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "BATUSDT_202603090500",
+        "symbol": "BATUSDT",
+        "timestamp": "2026-03-09T05:00:00",
+        "side": "SHORT",
+        "price": 0.098,
+        "prob": 0.6275188899471251,
+        "tp_price": 0.09245714285714286,
+        "sl_price": 0.10077142857142858,
+        "is_win": null,
+        "mfe": 3.06,
+        "mae": -0.41,
+        "xai": {
+            "upper_wick_ratio": 0.17391296786392624,
+            "dist_to_ema50_atr": 0.5791936978651685,
+            "rsi_14": 71.42844155867763,
+            "vol_compression": 1.2205155516280541
+        },
+        "tp_pct": 5.66,
+        "sl_pct": 2.83,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "CRCLUSDT_202603090500",
+        "symbol": "CRCLUSDT",
+        "timestamp": "2026-03-09T05:00:00",
+        "side": "LONG",
+        "price": 100.91,
+        "prob": 0.6186747686607833,
+        "tp_price": 107.45571428571428,
+        "sl_price": 98.45535714285714,
+        "is_win": true,
+        "mfe": 15.1,
+        "mae": -1.62,
+        "xai": {
+            "upper_wick_ratio": 0.15068493145524475,
+            "dist_to_ema50_atr": 0.41397808734797936,
+            "rsi_14": 51.767478340554234,
+            "vol_compression": 1.7041505790411149
+        },
+        "tp_pct": 6.49,
+        "sl_pct": 2.43,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "HUMAUSDT_202603090500",
+        "symbol": "HUMAUSDT",
+        "timestamp": "2026-03-09T05:00:00",
+        "side": "SHORT",
+        "price": 0.018171,
+        "prob": 0.6057778051018431,
+        "tp_price": 0.01455042857142857,
+        "sl_price": 0.019981285714285715,
+        "is_win": true,
+        "mfe": 22.07,
+        "mae": -1.66,
+        "xai": {
+            "upper_wick_ratio": 0.15384597453849122,
+            "dist_to_ema50_atr": 1.2106003038223616,
+            "rsi_14": 58.9026113556113,
+            "vol_compression": 1.0027329688063291
+        },
+        "tp_pct": 19.92,
+        "sl_pct": 9.96,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "NAORISUSDT_202603090500",
+        "symbol": "NAORISUSDT",
+        "timestamp": "2026-03-09T05:00:00",
+        "side": "SHORT",
+        "price": 0.04046,
+        "prob": 0.6060119379575547,
+        "tp_price": 0.03246857142857143,
+        "sl_price": 0.044455714285714286,
+        "is_win": false,
+        "mfe": 0.84,
+        "mae": -48.29,
+        "xai": {
+            "upper_wick_ratio": 0.16150438904770045,
+            "dist_to_ema50_atr": 3.6901450189296945,
+            "rsi_14": 71.56448531214784,
+            "vol_compression": 1.520552025640398
+        },
+        "tp_pct": 19.75,
+        "sl_pct": 9.88,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "SXTUSDT_202603090500",
+        "symbol": "SXTUSDT",
+        "timestamp": "2026-03-09T05:00:00",
+        "side": "SHORT",
+        "price": 0.01734,
+        "prob": 0.6038609607547994,
+        "tp_price": 0.016291428571428575,
+        "sl_price": 0.017864285714285714,
+        "is_win": false,
+        "mfe": 3.81,
+        "mae": -42.73,
+        "xai": {
+            "upper_wick_ratio": 0.07142831632743903,
+            "dist_to_ema50_atr": 0.1310918153209914,
+            "rsi_14": 66.39268073972923,
+            "vol_compression": 0.9038733037335633
+        },
+        "tp_pct": 6.05,
+        "sl_pct": 3.02,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "IDOLUSDT_202603090400",
+        "symbol": "IDOLUSDT",
+        "timestamp": "2026-03-09T04:00:00",
+        "side": "SHORT",
+        "price": 0.01864,
+        "prob": 0.7152779368435624,
+        "tp_price": 0.017308571428571434,
+        "sl_price": 0.019305714285714284,
+        "is_win": false,
+        "mfe": 0.48,
+        "mae": -8.91,
+        "xai": {
+            "upper_wick_ratio": 0.3673461890894086,
+            "dist_to_ema50_atr": 1.2615923080990934,
+            "rsi_14": 53.181479754219794,
+            "vol_compression": 1.2012966512498366
+        },
+        "tp_pct": 7.14,
+        "sl_pct": 3.57,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "SNXUSDT_202603090400",
+        "symbol": "SNXUSDT",
+        "timestamp": "2026-03-09T04:00:00",
+        "side": "SHORT",
+        "price": 0.314,
+        "prob": 0.6661408545115836,
+        "tp_price": 0.2897142857142857,
+        "sl_price": 0.3261428571428572,
+        "is_win": false,
+        "mfe": 1.91,
+        "mae": -4.78,
+        "xai": {
+            "upper_wick_ratio": 0.499999950000005,
+            "dist_to_ema50_atr": 0.7875843675453403,
+            "rsi_14": 62.162138641352946,
+            "vol_compression": 1.3761842987441393
+        },
+        "tp_pct": 7.73,
+        "sl_pct": 3.87,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "TAKEUSDT_202603090400",
+        "symbol": "TAKEUSDT",
+        "timestamp": "2026-03-09T04:00:00",
+        "side": "SHORT",
+        "price": 0.0212,
+        "prob": 0.6003624092835049,
+        "tp_price": 0.018951428571428574,
+        "sl_price": 0.022324285714285713,
+        "is_win": false,
+        "mfe": 4.62,
+        "mae": -5.57,
+        "xai": {
+            "upper_wick_ratio": 0.2711859810407107,
+            "dist_to_ema50_atr": 0.5457959998055107,
+            "rsi_14": 41.8395887969605,
+            "vol_compression": 0.965423431235006
+        },
+        "tp_pct": 10.61,
+        "sl_pct": 5.3,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "XNYUSDT_202603090400",
+        "symbol": "XNYUSDT",
+        "timestamp": "2026-03-09T04:00:00",
+        "side": "SHORT",
+        "price": 0.00438,
+        "prob": 0.6693728740762831,
+        "tp_price": 0.003583428571428571,
+        "sl_price": 0.004778285714285714,
+        "is_win": true,
+        "mfe": 23.7,
+        "mae": -29.86,
+        "xai": {
+            "upper_wick_ratio": 0.06921232790891643,
+            "dist_to_ema50_atr": -0.2506390645076292,
+            "rsi_14": 58.50555121171377,
+            "vol_compression": 3.2285688411073217
+        },
+        "tp_pct": 18.19,
+        "sl_pct": 9.09,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "SQDUSDT_202603090300",
+        "symbol": "SQDUSDT",
+        "timestamp": "2026-03-09T03:00:00",
+        "side": "SHORT",
+        "price": 0.04104,
+        "prob": 0.6904257234471819,
+        "tp_price": 0.03522857142857143,
+        "sl_price": 0.04394571428571428,
+        "is_win": false,
+        "mfe": 7.09,
+        "mae": -7.92,
+        "xai": {
+            "upper_wick_ratio": 0.1632651950576886,
+            "dist_to_ema50_atr": 2.1560074065460233,
+            "rsi_14": 59.13113228405567,
+            "vol_compression": 1.0460817556643047
+        },
+        "tp_pct": 14.16,
+        "sl_pct": 7.08,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "UMAUSDT_202603090300",
+        "symbol": "UMAUSDT",
+        "timestamp": "2026-03-09T03:00:00",
+        "side": "SHORT",
+        "price": 0.4361,
+        "prob": 0.6201608495142901,
+        "tp_price": 0.3953,
+        "sl_price": 0.4565,
+        "is_win": null,
+        "mfe": 6.24,
+        "mae": -0.41,
+        "xai": {
+            "upper_wick_ratio": 0.3710691590522546,
+            "dist_to_ema50_atr": 2.0462130945021664,
+            "rsi_14": 67.8311361042808,
+            "vol_compression": 1.804422731996001
+        },
+        "tp_pct": 9.36,
+        "sl_pct": 4.68,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "SAHARAUSDT_202603090100",
+        "symbol": "SAHARAUSDT",
+        "timestamp": "2026-03-09T01:00:00",
+        "side": "LONG",
+        "price": 0.02331,
+        "prob": 0.6283413659841917,
+        "tp_price": 0.02563857142857143,
+        "sl_price": 0.022436785714285715,
+        "is_win": true,
+        "mfe": 10.9,
+        "mae": -2.27,
+        "xai": {
+            "upper_wick_ratio": 0.1870966534860292,
+            "dist_to_ema50_atr": 1.1894296399738196,
+            "rsi_14": 62.72172029505243,
+            "vol_compression": 2.263156368007713
+        },
+        "tp_pct": 9.99,
+        "sl_pct": 3.75,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "COSUSDT_202603090000",
+        "symbol": "COSUSDT",
+        "timestamp": "2026-03-09T00:00:00",
+        "side": "SHORT",
+        "price": 0.001296,
+        "prob": 0.7271711333284212,
+        "tp_price": 0.0009331428571428572,
+        "sl_price": 0.0014774285714285714,
+        "is_win": null,
+        "mfe": 14.51,
+        "mae": -1.62,
+        "xai": {
+            "upper_wick_ratio": 0.5225178151548175,
+            "dist_to_ema50_atr": 2.247053001396988,
+            "rsi_14": 55.492035589388735,
+            "vol_compression": 0.617916095803983
+        },
+        "tp_pct": 28.0,
+        "sl_pct": 14.0,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "CYSUSDT_202603090000",
+        "symbol": "CYSUSDT",
+        "timestamp": "2026-03-09T00:00:00",
+        "side": "SHORT",
+        "price": 0.426,
+        "prob": 0.6454114526542327,
+        "tp_price": 0.3576,
+        "sl_price": 0.46020000000000005,
+        "is_win": false,
+        "mfe": 1.78,
+        "mae": -38.03,
+        "xai": {
+            "upper_wick_ratio": 0.18343194180876066,
+            "dist_to_ema50_atr": 0.5994474273754585,
+            "rsi_14": 48.467268611915806,
+            "vol_compression": 1.0625548640909677
+        },
+        "tp_pct": 16.06,
+        "sl_pct": 8.03,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "SNXUSDT_202603090000",
+        "symbol": "SNXUSDT",
+        "timestamp": "2026-03-09T00:00:00",
+        "side": "SHORT",
+        "price": 0.309,
+        "prob": 0.6508067414227535,
+        "tp_price": 0.28757142857142853,
+        "sl_price": 0.31971428571428573,
+        "is_win": false,
+        "mfe": 2.27,
+        "mae": -6.47,
+        "xai": {
+            "upper_wick_ratio": 0.19999998000000202,
+            "dist_to_ema50_atr": -0.05087943324242674,
+            "rsi_14": 51.9999708800163,
+            "vol_compression": 1.2388825728650534
+        },
+        "tp_pct": 6.93,
+        "sl_pct": 3.47,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "AIOTUSDT_202603082100",
+        "symbol": "AIOTUSDT",
+        "timestamp": "2026-03-08T21:00:00",
+        "side": "SHORT",
+        "price": 0.02932,
+        "prob": 0.6200786714249615,
+        "tp_price": 0.02631142857142857,
+        "sl_price": 0.030824285714285714,
+        "is_win": true,
+        "mfe": 16.85,
+        "mae": -3.89,
+        "xai": {
+            "upper_wick_ratio": 0.17475711188629883,
+            "dist_to_ema50_atr": 0.7931452103357592,
+            "rsi_14": 41.549159228115194,
+            "vol_compression": 0.9693527736005255
+        },
+        "tp_pct": 10.26,
+        "sl_pct": 5.13,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "COSUSDT_202603082100",
+        "symbol": "COSUSDT",
+        "timestamp": "2026-03-08T21:00:00",
+        "side": "SHORT",
+        "price": 0.001333,
+        "prob": 0.7461582925860046,
+        "tp_price": 0.0009621428571428573,
+        "sl_price": 0.0015184285714285714,
+        "is_win": null,
+        "mfe": 16.88,
+        "mae": -1.58,
+        "xai": {
+            "upper_wick_ratio": 0.4608655576908032,
+            "dist_to_ema50_atr": 2.876129969655025,
+            "rsi_14": 66.77695490374387,
+            "vol_compression": 0.7161713754618373
+        },
+        "tp_pct": 27.82,
+        "sl_pct": 13.91,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "APRUSDT_202603081900",
+        "symbol": "APRUSDT",
+        "timestamp": "2026-03-08T19:00:00",
+        "side": "SHORT",
+        "price": 0.11106,
+        "prob": 0.6559398666958861,
+        "tp_price": 0.09381142857142859,
+        "sl_price": 0.11968428571428572,
+        "is_win": null,
+        "mfe": 13.96,
+        "mae": -3.57,
+        "xai": {
+            "upper_wick_ratio": 0.1676300255048112,
+            "dist_to_ema50_atr": -0.171469023170176,
+            "rsi_14": 36.17102760320177,
+            "vol_compression": 1.2662765109615288
+        },
+        "tp_pct": 15.53,
+        "sl_pct": 7.77,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "BULLAUSDT_202603081800",
+        "symbol": "BULLAUSDT",
+        "timestamp": "2026-03-08T18:00:00",
+        "side": "SHORT",
+        "price": 0.02486,
+        "prob": 0.6674645387670972,
+        "tp_price": 0.021865714285714287,
+        "sl_price": 0.026357142857142857,
+        "is_win": true,
+        "mfe": 62.35,
+        "mae": -1.29,
+        "xai": {
+            "upper_wick_ratio": 0.12244872969647189,
+            "dist_to_ema50_atr": 0.1449097972923113,
+            "rsi_14": 52.7936918859949,
+            "vol_compression": 1.1852576871125546
+        },
+        "tp_pct": 12.04,
+        "sl_pct": 6.02,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "SANTOSUSDT_202603081500",
+        "symbol": "SANTOSUSDT",
+        "timestamp": "2026-03-08T15:00:00",
+        "side": "SHORT",
+        "price": 1.271,
+        "prob": 0.6653681974327158,
+        "tp_price": 1.209857142857143,
+        "sl_price": 1.3015714285714284,
+        "is_win": false,
+        "mfe": 2.6,
+        "mae": -5.43,
+        "xai": {
+            "upper_wick_ratio": 0.14285713775510336,
+            "dist_to_ema50_atr": 1.4113654906817035,
+            "rsi_14": 79.9999868235318,
+            "vol_compression": 1.0765931662373245
+        },
+        "tp_pct": 4.81,
+        "sl_pct": 2.41,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "PTBUSDT_202603081400",
+        "symbol": "PTBUSDT",
+        "timestamp": "2026-03-08T14:00:00",
+        "side": "SHORT",
+        "price": 0.001376,
+        "prob": 0.600391128630716,
+        "tp_price": 0.001219142857142857,
+        "sl_price": 0.0014544285714285714,
+        "is_win": null,
+        "mfe": 9.59,
+        "mae": -0.73,
+        "xai": {
+            "upper_wick_ratio": 0.34209626062471965,
+            "dist_to_ema50_atr": 1.9633997247319472,
+            "rsi_14": 62.66876791359087,
+            "vol_compression": 1.1443730503489142
+        },
+        "tp_pct": 11.4,
+        "sl_pct": 5.7,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "BULLAUSDT_202603081200",
+        "symbol": "BULLAUSDT",
+        "timestamp": "2026-03-08T12:00:00",
+        "side": "SHORT",
+        "price": 0.02487,
+        "prob": 0.7869595864243507,
+        "tp_price": 0.022552857142857142,
+        "sl_price": 0.02602857142857143,
+        "is_win": true,
+        "mfe": 62.36,
+        "mae": -1.61,
+        "xai": {
+            "upper_wick_ratio": 0.055555478395171304,
+            "dist_to_ema50_atr": -0.0006997774674449604,
+            "rsi_14": 52.983116524193,
+            "vol_compression": 1.100342507874039
+        },
+        "tp_pct": 9.32,
+        "sl_pct": 4.66,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "SPACEUSDT_202603081200",
+        "symbol": "SPACEUSDT",
+        "timestamp": "2026-03-08T12:00:00",
+        "side": "SHORT",
+        "price": 0.008484,
+        "prob": 0.65026179719247,
+        "tp_price": 0.007264,
+        "sl_price": 0.009094,
+        "is_win": true,
+        "mfe": 8.82,
+        "mae": -5.79,
+        "xai": {
+            "upper_wick_ratio": 0.14551038541676375,
+            "dist_to_ema50_atr": 1.57478462096983,
+            "rsi_14": 61.05218172076626,
+            "vol_compression": 0.9418533277540084
+        },
+        "tp_pct": 14.38,
+        "sl_pct": 7.19,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "HUSDT_202603081100",
+        "symbol": "HUSDT",
+        "timestamp": "2026-03-08T11:00:00",
+        "side": "SHORT",
+        "price": 0.15708,
+        "prob": 0.6994609480554941,
+        "tp_price": 0.14129714285714287,
+        "sl_price": 0.16497142857142855,
+        "is_win": true,
+        "mfe": 19.58,
+        "mae": -0.31,
+        "xai": {
+            "upper_wick_ratio": 0.23714282326531094,
+            "dist_to_ema50_atr": 0.6129497559433924,
+            "rsi_14": 64.4058959563097,
+            "vol_compression": 1.379402083569128
+        },
+        "tp_pct": 10.05,
+        "sl_pct": 5.02,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "1000RATSUSDT_202603081000",
+        "symbol": "1000RATSUSDT",
+        "timestamp": "2026-03-08T10:00:00",
+        "side": "SHORT",
+        "price": 0.04478,
+        "prob": 0.6670857630688511,
+        "tp_price": 0.04029714285714286,
+        "sl_price": 0.04702142857142857,
+        "is_win": false,
+        "mfe": 4.56,
+        "mae": -8.89,
+        "xai": {
+            "upper_wick_ratio": 0.09859150300868491,
+            "dist_to_ema50_atr": -0.6144662560930496,
+            "rsi_14": 59.94575923672132,
+            "vol_compression": 0.8930502173969384
+        },
+        "tp_pct": 10.01,
+        "sl_pct": 5.01,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "HUSDT_202603081000",
+        "symbol": "HUSDT",
+        "timestamp": "2026-03-08T10:00:00",
+        "side": "SHORT",
+        "price": 0.15392,
+        "prob": 0.8160832899925766,
+        "tp_price": 0.13916,
+        "sl_price": 0.1613,
+        "is_win": true,
+        "mfe": 17.93,
+        "mae": -3.13,
+        "xai": {
+            "upper_wick_ratio": 0.20393115382526916,
+            "dist_to_ema50_atr": -0.17418894208304958,
+            "rsi_14": 52.64560464786395,
+            "vol_compression": 1.352308092834007
+        },
+        "tp_pct": 9.59,
+        "sl_pct": 4.79,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "GPSUSDT_202603080900",
+        "symbol": "GPSUSDT",
+        "timestamp": "2026-03-08T09:00:00",
+        "side": "SHORT",
+        "price": 0.009006,
+        "prob": 0.6366439200948728,
+        "tp_price": 0.008334857142857144,
+        "sl_price": 0.009341571428571428,
+        "is_win": true,
+        "mfe": 9.49,
+        "mae": -2.71,
+        "xai": {
+            "upper_wick_ratio": 0.3198517652508644,
+            "dist_to_ema50_atr": 1.7400328401618075,
+            "rsi_14": 62.43543896428228,
+            "vol_compression": 0.8842824038893802
+        },
+        "tp_pct": 7.45,
+        "sl_pct": 3.73,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "FUNUSDT_202603080700",
+        "symbol": "FUNUSDT",
+        "timestamp": "2026-03-08T07:00:00",
+        "side": "SHORT",
+        "price": 0.001183,
+        "prob": 0.6155770832114509,
+        "tp_price": 0.0011027142857142859,
+        "sl_price": 0.0012231428571428573,
+        "is_win": false,
+        "mfe": 2.62,
+        "mae": -10.23,
+        "xai": {
+            "upper_wick_ratio": 0.4411699827943709,
+            "dist_to_ema50_atr": -0.17696021230826695,
+            "rsi_14": 58.772344940235406,
+            "vol_compression": 1.4847591663770965
+        },
+        "tp_pct": 6.79,
+        "sl_pct": 3.39,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "HEMIUSDT_202603080700",
+        "symbol": "HEMIUSDT",
+        "timestamp": "2026-03-08T07:00:00",
+        "side": "SHORT",
+        "price": 0.00726,
+        "prob": 0.6505825381222902,
+        "tp_price": 0.006837142857142858,
+        "sl_price": 0.007471428571428571,
+        "is_win": false,
+        "mfe": 3.44,
+        "mae": -7.99,
+        "xai": {
+            "upper_wick_ratio": 0.1818173553756581,
+            "dist_to_ema50_atr": -0.5417645662520839,
+            "rsi_14": 51.64755707055054,
+            "vol_compression": 1.6681803342159247
+        },
+        "tp_pct": 5.82,
+        "sl_pct": 2.91,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "SPACEUSDT_202603080700",
+        "symbol": "SPACEUSDT",
+        "timestamp": "2026-03-08T07:00:00",
+        "side": "SHORT",
+        "price": 0.008539,
+        "prob": 0.6151828715696998,
+        "tp_price": 0.007304142857142856,
+        "sl_price": 0.009156428571428572,
+        "is_win": true,
+        "mfe": 9.4,
+        "mae": -5.11,
+        "xai": {
+            "upper_wick_ratio": 0.20295128062257983,
+            "dist_to_ema50_atr": 2.0792317752052134,
+            "rsi_14": 58.35723177782078,
+            "vol_compression": 1.1903294351354554
+        },
+        "tp_pct": 14.46,
+        "sl_pct": 7.23,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "UAIUSDT_202603080700",
+        "symbol": "UAIUSDT",
+        "timestamp": "2026-03-08T07:00:00",
+        "side": "SHORT",
+        "price": 0.3599,
+        "prob": 0.6889829991403678,
+        "tp_price": 0.3074142857142857,
+        "sl_price": 0.3861428571428571,
+        "is_win": false,
+        "mfe": 32.73,
+        "mae": -26.04,
+        "xai": {
+            "upper_wick_ratio": 0.40969161190785747,
+            "dist_to_ema50_atr": 2.603365605228215,
+            "rsi_14": 56.641209267527785,
+            "vol_compression": 1.2604118316240025
+        },
+        "tp_pct": 14.58,
+        "sl_pct": 7.29,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "FORTHUSDT_202603080600",
+        "symbol": "FORTHUSDT",
+        "timestamp": "2026-03-08T06:00:00",
+        "side": "SHORT",
+        "price": 0.867,
+        "prob": 0.6051466112882177,
+        "tp_price": 0.8135714285714286,
+        "sl_price": 0.8937142857142858,
+        "is_win": false,
+        "mfe": 4.27,
+        "mae": -5.65,
+        "xai": {
+            "upper_wick_ratio": 0.048780486615110086,
+            "dist_to_ema50_atr": 0.4887305286025492,
+            "rsi_14": 64.76189612698528,
+            "vol_compression": 1.3155527753984742
+        },
+        "tp_pct": 6.16,
+        "sl_pct": 3.08,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "HOOKUSDT_202603080600",
+        "symbol": "HOOKUSDT",
+        "timestamp": "2026-03-08T06:00:00",
+        "side": "SHORT",
+        "price": 0.01905,
+        "prob": 0.6770441866775053,
+        "tp_price": 0.017727142857142858,
+        "sl_price": 0.01971142857142857,
+        "is_win": false,
+        "mfe": 0.21,
+        "mae": -20.42,
+        "xai": {
+            "upper_wick_ratio": 0.22806997537721402,
+            "dist_to_ema50_atr": -1.3059058965318915,
+            "rsi_14": 62.08297118266807,
+            "vol_compression": 1.1757223654881543
+        },
+        "tp_pct": 6.94,
+        "sl_pct": 3.47,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "UAIUSDT_202603080600",
+        "symbol": "UAIUSDT",
+        "timestamp": "2026-03-08T06:00:00",
+        "side": "SHORT",
+        "price": 0.3517,
+        "prob": 0.618300411669832,
+        "tp_price": 0.30204285714285717,
+        "sl_price": 0.37652857142857143,
+        "is_win": false,
+        "mfe": 31.16,
+        "mae": -28.97,
+        "xai": {
+            "upper_wick_ratio": 0.0931372503364098,
+            "dist_to_ema50_atr": 2.2034446691538063,
+            "rsi_14": 52.107913498974895,
+            "vol_compression": 1.1851555051212397
+        },
+        "tp_pct": 14.12,
+        "sl_pct": 7.06,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "DEGOUSDT_202603080500",
+        "symbol": "DEGOUSDT",
+        "timestamp": "2026-03-08T05:00:00",
+        "side": "SHORT",
+        "price": 0.4143,
+        "prob": 0.6377550637115091,
+        "tp_price": 0.3120428571428572,
+        "sl_price": 0.4654285714285714,
+        "is_win": false,
+        "mfe": 0.72,
+        "mae": -89.55,
+        "xai": {
+            "upper_wick_ratio": 0.1028037335138434,
+            "dist_to_ema50_atr": 3.2188528562306953,
+            "rsi_14": 64.99482466428363,
+            "vol_compression": 0.7880394045970168
+        },
+        "tp_pct": 24.68,
+        "sl_pct": 12.34,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "AIOTUSDT_202603080400",
+        "symbol": "AIOTUSDT",
+        "timestamp": "2026-03-08T04:00:00",
+        "side": "SHORT",
+        "price": 0.03034,
+        "prob": 0.630629881665727,
+        "tp_price": 0.024691428571428573,
+        "sl_price": 0.033164285714285716,
+        "is_win": true,
+        "mfe": 19.64,
+        "mae": -1.48,
+        "xai": {
+            "upper_wick_ratio": 0.20618535444809008,
+            "dist_to_ema50_atr": 1.326265057826445,
+            "rsi_14": 62.028495656834956,
+            "vol_compression": 1.0205301978798909
+        },
+        "tp_pct": 18.62,
+        "sl_pct": 9.31,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "IRYSUSDT_202603080400",
+        "symbol": "IRYSUSDT",
+        "timestamp": "2026-03-08T04:00:00",
+        "side": "SHORT",
+        "price": 0.01814,
+        "prob": 0.6556771143379561,
+        "tp_price": 0.01654285714285714,
+        "sl_price": 0.01893857142857143,
+        "is_win": true,
+        "mfe": 9.43,
+        "mae": -1.76,
+        "xai": {
+            "upper_wick_ratio": 0.4888883456796163,
+            "dist_to_ema50_atr": 0.8187943667390979,
+            "rsi_14": 63.497760848421294,
+            "vol_compression": 1.6397357993710386
+        },
+        "tp_pct": 8.8,
+        "sl_pct": 4.4,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "BULLAUSDT_202603080100",
+        "symbol": "BULLAUSDT",
+        "timestamp": "2026-03-08T01:00:00",
+        "side": "SHORT",
+        "price": 0.02513,
+        "prob": 0.611608907235184,
+        "tp_price": 0.02280142857142857,
+        "sl_price": 0.026294285714285714,
+        "is_win": true,
+        "mfe": 62.75,
+        "mae": -0.56,
+        "xai": {
+            "upper_wick_ratio": 0.2567564097886352,
+            "dist_to_ema50_atr": -0.2358165014761994,
+            "rsi_14": 63.46536774214022,
+            "vol_compression": 0.9316660306521046
+        },
+        "tp_pct": 9.27,
+        "sl_pct": 4.63,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "IRYSUSDT_202603080100",
+        "symbol": "IRYSUSDT",
+        "timestamp": "2026-03-08T01:00:00",
+        "side": "SHORT",
+        "price": 0.01805,
+        "prob": 0.6591701396497373,
+        "tp_price": 0.017024285714285714,
+        "sl_price": 0.01856285714285714,
+        "is_win": false,
+        "mfe": 8.98,
+        "mae": -2.94,
+        "xai": {
+            "upper_wick_ratio": 0.3378373813008359,
+            "dist_to_ema50_atr": 1.0216787991536405,
+            "rsi_14": 66.4943655045789,
+            "vol_compression": 1.4011987896680669
+        },
+        "tp_pct": 5.68,
+        "sl_pct": 2.84,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "PLUMEUSDT_202603080100",
+        "symbol": "PLUMEUSDT",
+        "timestamp": "2026-03-08T01:00:00",
+        "side": "SHORT",
+        "price": 0.01203,
+        "prob": 0.6069204877344198,
+        "tp_price": 0.010472857142857141,
+        "sl_price": 0.01280857142857143,
+        "is_win": false,
+        "mfe": 2.33,
+        "mae": -21.95,
+        "xai": {
+            "upper_wick_ratio": 0.3055551311734285,
+            "dist_to_ema50_atr": 2.5089119173856673,
+            "rsi_14": 59.20547693982774,
+            "vol_compression": 1.0583908598437712
+        },
+        "tp_pct": 12.94,
+        "sl_pct": 6.47,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "AGLDUSDT_202603080000",
+        "symbol": "AGLDUSDT",
+        "timestamp": "2026-03-08T00:00:00",
+        "side": "SHORT",
+        "price": 0.2774,
+        "prob": 0.7763483541441392,
+        "tp_price": 0.24951428571428566,
+        "sl_price": 0.2913428571428571,
+        "is_win": true,
+        "mfe": 10.09,
+        "mae": -3.97,
+        "xai": {
+            "upper_wick_ratio": 0.30313587793951785,
+            "dist_to_ema50_atr": 1.158742327689738,
+            "rsi_14": 51.27117123312716,
+            "vol_compression": 1.218798242790002
+        },
+        "tp_pct": 10.05,
+        "sl_pct": 5.03,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "AKTUSDT_202603080000",
+        "symbol": "AKTUSDT",
+        "timestamp": "2026-03-08T00:00:00",
+        "side": "SHORT",
+        "price": 0.4043,
+        "prob": 0.6218958392820866,
+        "tp_price": 0.3505857142857143,
+        "sl_price": 0.4311571428571428,
+        "is_win": false,
+        "mfe": 8.71,
+        "mae": -9.32,
+        "xai": {
+            "upper_wick_ratio": 0.28571427786499304,
+            "dist_to_ema50_atr": 2.4937078471858856,
+            "rsi_14": 45.09043112059385,
+            "vol_compression": 0.6835061123684105
+        },
+        "tp_pct": 13.29,
+        "sl_pct": 6.64,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "FHEUSDT_202603080000",
+        "symbol": "FHEUSDT",
+        "timestamp": "2026-03-08T00:00:00",
+        "side": "SHORT",
+        "price": 0.02545,
+        "prob": 0.6711031313815963,
+        "tp_price": 0.01718714285714286,
+        "sl_price": 0.029581428571428574,
+        "is_win": null,
+        "mfe": 24.91,
+        "mae": -5.58,
+        "xai": {
+            "upper_wick_ratio": 0.4272150546787804,
+            "dist_to_ema50_atr": 0.35551786106738215,
+            "rsi_14": 69.06597460299557,
+            "vol_compression": 1.114826251403266
+        },
+        "tp_pct": 32.47,
+        "sl_pct": 16.23,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "HANAUSDT_202603080000",
+        "symbol": "HANAUSDT",
+        "timestamp": "2026-03-08T00:00:00",
+        "side": "SHORT",
+        "price": 0.04049,
+        "prob": 0.6466333726501167,
+        "tp_price": 0.032258571428571435,
+        "sl_price": 0.044605714285714276,
+        "is_win": null,
+        "mfe": 19.66,
+        "mae": -4.32,
+        "xai": {
+            "upper_wick_ratio": 0.12499985795470588,
+            "dist_to_ema50_atr": 0.828651493999375,
+            "rsi_14": 36.89108048172442,
+            "vol_compression": 0.961030881294849
+        },
+        "tp_pct": 20.33,
+        "sl_pct": 10.16,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "SPACEUSDT_202603080000",
+        "symbol": "SPACEUSDT",
+        "timestamp": "2026-03-08T00:00:00",
+        "side": "SHORT",
+        "price": 0.008397,
+        "prob": 0.6904476365121363,
+        "tp_price": 0.007201,
+        "sl_price": 0.008995,
+        "is_win": true,
+        "mfe": 7.87,
+        "mae": -6.88,
+        "xai": {
+            "upper_wick_ratio": 0.13063033641816293,
+            "dist_to_ema50_atr": 2.1836155922556477,
+            "rsi_14": 67.50374354516872,
+            "vol_compression": 1.5288532260327152
+        },
+        "tp_pct": 14.24,
+        "sl_pct": 7.12,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "NAORISUSDT_202603072200",
+        "symbol": "NAORISUSDT",
+        "timestamp": "2026-03-07T22:00:00",
+        "side": "SHORT",
+        "price": 0.02807,
+        "prob": 0.6339380307099746,
+        "tp_price": 0.01896714285714286,
+        "sl_price": 0.03262142857142857,
+        "is_win": false,
+        "mfe": 0.36,
+        "mae": -113.75,
+        "xai": {
+            "upper_wick_ratio": 0.053191478044366386,
+            "dist_to_ema50_atr": -0.4925782892320481,
+            "rsi_14": 56.657782853636085,
+            "vol_compression": 1.3737038274569153
+        },
+        "tp_pct": 32.43,
+        "sl_pct": 16.21,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "MAGMAUSDT_202603071500",
+        "symbol": "MAGMAUSDT",
+        "timestamp": "2026-03-07T15:00:00",
+        "side": "SHORT",
+        "price": 0.0967,
+        "prob": 0.6009736187452602,
+        "tp_price": 0.08299142857142858,
+        "sl_price": 0.10355428571428571,
+        "is_win": false,
+        "mfe": 6.73,
+        "mae": -17.14,
+        "xai": {
+            "upper_wick_ratio": 0.5239550943980542,
+            "dist_to_ema50_atr": -0.6834281046468647,
+            "rsi_14": 50.36326175580631,
+            "vol_compression": 1.2823446610284253
+        },
+        "tp_pct": 14.18,
+        "sl_pct": 7.09,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "OPNUSDT_202603071400",
+        "symbol": "OPNUSDT",
+        "timestamp": "2026-03-07T14:00:00",
+        "side": "SHORT",
+        "price": 0.3306,
+        "prob": 0.6428777426092417,
+        "tp_price": 0.2688285714285714,
+        "sl_price": 0.3614857142857143,
+        "is_win": false,
+        "mfe": 14.43,
+        "mae": -11.31,
+        "xai": {
+            "upper_wick_ratio": 0.11111110617283973,
+            "dist_to_ema50_atr": -1.0401790109022246,
+            "rsi_14": 58.52600564043295,
+            "vol_compression": 1.2200393516842616
+        },
+        "tp_pct": 18.68,
+        "sl_pct": 9.34,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "SENTUSDT_202603071200",
+        "symbol": "SENTUSDT",
+        "timestamp": "2026-03-07T12:00:00",
+        "side": "SHORT",
+        "price": 0.024,
+        "prob": 0.6014672855899883,
+        "tp_price": 0.01988285714285714,
+        "sl_price": 0.02605857142857143,
+        "is_win": null,
+        "mfe": 7.87,
+        "mae": -3.21,
+        "xai": {
+            "upper_wick_ratio": 0.17283929279099772,
+            "dist_to_ema50_atr": 0.7943723927191172,
+            "rsi_14": 57.52198136146212,
+            "vol_compression": 0.9865640941613195
+        },
+        "tp_pct": 17.15,
+        "sl_pct": 8.58,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "DEGOUSDT_202603071000",
+        "symbol": "DEGOUSDT",
+        "timestamp": "2026-03-07T10:00:00",
+        "side": "LONG",
+        "price": 0.2873,
+        "prob": 0.6595503817549985,
+        "tp_price": 0.31067142857142854,
+        "sl_price": 0.2785357142857143,
+        "is_win": true,
+        "mfe": 173.34,
+        "mae": -2.51,
+        "xai": {
+            "upper_wick_ratio": 0.2499999915540548,
+            "dist_to_ema50_atr": 1.5245877045346015,
+            "rsi_14": 67.37737860803198,
+            "vol_compression": 1.5667456941282658
+        },
+        "tp_pct": 8.13,
+        "sl_pct": 3.05,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "GPSUSDT_202603071000",
+        "symbol": "GPSUSDT",
+        "timestamp": "2026-03-07T10:00:00",
+        "side": "SHORT",
+        "price": 0.00908,
+        "prob": 0.7231113130152934,
+        "tp_price": 0.008233142857142857,
+        "sl_price": 0.00950342857142857,
+        "is_win": true,
+        "mfe": 10.23,
+        "mae": -1.87,
+        "xai": {
+            "upper_wick_ratio": 0.45333212444766774,
+            "dist_to_ema50_atr": 2.4674494641851847,
+            "rsi_14": 84.15826302544087,
+            "vol_compression": 0.9663123581050033
+        },
+        "tp_pct": 9.33,
+        "sl_pct": 4.66,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "AKEUSDT_202603070700",
+        "symbol": "AKEUSDT",
+        "timestamp": "2026-03-07T07:00:00",
+        "side": "SHORT",
+        "price": 0.0003262,
+        "prob": 0.6002964039676469,
+        "tp_price": 0.00021585714285714288,
+        "sl_price": 0.0003813714285714286,
+        "is_win": false,
+        "mfe": 35.32,
+        "mae": -17.96,
+        "xai": {
+            "upper_wick_ratio": 0.6473201333324736,
+            "dist_to_ema50_atr": 2.152385661984026,
+            "rsi_14": 63.97830669335961,
+            "vol_compression": 2.852270039313551
+        },
+        "tp_pct": 33.83,
+        "sl_pct": 16.91,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "DEXEUSDT_202603070700",
+        "symbol": "DEXEUSDT",
+        "timestamp": "2026-03-07T07:00:00",
+        "side": "LONG",
+        "price": 3.623,
+        "prob": 0.6235324841104533,
+        "tp_price": 3.879857142857143,
+        "sl_price": 3.5266785714285716,
+        "is_win": true,
+        "mfe": 48.72,
+        "mae": -2.62,
+        "xai": {
+            "upper_wick_ratio": 0.346405226494083,
+            "dist_to_ema50_atr": 0.34689123024893154,
+            "rsi_14": 49.598392179964925,
+            "vol_compression": 1.5722992808144833
+        },
+        "tp_pct": 7.09,
+        "sl_pct": 2.66,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "TAKEUSDT_202603070700",
+        "symbol": "TAKEUSDT",
+        "timestamp": "2026-03-07T07:00:00",
+        "side": "SHORT",
+        "price": 0.02162,
+        "prob": 0.6066587807325416,
+        "tp_price": 0.01856857142857143,
+        "sl_price": 0.023145714285714283,
+        "is_win": null,
+        "mfe": 8.7,
+        "mae": -7.03,
+        "xai": {
+            "upper_wick_ratio": 0.33333301587331826,
+            "dist_to_ema50_atr": 1.7514224382730883,
+            "rsi_14": 59.06021770849042,
+            "vol_compression": 1.2940590726706294
+        },
+        "tp_pct": 14.11,
+        "sl_pct": 7.06,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "XVGUSDT_202603070700",
+        "symbol": "XVGUSDT",
+        "timestamp": "2026-03-07T07:00:00",
+        "side": "SHORT",
+        "price": 0.005214,
+        "prob": 0.6685633385062729,
+        "tp_price": 0.005028285714285714,
+        "sl_price": 0.005306857142857143,
+        "is_win": true,
+        "mfe": 4.18,
+        "mae": -1.94,
+        "xai": {
+            "upper_wick_ratio": 0.07692233728522034,
+            "dist_to_ema50_atr": -1.6657204242893466,
+            "rsi_14": 64.10767635745705,
+            "vol_compression": 1.2981340411251951
+        },
+        "tp_pct": 3.56,
+        "sl_pct": 1.78,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "BANKUSDT_202603070500",
+        "symbol": "BANKUSDT",
+        "timestamp": "2026-03-07T05:00:00",
+        "side": "SHORT",
+        "price": 0.04172,
+        "prob": 0.6132684885825166,
+        "tp_price": 0.03934571428571428,
+        "sl_price": 0.04290714285714286,
+        "is_win": true,
+        "mfe": 10.76,
+        "mae": -0.65,
+        "xai": {
+            "upper_wick_ratio": 0.028571412244908084,
+            "dist_to_ema50_atr": 2.343092203321841,
+            "rsi_14": 56.80171951692765,
+            "vol_compression": 1.269047980791083
+        },
+        "tp_pct": 5.69,
+        "sl_pct": 2.85,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "EDENUSDT_202603070500",
+        "symbol": "EDENUSDT",
+        "timestamp": "2026-03-07T05:00:00",
+        "side": "SHORT",
+        "price": 0.04031,
+        "prob": 0.6305387106361126,
+        "tp_price": 0.03539571428571428,
+        "sl_price": 0.04276714285714286,
+        "is_win": false,
+        "mfe": 15.18,
+        "mae": -12.03,
+        "xai": {
+            "upper_wick_ratio": 0.04545451101931318,
+            "dist_to_ema50_atr": 2.499658017776786,
+            "rsi_14": 61.00850502840463,
+            "vol_compression": 1.141840919202924
+        },
+        "tp_pct": 12.19,
+        "sl_pct": 6.1,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "HUSDT_202603070500",
+        "symbol": "HUSDT",
+        "timestamp": "2026-03-07T05:00:00",
+        "side": "SHORT",
+        "price": 0.17152,
+        "prob": 0.632287255643339,
+        "tp_price": 0.1452257142857143,
+        "sl_price": 0.18466714285714286,
+        "is_win": true,
+        "mfe": 26.35,
+        "mae": -2.44,
+        "xai": {
+            "upper_wick_ratio": 0.14761902418745432,
+            "dist_to_ema50_atr": 2.059231127683264,
+            "rsi_14": 50.97866631070731,
+            "vol_compression": 1.067173181473803
+        },
+        "tp_pct": 15.33,
+        "sl_pct": 7.67,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "BIOUSDT_202603070400",
+        "symbol": "BIOUSDT",
+        "timestamp": "2026-03-07T04:00:00",
+        "side": "SHORT",
+        "price": 0.02099,
+        "prob": 0.6044072901339334,
+        "tp_price": 0.019372857142857143,
+        "sl_price": 0.021798571428571428,
+        "is_win": null,
+        "mfe": 4.1,
+        "mae": -3.33,
+        "xai": {
+            "upper_wick_ratio": 0.2794113538068314,
+            "dist_to_ema50_atr": 0.5677090821311934,
+            "rsi_14": 61.63906132889884,
+            "vol_compression": 1.5260960857390906
+        },
+        "tp_pct": 7.7,
+        "sl_pct": 3.85,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "STGUSDT_202603070400",
+        "symbol": "STGUSDT",
+        "timestamp": "2026-03-07T04:00:00",
+        "side": "LONG",
+        "price": 0.1699,
+        "prob": 0.6955927319495198,
+        "tp_price": 0.18050000000000002,
+        "sl_price": 0.165925,
+        "is_win": true,
+        "mfe": 11.65,
+        "mae": -1.24,
+        "xai": {
+            "upper_wick_ratio": 0.17307688979290775,
+            "dist_to_ema50_atr": 0.13047476753121132,
+            "rsi_14": 48.74995734378728,
+            "vol_compression": 0.8791462270721843
+        },
+        "tp_pct": 6.24,
+        "sl_pct": 2.34,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "UAIUSDT_202603070400",
+        "symbol": "UAIUSDT",
+        "timestamp": "2026-03-07T04:00:00",
+        "side": "SHORT",
+        "price": 0.3507,
+        "prob": 0.6960942035416049,
+        "tp_price": 0.2655,
+        "sl_price": 0.39330000000000004,
+        "is_win": false,
+        "mfe": 30.97,
+        "mae": -29.34,
+        "xai": {
+            "upper_wick_ratio": 0.4855233744872297,
+            "dist_to_ema50_atr": 3.1947603971616854,
+            "rsi_14": 66.59856044555826,
+            "vol_compression": 0.8087873648340215
+        },
+        "tp_pct": 24.29,
+        "sl_pct": 12.15,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "JELLYJELLYUSDT_202603070200",
+        "symbol": "JELLYJELLYUSDT",
+        "timestamp": "2026-03-07T02:00:00",
+        "side": "SHORT",
+        "price": 0.08525,
+        "prob": 0.6359652431581604,
+        "tp_price": 0.06816142857142858,
+        "sl_price": 0.09379428571428572,
+        "is_win": true,
+        "mfe": 37.47,
+        "mae": -13.18,
+        "xai": {
+            "upper_wick_ratio": 0.12436972699668303,
+            "dist_to_ema50_atr": -0.026729526075679865,
+            "rsi_14": 56.085381309774455,
+            "vol_compression": 0.8741895638760626
+        },
+        "tp_pct": 20.05,
+        "sl_pct": 10.02,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "LIGHTUSDT_202603070200",
+        "symbol": "LIGHTUSDT",
+        "timestamp": "2026-03-07T02:00:00",
+        "side": "SHORT",
+        "price": 0.1858,
+        "prob": 0.6100407867341271,
+        "tp_price": 0.1694,
+        "sl_price": 0.194,
+        "is_win": true,
+        "mfe": 10.01,
+        "mae": -0.59,
+        "xai": {
+            "upper_wick_ratio": 0.06249998697916829,
+            "dist_to_ema50_atr": 0.9804913741009962,
+            "rsi_14": 54.12840560561108,
+            "vol_compression": 1.063323677137532
+        },
+        "tp_pct": 8.83,
+        "sl_pct": 4.41,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "FLOCKUSDT_202603070100",
+        "symbol": "FLOCKUSDT",
+        "timestamp": "2026-03-07T01:00:00",
+        "side": "SHORT",
+        "price": 0.05754,
+        "prob": 0.7350187466804619,
+        "tp_price": 0.05410857142857143,
+        "sl_price": 0.059255714285714293,
+        "is_win": false,
+        "mfe": 6.48,
+        "mae": -4.73,
+        "xai": {
+            "upper_wick_ratio": 0.14634139202858984,
+            "dist_to_ema50_atr": 0.24085309817271816,
+            "rsi_14": 46.43466955036979,
+            "vol_compression": 1.1666833855081145
+        },
+        "tp_pct": 5.96,
+        "sl_pct": 2.98,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "ALTUSDT_202603070000",
+        "symbol": "ALTUSDT",
+        "timestamp": "2026-03-07T00:00:00",
+        "side": "SHORT",
+        "price": 0.007278,
+        "prob": 0.731430043142727,
+        "tp_price": 0.006857142857142856,
+        "sl_price": 0.007488428571428572,
+        "is_win": false,
+        "mfe": 5.56,
+        "mae": -4.42,
+        "xai": {
+            "upper_wick_ratio": 0.3363621074449679,
+            "dist_to_ema50_atr": 0.35074449677725883,
+            "rsi_14": 48.73598468976868,
+            "vol_compression": 1.172964835939786
+        },
+        "tp_pct": 5.78,
+        "sl_pct": 2.89,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "AZTECUSDT_202603070000",
+        "symbol": "AZTECUSDT",
+        "timestamp": "2026-03-07T00:00:00",
+        "side": "SHORT",
+        "price": 0.02127,
+        "prob": 0.6261970558441365,
+        "tp_price": 0.019401428571428573,
+        "sl_price": 0.022204285714285715,
+        "is_win": false,
+        "mfe": 3.71,
+        "mae": -5.17,
+        "xai": {
+            "upper_wick_ratio": 0.540403767472844,
+            "dist_to_ema50_atr": 0.056241473143030206,
+            "rsi_14": 54.18154234851171,
+            "vol_compression": 1.331715094745956
+        },
+        "tp_pct": 8.79,
+        "sl_pct": 4.39,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "BIOUSDT_202603070000",
+        "symbol": "BIOUSDT",
+        "timestamp": "2026-03-07T00:00:00",
+        "side": "SHORT",
+        "price": 0.02121,
+        "prob": 0.8116768251022841,
+        "tp_price": 0.01975,
+        "sl_price": 0.021939999999999998,
+        "is_win": null,
+        "mfe": 5.09,
+        "mae": -2.26,
+        "xai": {
+            "upper_wick_ratio": 0.3851348749088685,
+            "dist_to_ema50_atr": 1.2110934941512426,
+            "rsi_14": 56.85451775675459,
+            "vol_compression": 1.7384299041012201
+        },
+        "tp_pct": 6.88,
+        "sl_pct": 3.44,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "SENTUSDT_202603070000",
+        "symbol": "SENTUSDT",
+        "timestamp": "2026-03-07T00:00:00",
+        "side": "SHORT",
+        "price": 0.02515,
+        "prob": 0.684947122477101,
+        "tp_price": 0.020724285714285712,
+        "sl_price": 0.02736285714285714,
+        "is_win": null,
+        "mfe": 12.09,
+        "mae": -1.51,
+        "xai": {
+            "upper_wick_ratio": 0.5456987780379634,
+            "dist_to_ema50_atr": 2.298869157408121,
+            "rsi_14": 63.541534288470224,
+            "vol_compression": 1.3160512329399385
+        },
+        "tp_pct": 17.6,
+        "sl_pct": 8.8,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "TAKEUSDT_202603070000",
+        "symbol": "TAKEUSDT",
+        "timestamp": "2026-03-07T00:00:00",
+        "side": "SHORT",
+        "price": 0.02165,
+        "prob": 0.6115344969447203,
+        "tp_price": 0.01859285714285714,
+        "sl_price": 0.02317857142857143,
+        "is_win": null,
+        "mfe": 8.82,
+        "mae": -6.88,
+        "xai": {
+            "upper_wick_ratio": 0.6118417027357219,
+            "dist_to_ema50_atr": 2.206345231787359,
+            "rsi_14": 70.12165191977836,
+            "vol_compression": 1.4528798685946582
+        },
+        "tp_pct": 14.12,
+        "sl_pct": 7.06,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "ZKPUSDT_202603070000",
+        "symbol": "ZKPUSDT",
+        "timestamp": "2026-03-07T00:00:00",
+        "side": "SHORT",
+        "price": 0.08999,
+        "prob": 0.6941094239716069,
+        "tp_price": 0.08514142857142856,
+        "sl_price": 0.09241428571428571,
+        "is_win": false,
+        "mfe": 8.03,
+        "mae": -10.75,
+        "xai": {
+            "upper_wick_ratio": 0.03875967489935194,
+            "dist_to_ema50_atr": 0.5762953301804287,
+            "rsi_14": 47.37938539712835,
+            "vol_compression": 1.3475876398792117
+        },
+        "tp_pct": 5.39,
+        "sl_pct": 2.69,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "ARCUSDT_202603062200",
+        "symbol": "ARCUSDT",
+        "timestamp": "2026-03-06T22:00:00",
+        "side": "SHORT",
+        "price": 0.03874,
+        "prob": 0.6199069473013042,
+        "tp_price": 0.03432285714285714,
+        "sl_price": 0.040948571428571424,
+        "is_win": true,
+        "mfe": 21.35,
+        "mae": -22.28,
+        "xai": {
+            "upper_wick_ratio": 0.11764694348339075,
+            "dist_to_ema50_atr": 0.08635948058138733,
+            "rsi_14": 42.99442281292316,
+            "vol_compression": 1.0750404495225663
+        },
+        "tp_pct": 11.4,
+        "sl_pct": 5.7,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "BULLAUSDT_202603061600",
+        "symbol": "BULLAUSDT",
+        "timestamp": "2026-03-06T16:00:00",
+        "side": "SHORT",
+        "price": 0.02606,
+        "prob": 0.6657523541279478,
+        "tp_price": 0.023425714285714286,
+        "sl_price": 0.027377142857142857,
+        "is_win": true,
+        "mfe": 64.08,
+        "mae": -3.26,
+        "xai": {
+            "upper_wick_ratio": 0.31034429250983947,
+            "dist_to_ema50_atr": 0.3997883299369043,
+            "rsi_14": 64.52672183307246,
+            "vol_compression": 0.8029234928862313
+        },
+        "tp_pct": 10.11,
+        "sl_pct": 5.05,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "HUSDT_202603061500",
+        "symbol": "HUSDT",
+        "timestamp": "2026-03-06T15:00:00",
+        "side": "SHORT",
+        "price": 0.1704,
+        "prob": 0.6205267960692834,
+        "tp_price": 0.13724285714285714,
+        "sl_price": 0.1869785714285714,
+        "is_win": true,
+        "mfe": 25.87,
+        "mae": -3.11,
+        "xai": {
+            "upper_wick_ratio": 0.3829456770626867,
+            "dist_to_ema50_atr": 1.7537137971501808,
+            "rsi_14": 31.04865353709964,
+            "vol_compression": 0.9567161657804908
+        },
+        "tp_pct": 19.46,
+        "sl_pct": 9.73,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "HUMAUSDT_202603061200",
+        "symbol": "HUMAUSDT",
+        "timestamp": "2026-03-06T12:00:00",
+        "side": "SHORT",
+        "price": 0.019395,
+        "prob": 0.6060628413779159,
+        "tp_price": 0.014600142857142857,
+        "sl_price": 0.02179242857142857,
+        "is_win": true,
+        "mfe": 26.99,
+        "mae": -2.53,
+        "xai": {
+            "upper_wick_ratio": 0.43380998764759643,
+            "dist_to_ema50_atr": 2.1307934180038557,
+            "rsi_14": 63.67836679930144,
+            "vol_compression": 0.8146907031393854
+        },
+        "tp_pct": 24.72,
+        "sl_pct": 12.36,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "HUMAUSDT_202603060800",
+        "symbol": "HUMAUSDT",
+        "timestamp": "2026-03-06T08:00:00",
+        "side": "SHORT",
+        "price": 0.020679,
+        "prob": 0.6116599631980234,
+        "tp_price": 0.016155857142857142,
+        "sl_price": 0.022940571428571428,
+        "is_win": true,
+        "mfe": 31.52,
+        "mae": -5.18,
+        "xai": {
+            "upper_wick_ratio": 0.3346771944373707,
+            "dist_to_ema50_atr": 3.8733404737005146,
+            "rsi_14": 62.367707165686106,
+            "vol_compression": 0.6963396379706918
+        },
+        "tp_pct": 21.87,
+        "sl_pct": 10.94,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "RIVERUSDT_202603060800",
+        "symbol": "RIVERUSDT",
+        "timestamp": "2026-03-06T08:00:00",
+        "side": "SHORT",
+        "price": 20.528,
+        "prob": 0.6122615299710226,
+        "tp_price": 15.912857142857142,
+        "sl_price": 22.835571428571427,
+        "is_win": true,
+        "mfe": 48.56,
+        "mae": -2.07,
+        "xai": {
+            "upper_wick_ratio": 0.07150368026130145,
+            "dist_to_ema50_atr": 2.4881703294792668,
+            "rsi_14": 80.97295774552254,
+            "vol_compression": 0.770801590179623
+        },
+        "tp_pct": 22.48,
+        "sl_pct": 11.24,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "PROMPTUSDT_202603060700",
+        "symbol": "PROMPTUSDT",
+        "timestamp": "2026-03-06T07:00:00",
+        "side": "SHORT",
+        "price": 0.04573,
+        "prob": 0.6149725386329645,
+        "tp_price": 0.04355,
+        "sl_price": 0.04682,
+        "is_win": true,
+        "mfe": 8.9,
+        "mae": -1.36,
+        "xai": {
+            "upper_wick_ratio": 0.42857117346953844,
+            "dist_to_ema50_atr": 2.210965508749395,
+            "rsi_14": 69.67901588739878,
+            "vol_compression": 0.9494228542316883
+        },
+        "tp_pct": 4.77,
+        "sl_pct": 2.38,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "HUMAUSDT_202603060600",
+        "symbol": "HUMAUSDT",
+        "timestamp": "2026-03-06T06:00:00",
+        "side": "SHORT",
+        "price": 0.020315,
+        "prob": 0.6337873092576877,
+        "tp_price": 0.015198142857142856,
+        "sl_price": 0.022873428571428572,
+        "is_win": true,
+        "mfe": 30.3,
+        "mae": -7.06,
+        "xai": {
+            "upper_wick_ratio": 0.29396970152276264,
+            "dist_to_ema50_atr": 3.4066205289397367,
+            "rsi_14": 55.961605441583025,
+            "vol_compression": 1.0090375444463338
+        },
+        "tp_pct": 25.19,
+        "sl_pct": 12.59,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "LIGHTUSDT_202603060600",
+        "symbol": "LIGHTUSDT",
+        "timestamp": "2026-03-06T06:00:00",
+        "side": "SHORT",
+        "price": 0.182,
+        "prob": 0.6541041961928817,
+        "tp_price": 0.16917142857142858,
+        "sl_price": 0.1884142857142857,
+        "is_win": false,
+        "mfe": 8.13,
+        "mae": -3.79,
+        "xai": {
+            "upper_wick_ratio": 0.028571420408170355,
+            "dist_to_ema50_atr": 0.15315850156096533,
+            "rsi_14": 66.82687809729366,
+            "vol_compression": 0.9473677996297207
+        },
+        "tp_pct": 7.05,
+        "sl_pct": 3.52,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "AKEUSDT_202603060500",
+        "symbol": "AKEUSDT",
+        "timestamp": "2026-03-06T05:00:00",
+        "side": "SHORT",
+        "price": 0.000286,
+        "prob": 0.6057050539567111,
+        "tp_price": 0.0002100285714285714,
+        "sl_price": 0.00032398571428571434,
+        "is_win": false,
+        "mfe": 26.22,
+        "mae": -49.16,
+        "xai": {
+            "upper_wick_ratio": 0.09332918536953898,
+            "dist_to_ema50_atr": 1.1654396710280326,
+            "rsi_14": 43.70696397626023,
+            "vol_compression": 0.8687931208751246
+        },
+        "tp_pct": 26.56,
+        "sl_pct": 13.28,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "KGENUSDT_202603060500",
+        "symbol": "KGENUSDT",
+        "timestamp": "2026-03-06T05:00:00",
+        "side": "SHORT",
+        "price": 0.24381,
+        "prob": 0.6001722489048316,
+        "tp_price": 0.22564428571428571,
+        "sl_price": 0.25289285714285714,
+        "is_win": true,
+        "mfe": 21.51,
+        "mae": -0.13,
+        "xai": {
+            "upper_wick_ratio": 0.11055274530104661,
+            "dist_to_ema50_atr": 3.722111452975984,
+            "rsi_14": 62.85811041182578,
+            "vol_compression": 0.812055649337212
+        },
+        "tp_pct": 7.45,
+        "sl_pct": 3.73,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "BULLAUSDT_202603060400",
+        "symbol": "BULLAUSDT",
+        "timestamp": "2026-03-06T04:00:00",
+        "side": "SHORT",
+        "price": 0.026,
+        "prob": 0.6747850351120913,
+        "tp_price": 0.023642857142857146,
+        "sl_price": 0.02717857142857143,
+        "is_win": false,
+        "mfe": 64.0,
+        "mae": -4.58,
+        "xai": {
+            "upper_wick_ratio": 0.22352914878923982,
+            "dist_to_ema50_atr": 0.5492205749384002,
+            "rsi_14": 50.57988210711146,
+            "vol_compression": 1.2100626798912335
+        },
+        "tp_pct": 9.07,
+        "sl_pct": 4.53,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "RIVERUSDT_202603060400",
+        "symbol": "RIVERUSDT",
+        "timestamp": "2026-03-06T04:00:00",
+        "side": "SHORT",
+        "price": 20.735,
+        "prob": 0.6110655369831225,
+        "tp_price": 16.649857142857144,
+        "sl_price": 22.77757142857143,
+        "is_win": true,
+        "mfe": 49.07,
+        "mae": -3.67,
+        "xai": {
+            "upper_wick_ratio": 0.12153759179110371,
+            "dist_to_ema50_atr": 3.485292816664189,
+            "rsi_14": 86.74682128047878,
+            "vol_compression": 0.6224412392805878
+        },
+        "tp_pct": 19.7,
+        "sl_pct": 9.85,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "AGLDUSDT_202603060300",
+        "symbol": "AGLDUSDT",
+        "timestamp": "2026-03-06T03:00:00",
+        "side": "SHORT",
+        "price": 0.2672,
+        "prob": 0.6219771544312743,
+        "tp_price": 0.23639999999999997,
+        "sl_price": 0.2826,
+        "is_win": false,
+        "mfe": 6.66,
+        "mae": -17.51,
+        "xai": {
+            "upper_wick_ratio": 0.2319999814400024,
+            "dist_to_ema50_atr": 3.1369600587476083,
+            "rsi_14": 65.05492503804507,
+            "vol_compression": 1.1406264772367323
+        },
+        "tp_pct": 11.53,
+        "sl_pct": 5.76,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "IPUSDT_202603060300",
+        "symbol": "IPUSDT",
+        "timestamp": "2026-03-06T03:00:00",
+        "side": "SHORT",
+        "price": 0.877,
+        "prob": 0.656214841582191,
+        "tp_price": 0.825,
+        "sl_price": 0.9029999999999999,
+        "is_win": true,
+        "mfe": 12.43,
+        "mae": -2.51,
+        "xai": {
+            "upper_wick_ratio": 0.12499999479166689,
+            "dist_to_ema50_atr": 1.4282973993388974,
+            "rsi_14": 61.22448104956393,
+            "vol_compression": 1.1173657207284629
+        },
+        "tp_pct": 5.93,
+        "sl_pct": 2.96,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "FHEUSDT_202603060200",
+        "symbol": "FHEUSDT",
+        "timestamp": "2026-03-06T02:00:00",
+        "side": "SHORT",
+        "price": 0.03566,
+        "prob": 0.6442946152795517,
+        "tp_price": 0.028759999999999997,
+        "sl_price": 0.03910999999999999,
+        "is_win": false,
+        "mfe": 55.72,
+        "mae": -11.22,
+        "xai": {
+            "upper_wick_ratio": 0.31472073230438397,
+            "dist_to_ema50_atr": 3.2175995254129335,
+            "rsi_14": 74.17668644076167,
+            "vol_compression": 1.491972999103287
+        },
+        "tp_pct": 19.35,
+        "sl_pct": 9.67,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "1000RATSUSDT_202603060100",
+        "symbol": "1000RATSUSDT",
+        "timestamp": "2026-03-06T01:00:00",
+        "side": "SHORT",
+        "price": 0.05103,
+        "prob": 0.6210216033405901,
+        "tp_price": 0.046147142857142866,
+        "sl_price": 0.05347142857142857,
+        "is_win": false,
+        "mfe": 19.42,
+        "mae": -9.01,
+        "xai": {
+            "upper_wick_ratio": 0.36914590381655554,
+            "dist_to_ema50_atr": 2.298224109346981,
+            "rsi_14": 60.04556613722305,
+            "vol_compression": 1.0493656573546235
+        },
+        "tp_pct": 9.57,
+        "sl_pct": 4.78,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "AGLDUSDT_202603060100",
+        "symbol": "AGLDUSDT",
+        "timestamp": "2026-03-06T01:00:00",
+        "side": "SHORT",
+        "price": 0.2601,
+        "prob": 0.6128033886745344,
+        "tp_price": 0.23127142857142857,
+        "sl_price": 0.2745142857142857,
+        "is_win": false,
+        "mfe": 4.11,
+        "mae": -20.72,
+        "xai": {
+            "upper_wick_ratio": 0.2857142565597714,
+            "dist_to_ema50_atr": 2.6013944600854084,
+            "rsi_14": 55.37381366277122,
+            "vol_compression": 1.0919618964590618
+        },
+        "tp_pct": 11.08,
+        "sl_pct": 5.54,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "ESPORTSUSDT_202603060100",
+        "symbol": "ESPORTSUSDT",
+        "timestamp": "2026-03-06T01:00:00",
+        "side": "SHORT",
+        "price": 0.3061,
+        "prob": 0.6968595398153093,
+        "tp_price": 0.28308,
+        "sl_price": 0.31760999999999995,
+        "is_win": false,
+        "mfe": 3.24,
+        "mae": -4.32,
+        "xai": {
+            "upper_wick_ratio": 0.3522064652617435,
+            "dist_to_ema50_atr": 0.37228001779009084,
+            "rsi_14": 47.7045124230967,
+            "vol_compression": 1.1806832109484202
+        },
+        "tp_pct": 7.52,
+        "sl_pct": 3.76,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "NOMUSDT_202603060100",
+        "symbol": "NOMUSDT",
+        "timestamp": "2026-03-06T01:00:00",
+        "side": "SHORT",
+        "price": 0.003665,
+        "prob": 0.7363417052625731,
+        "tp_price": 0.003454142857142857,
+        "sl_price": 0.0037704285714285713,
+        "is_win": true,
+        "mfe": 11.51,
+        "mae": -1.39,
+        "xai": {
+            "upper_wick_ratio": 0.3267294383223934,
+            "dist_to_ema50_atr": 1.7369687385457364,
+            "rsi_14": 59.311690285137246,
+            "vol_compression": 1.2510726556095622
+        },
+        "tp_pct": 5.75,
+        "sl_pct": 2.88,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "TURTLEUSDT_202603060100",
+        "symbol": "TURTLEUSDT",
+        "timestamp": "2026-03-06T01:00:00",
+        "side": "SHORT",
+        "price": 0.0471,
+        "prob": 0.6193675341063332,
+        "tp_price": 0.042037142857142856,
+        "sl_price": 0.049631428571428576,
+        "is_win": true,
+        "mfe": 12.85,
+        "mae": -0.32,
+        "xai": {
+            "upper_wick_ratio": 0.20149238694597932,
+            "dist_to_ema50_atr": 2.4119072383211964,
+            "rsi_14": 67.65666147488884,
+            "vol_compression": 1.1297905709978313
+        },
+        "tp_pct": 10.75,
+        "sl_pct": 5.37,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "JCTUSDT_202603060000",
+        "symbol": "JCTUSDT",
+        "timestamp": "2026-03-06T00:00:00",
+        "side": "SHORT",
+        "price": 0.001765,
+        "prob": 0.7169975068889833,
+        "tp_price": 0.0015161428571428572,
+        "sl_price": 0.0018894285714285716,
+        "is_win": false,
+        "mfe": 14.45,
+        "mae": -27.93,
+        "xai": {
+            "upper_wick_ratio": 0.19047316709258386,
+            "dist_to_ema50_atr": 2.141138876965309,
+            "rsi_14": 79.65831666723157,
+            "vol_compression": 0.9977482806238627
+        },
+        "tp_pct": 14.1,
+        "sl_pct": 7.05,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "MYXUSDT_202603060000",
+        "symbol": "MYXUSDT",
+        "timestamp": "2026-03-06T00:00:00",
+        "side": "SHORT",
+        "price": 0.3484,
+        "prob": 0.6540551718695612,
+        "tp_price": 0.2632285714285714,
+        "sl_price": 0.3909857142857142,
+        "is_win": null,
+        "mfe": 18.86,
+        "mae": -7.92,
+        "xai": {
+            "upper_wick_ratio": 0.3930130832745386,
+            "dist_to_ema50_atr": 1.3173705407267462,
+            "rsi_14": 68.9494088304146,
+            "vol_compression": 1.4596984123189274
+        },
+        "tp_pct": 24.45,
+        "sl_pct": 12.22,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "SNXUSDT_202603060000",
+        "symbol": "SNXUSDT",
+        "timestamp": "2026-03-06T00:00:00",
+        "side": "SHORT",
+        "price": 0.333,
+        "prob": 0.7429805525918826,
+        "tp_price": 0.3107142857142857,
+        "sl_price": 0.34414285714285714,
+        "is_win": true,
+        "mfe": 11.11,
+        "mae": -0.9,
+        "xai": {
+            "upper_wick_ratio": 0.0,
+            "dist_to_ema50_atr": 0.9035897494169306,
+            "rsi_14": 48.571409142864916,
+            "vol_compression": 1.2066190531061391
+        },
+        "tp_pct": 6.69,
+        "sl_pct": 3.35,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "ZETAUSDT_202603060000",
+        "symbol": "ZETAUSDT",
+        "timestamp": "2026-03-06T00:00:00",
+        "side": "SHORT",
+        "price": 0.05316,
+        "prob": 0.6420161737503405,
+        "tp_price": 0.04992,
+        "sl_price": 0.054779999999999995,
+        "is_win": false,
+        "mfe": 8.31,
+        "mae": -4.98,
+        "xai": {
+            "upper_wick_ratio": 0.3856500512780045,
+            "dist_to_ema50_atr": 0.5608717580660594,
+            "rsi_14": 52.94104823967555,
+            "vol_compression": 1.2680189267008926
+        },
+        "tp_pct": 6.09,
+        "sl_pct": 3.05,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "FIGHTUSDT_202603052300",
+        "symbol": "FIGHTUSDT",
+        "timestamp": "2026-03-05T23:00:00",
+        "side": "SHORT",
+        "price": 0.005783,
+        "prob": 0.6081789899319202,
+        "tp_price": 0.005374142857142857,
+        "sl_price": 0.005987428571428572,
+        "is_win": true,
+        "mfe": 26.49,
+        "mae": -1.07,
+        "xai": {
+            "upper_wick_ratio": 0.07920713656300594,
+            "dist_to_ema50_atr": -0.8752357297857448,
+            "rsi_14": 51.004179052090045,
+            "vol_compression": 1.0627688916827884
+        },
+        "tp_pct": 7.07,
+        "sl_pct": 3.53,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "HOOKUSDT_202603052300",
+        "symbol": "HOOKUSDT",
+        "timestamp": "2026-03-05T23:00:00",
+        "side": "SHORT",
+        "price": 0.02285,
+        "prob": 0.6077454305263519,
+        "tp_price": 0.021421428571428574,
+        "sl_price": 0.023564285714285715,
+        "is_win": true,
+        "mfe": 20.48,
+        "mae": -0.74,
+        "xai": {
+            "upper_wick_ratio": 0.025640959894973715,
+            "dist_to_ema50_atr": -0.21914817233869988,
+            "rsi_14": 42.24783276369816,
+            "vol_compression": 1.177353234997187
+        },
+        "tp_pct": 6.25,
+        "sl_pct": 3.13,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "RIVERUSDT_202603052300",
+        "symbol": "RIVERUSDT",
+        "timestamp": "2026-03-05T23:00:00",
+        "side": "SHORT",
+        "price": 16.688,
+        "prob": 0.7515458018843291,
+        "tp_price": 12.600285714285713,
+        "sl_price": 18.73185714285714,
+        "is_win": false,
+        "mfe": 36.72,
+        "mae": -28.81,
+        "xai": {
+            "upper_wick_ratio": 0.2590673570655175,
+            "dist_to_ema50_atr": -0.09760267290600749,
+            "rsi_14": 47.36476141522643,
+            "vol_compression": 1.0159056282039682
+        },
+        "tp_pct": 24.49,
+        "sl_pct": 12.25,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "AGLDUSDT_202603052200",
+        "symbol": "AGLDUSDT",
+        "timestamp": "2026-03-05T22:00:00",
+        "side": "SHORT",
+        "price": 0.2653,
+        "prob": 0.6508989661990799,
+        "tp_price": 0.23044285714285714,
+        "sl_price": 0.28272857142857144,
+        "is_win": false,
+        "mfe": 5.99,
+        "mae": -18.36,
+        "xai": {
+            "upper_wick_ratio": 0.25438594259772507,
+            "dist_to_ema50_atr": 3.031255733432987,
+            "rsi_14": 79.52583807410063,
+            "vol_compression": 1.1068117680347505
+        },
+        "tp_pct": 13.14,
+        "sl_pct": 6.57,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "RECALLUSDT_202603052200",
+        "symbol": "RECALLUSDT",
+        "timestamp": "2026-03-05T22:00:00",
+        "side": "SHORT",
+        "price": 0.04897,
+        "prob": 0.6969436579975282,
+        "tp_price": 0.04448428571428571,
+        "sl_price": 0.05121285714285714,
+        "is_win": true,
+        "mfe": 11.05,
+        "mae": -0.67,
+        "xai": {
+            "upper_wick_ratio": 0.8293459602319041,
+            "dist_to_ema50_atr": 0.4942021689579006,
+            "rsi_14": 62.11434590289807,
+            "vol_compression": 1.1945568345316115
+        },
+        "tp_pct": 9.16,
+        "sl_pct": 4.58,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "TAGUSDT_202603052200",
+        "symbol": "TAGUSDT",
+        "timestamp": "2026-03-05T22:00:00",
+        "side": "SHORT",
+        "price": 0.0004543,
+        "prob": 0.6449889547335601,
+        "tp_price": 0.0004074428571428571,
+        "sl_price": 0.0004777285714285714,
+        "is_win": false,
+        "mfe": 5.04,
+        "mae": -7.42,
+        "xai": {
+            "upper_wick_ratio": 0.06756300249983258,
+            "dist_to_ema50_atr": 2.307691353957719,
+            "rsi_14": 48.65023044846002,
+            "vol_compression": 1.0654626355288335
+        },
+        "tp_pct": 10.31,
+        "sl_pct": 5.16,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "AGLDUSDT_202603052000",
+        "symbol": "AGLDUSDT",
+        "timestamp": "2026-03-05T20:00:00",
+        "side": "SHORT",
+        "price": 0.2581,
+        "prob": 0.601049749291458,
+        "tp_price": 0.22392857142857145,
+        "sl_price": 0.2751857142857143,
+        "is_win": false,
+        "mfe": 3.37,
+        "mae": -21.66,
+        "xai": {
+            "upper_wick_ratio": 0.14062497802734866,
+            "dist_to_ema50_atr": 2.4715409951647542,
+            "rsi_14": 76.26259930110126,
+            "vol_compression": 1.0793487657572276
+        },
+        "tp_pct": 13.24,
+        "sl_pct": 6.62,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "TRUUSDT_202603051400",
+        "symbol": "TRUUSDT",
+        "timestamp": "2026-03-05T14:00:00",
+        "side": "SHORT",
+        "price": 0.005243,
+        "prob": 0.6363610938122762,
+        "tp_price": 0.004915571428571429,
+        "sl_price": 0.005406714285714286,
+        "is_win": true,
+        "mfe": 11.86,
+        "mae": -0.15,
+        "xai": {
+            "upper_wick_ratio": 0.34374731447410484,
+            "dist_to_ema50_atr": 0.9570153214660472,
+            "rsi_14": 56.821190434488656,
+            "vol_compression": 0.9691570555308827
+        },
+        "tp_pct": 6.25,
+        "sl_pct": 3.12,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    },
+    {
+        "id": "YGGUSDT_202603051400",
+        "symbol": "YGGUSDT",
+        "timestamp": "2026-03-05T14:00:00",
+        "side": "SHORT",
+        "price": 0.04127,
+        "prob": 0.6001974519267471,
+        "tp_price": 0.03897,
+        "sl_price": 0.042420000000000006,
+        "is_win": true,
+        "mfe": 12.33,
+        "mae": -0.39,
+        "xai": {
+            "upper_wick_ratio": 0.20481903033851415,
+            "dist_to_ema50_atr": 2.720573579402198,
+            "rsi_14": 74.34371987986046,
+            "vol_compression": 1.0744066953999256
+        },
+        "tp_pct": 5.57,
+        "sl_pct": 2.79,
+        "atr_pct": 2.0,
+        "probas": [
+            0.0,
+            0.5,
+            0.5
+        ]
+    }
+]

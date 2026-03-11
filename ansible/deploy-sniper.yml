@@ -1,0 +1,78 @@
+---
+- name: Deploy Sniper Bot using Git
+  hosts: sniper_bots
+  become: yes
+  vars:
+    # -------------------------------------------------------------
+    # CẤU HÌNH CẦN THAY ĐỔI 
+    # -------------------------------------------------------------
+    repo_url: "https://github.com/gnuhhung317/macd-overlay.git" 
+    repo_branch: "main"                                           
+    bot_command: "/usr/bin/python3 -m sniper_bot.main"                   
+
+    # Cấu hình mặc định
+    bot_dir: "/opt/{{ bot_name }}"
+    local_config_dir: "bots-configs/{{ bot_name }}"
+
+  tasks:
+    - name: 1. Cài đặt các gói phần mềm cần thiết (Git, Python, Pip)
+      apt:
+        name: 
+          - git
+          - python3
+          - python3-pip
+          - python3-venv
+        state: present
+        update_cache: yes
+      when: ansible_os_family == "Debian"   
+
+    - name: 2. Clone hoặc Pull code mới nhất từ Git về Server
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ bot_dir }}"
+        version: "{{ repo_branch }}"
+        force: yes 
+
+    - name: 3. Copy file config riêng biệt cho Sniper
+      copy:
+        src: "{{ local_config_dir }}/sniper_bot_config.json"
+        dest: "{{ bot_dir }}/sniper_bot_config.json"
+        mode: '0600' 
+
+    - name: 4. Copy thư mục models (AI) từ máy Local lên Server
+      copy:
+        src: "{{ playbook_dir }}/../ml/training/models/"
+        dest: "{{ bot_dir }}/ml/training/models/"
+        directory_mode: '0755'
+
+    - name: 5. Cài đặt các thư viện Python từ requirements.txt
+      pip:
+        requirements: "{{ bot_dir }}/requirements.txt"
+        executable: pip3
+
+    - name: 6. Tạo file Systemd Service để chạy bot ngầm
+      template:
+        src: templates/bot.service.j2
+        dest: /etc/systemd/system/{{ bot_name }}.service
+      notify: Reload Systemd
+
+    - name: 7. Khởi động Bot và thiết lập chạy cùng server khi reboot
+      systemd:
+        name: "{{ bot_name }}"
+        state: restarted
+        enabled: yes
+
+    - name: 8. Đợi 5 giây để bot khởi động
+      pause:
+        seconds: 5
+
+    - name: 9. Kiểm tra xem bot có đang chạy ổn định không (Health Check)
+      command: systemctl is-active {{ bot_name }}
+      register: bot_status
+      failed_when: bot_status.stdout != "active"
+      changed_when: false
+
+  handlers:
+    - name: Reload Systemd
+      systemd:
+        daemon_reload: yes
