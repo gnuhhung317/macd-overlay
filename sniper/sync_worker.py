@@ -391,43 +391,46 @@ def sync_all(lookback=1):
                                 if f_row['low'] <= s['tp_price']:
                                     s['is_win'] = True; updated_status_count += 1; break
 
-                # Stage 1: Closed Candle Check
-                completed_df = full_df.iloc[:-1] # Always use COMPLETED candle
-                if completed_df.empty: continue
-                
-                curr_row = completed_df.iloc[-1:] 
+            # Stage 1: Closed Candle Check
+            completed_df = full_df.iloc[:-1] # Always use COMPLETED candle
+            if completed_df.empty: continue
+            
+            # --- CHÍNH: Quét ngược n nến theo lookback ---
+            scan_bars = min(lookback, len(completed_df) - 50) 
+            if scan_bars <= 0: scan_bars = 1
+
+            for row_idx in range(len(completed_df) - scan_bars, len(completed_df)):
+                curr_row = completed_df.iloc[row_idx:row_idx+1] 
                 ts = curr_row['timestamp'].iloc[0]
                 sig_id = f"{sym}_{ts.strftime('%Y%m%d%H%M')}"
                 
                 if sig_id in existing_ids:
                     continue
 
-                # Stage 1: Ignition Filter (EXACTLY as in train_sniper.py)
-                # Note: df['volume_sma_20'] in extract_features_live is rolling(20).mean()
-                # We need the value BEFORE this bar: .shift(1)
+                # Stage 1: Ignition Filter
                 vol_sma_series = completed_df['volume'].rolling(20).mean().shift(1)
-                vol_sma_val = vol_sma_series.iloc[-1]
+                vol_sma_val = vol_sma_series.iloc[row_idx]
                 
                 close_val = curr_row['close'].iloc[0]
                 open_val = curr_row['open'].iloc[0]
                 rsi_val = curr_row['rsi_14'].iloc[0]
                 ema20_val = curr_row['ema_20'].iloc[0]
-                res50_val = curr_row['resistance_50'].iloc[0]
+                
+                # Use rolling high from completed_df
+                res50_series = completed_df['high'].rolling(50).max().shift(1)
+                res50_val = res50_series.iloc[row_idx]
                 
                 cond_green_bar = (close_val > open_val) and (close_val > ema20_val)
                 cond_body_size = ((close_val - open_val) / open_val) > 0.015
                 cond_vol_ignition = (vol_sma_val * 1.5 < curr_row['volume'].iloc[0] < vol_sma_val * 4.0)
                 cond_rsi_fresh = (55 <= rsi_val <= 72)
                 
-                dist_to_res = (res50_val - close_val) / (close_val + 1e-9)
-                # cond_near_res = dist_to_res > -0.05 (Removed: Performance killer)
-                cond_near_res = True
-
-                if not (cond_green_bar and cond_body_size and cond_vol_ignition and cond_rsi_fresh and cond_near_res):
+                if not (cond_green_bar and cond_body_size and cond_vol_ignition and cond_rsi_fresh):
                     continue
                 
                 # Tầng 2: AI Check
                 X = curr_row[features].apply(pd.to_numeric, errors='coerce')
+                if X.isnull().values.any(): X = X.fillna(0)
                         
                 probas = clf.predict_proba(X)
                 prob_long, prob_short = probas[0, 1], probas[0, 2]
@@ -446,7 +449,7 @@ def sync_all(lookback=1):
                     # Evaluate historical excursion if not live
                     hist_mfe, hist_mae = 0.0, 0.0
                     is_win = None
-                    future_bars = full_df.iloc[lookback_df.index[idx]+1:]
+                    future_bars = full_df.iloc[row_idx+1:]
                     if not future_bars.empty:
                         if side == "LONG":
                             hist_mfe = (future_bars['high'].max() - entry_price) / entry_price * 100

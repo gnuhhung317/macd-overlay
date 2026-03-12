@@ -13,8 +13,12 @@ from sniper_bot.config import SniperBotConfig
 from bot.db import DatabaseManager
 from bot.data_provider import DataProvider
 from bot.executor import get_executor
-from .position_manager import PositionManager
-from sniper_bot.sniper_scanner import SniperScanner
+try:
+    from sniper_bot.position_manager import PositionManager
+    from sniper_bot.sniper_scanner import SniperScanner
+except ImportError:
+    from position_manager import PositionManager
+    from sniper_scanner import SniperScanner
 
 # Configure Logging
 log_dir = Path("logs")

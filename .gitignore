@@ -15,3 +15,4 @@ bot_config*.json
 *.ini
 *credentials.json
 *.rar
+sniper/signals_live.json
