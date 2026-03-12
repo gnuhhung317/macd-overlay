@@ -128,7 +128,7 @@ class CCXTExecutor(ExchangeExecutor):
             print(f"❌ Error getting balance via CCXT: {e}")
             return 0.0
 
-    def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float, trailing_callback: float = 0.0, activation_price: float = 0.0) -> Dict[str, Any]:
+    def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float, trailing_callback: float = 0.0, activation_price: float = 0.0, order_type: str = 'MARKET', price: float = 0.0) -> Dict[str, Any]:
         ccxt_symbol = self._get_ccxt_symbol(symbol)
         try:
             # 1. Set Leverage
@@ -396,7 +396,7 @@ class BinanceExecutor(ExchangeExecutor):
             print(f"❌ Error getting balance: {e}")
             return 0.0
 
-    def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float, trailing_callback: float = 0.0, activation_price: float = 0.0) -> Dict[str, Any]:
+    def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float, trailing_callback: float = 0.0, activation_price: float = 0.0, order_type: str = 'MARKET', price: float = 0.0) -> Dict[str, Any]:
         """
         Place Market Order + SL/TP + Optional Trailing Stop
         size is in USDT

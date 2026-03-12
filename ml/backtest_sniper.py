@@ -289,6 +289,7 @@ def run_portfolio_simulation(all_signals, price_db, config: BacktestConfig):
     active_trades: List[Trade] = []
     closed_trades: List[Trade] = []
     equity_curve = [(all_signals[0]['timestamp'] - timedelta(hours=1), realized_capital)]
+    max_open_notional = 0.0
     
     for signal in all_signals:
         curr_time = signal['timestamp']
@@ -298,7 +299,8 @@ def run_portfolio_simulation(all_signals, price_db, config: BacktestConfig):
         while active_trades and active_trades[0].exit_time <= curr_time:
             t = active_trades.pop(0)
             realized_capital += t.pnl_usd
-            available_capital += t.pos_size_usd + t.pnl_usd # Return margin + profit
+            # Return margin + net profit (which could be negative)
+            available_capital += (t.pos_size_usd / config.leverage) + t.pnl_usd
             closed_trades.append(t)
             equity_curve.append((t.exit_time, realized_capital))
             
@@ -316,6 +318,8 @@ def run_portfolio_simulation(all_signals, price_db, config: BacktestConfig):
                 floating_pnl += t.pos_size_usd * pnl_pct
                 
         mtm_equity = realized_capital + floating_pnl
+        current_open_notional = sum(t.pos_size_usd for t in active_trades)
+        max_open_notional = max(max_open_notional, current_open_notional)
             
         # 3. Check if we can open new trade
         if len(active_trades) < config.max_open_trades:
@@ -323,14 +327,16 @@ def run_portfolio_simulation(all_signals, price_db, config: BacktestConfig):
             risk_amount = mtm_equity * config.risk_per_trade
             atr = signal['atr_val']
             sl_dist = 1.0 * atr if signal['type'] == 'LONG' else 1.5 * atr
+            # Safety: Ensure SL distance is at least 0.3% to prevent extreme volume
+            min_sl_dist = signal['entry_price'] * 0.003
+            effective_sl_dist = max(sl_dist, min_sl_dist)
             
-            # Position sizing
-            pos_size_usd = (risk_amount * signal['entry_price']) / (sl_dist + 1e-9)
+            # Position sizing based on risk
+            pos_size_usd = (risk_amount * signal['entry_price']) / (effective_sl_dist + 1e-9)
             
             # Margin Check: Can't exceed available capital * leverage
-            # Only checking that margin used fits in available capital
-            max_pos = min(available_capital * config.leverage * 0.95,10000)
-            pos_size_usd = min(pos_size_usd, max_pos)
+            max_allowed_pos = available_capital * config.leverage * 0.95
+            pos_size_usd = min(pos_size_usd, max_allowed_pos)
             
             if pos_size_usd < 10: continue
 
@@ -374,7 +380,7 @@ def run_portfolio_simulation(all_signals, price_db, config: BacktestConfig):
         closed_trades.append(t)
         equity_curve.append((t.exit_time, realized_capital))
             
-    return closed_trades, equity_curve
+    return closed_trades, equity_curve, max_open_notional
 
 def run_backtest_with_config(config: BacktestConfig):
     print(f"\n{'='*60}")
@@ -406,7 +412,7 @@ def run_backtest_with_config(config: BacktestConfig):
         return None, None, None, None
         
     print(f"Found {len(potential_signals)} filled signals. Simulating portfolio...")
-    trades, equity_curve = run_portfolio_simulation(potential_signals, price_db, config)
+    trades, equity_curve, max_notional = run_portfolio_simulation(potential_signals, price_db, config)
     
     if not trades:
         print("No trades executed.")
@@ -425,10 +431,31 @@ def run_backtest_with_config(config: BacktestConfig):
     print(f"Total Trades:    {len(report_df)}")
     
     equity_series = pd.DataFrame(equity_curve, columns=['time', 'val']).set_index('time')['val']
+    
+    # Advanced Metrics
+    # 1. Profit Factor
+    total_gains = report_df[report_df['pnl_usd'] > 0]['pnl_usd'].sum()
+    total_losses = abs(report_df[report_df['pnl_usd'] < 0]['pnl_usd'].sum())
+    profit_factor = total_gains / (total_losses + 1e-9)
+    
+    # 2. Daily Returns for Sharpe
+    daily_equity = equity_series.resample('D').last().ffill()
+    daily_returns = daily_equity.pct_change().dropna()
+    sharpe = (daily_returns.mean() / (daily_returns.std() + 1e-9)) * np.sqrt(365) if len(daily_returns) > 1 else 0
+    
+    # 3. Calmar
     roll_max = equity_series.cummax()
     daily_drawdown = (equity_series - roll_max) / (roll_max + 1e-9)
     max_dd = daily_drawdown.min() * 100
+    
+    ann_return = total_return / (max(1, (equity_series.index[-1] - equity_series.index[0]).days) / 365.25)
+    calmar = abs(ann_return / (max_dd + 1e-9)) if max_dd != 0 else 0
+
+    print(f"Peak Open Vol:   ${max_notional:.2f} (Limit: ${config.initial_capital * config.leverage:.2f})")
     print(f"Max Drawdown:    {max_dd:.2f}%")
+    print(f"Profit Factor:   {profit_factor:.2f}")
+    print(f"Sharpe Ratio:    {sharpe:.2f}")
+    print(f"Calmar Ratio:    {calmar:.2f}")
 
     for t in ['LONG', 'SHORT']:
         subset = report_df[report_df['type'] == t]

@@ -332,17 +332,17 @@ class PositionManager:
         # Pseudo-ISOLATED: Cap SL at 0.99/leverage so we simulate isolated liquidation
         if self.config.exchange.margin_mode.upper() == "ISOLATED":
             pseudo_iso_sl = 0.99 / self.config.exchange.leverage
-            ml_sl = analysis.get('sl', pseudo_iso_sl)
+            atr_sl_pct = analysis.get('sl', pseudo_iso_sl)
             
-            if ml_sl <= 0:
-                ml_sl = pseudo_iso_sl # Fallback if ML didn't provide one
+            if atr_sl_pct <= 0:
+                atr_sl_pct = pseudo_iso_sl # Fallback
                 
-            analysis['sl'] = min(ml_sl, pseudo_iso_sl)
+            analysis['sl'] = min(atr_sl_pct, pseudo_iso_sl)
             
             if analysis['sl'] == pseudo_iso_sl:
-                print(f"🛡️ Pseudo-ISOLATED Mode: Capping ML SL at liquidation risk: {pseudo_iso_sl:.2%} (1/leverage)")
+                print(f"🛡️ Pseudo-ISOLATED Mode: Capping ATR SL at liquidation risk: {pseudo_iso_sl:.2%} (1/leverage)")
             else:
-                print(f"🛡️ Pseudo-ISOLATED Mode: Using ML SL {ml_sl:.2%} (Safer than {pseudo_iso_sl:.2%})")
+                print(f"🛡️ Pseudo-ISOLATED Mode: Using ATR SL {atr_sl_pct:.2%} (Safer than {pseudo_iso_sl:.2%})")
 
         sl_pct = analysis['sl'] if analysis['sl'] > 0 else 0.01
         
@@ -360,26 +360,20 @@ class PositionManager:
 
         direction = "LONG" if analysis['signal'] == "BULLISH" else "SHORT"
         
-        if direction == "LONG":
-            sl_price = current_price * (1 - analysis['sl'])
-            tp_price = current_price * (1 + analysis['tp'])
-        else:
-            sl_price = current_price * (1 + analysis['sl'])
-            tp_price = current_price * (1 - analysis['tp'])
-
-        # Calculate Trailing Stop Parameters
-        trailing_callback = self.config.strategy.trailing_stop_callback
-        activation_price = 0.0
+        # Use SL/TP calculated from ATR in scanner
+        limit_price = analysis.get('limit_price', 0)
+        base_price = limit_price if limit_price > 0 else current_price
         
-        if trailing_callback > 0 and self.config.strategy.trailing_stop_activation_pct > 0:
-            act_pct = self.config.strategy.trailing_stop_activation_pct
-            if direction == "LONG":
-                activation_price = current_price * (1 + act_pct)
-            else:
-                activation_price = current_price * (1 - act_pct)
+        if direction == "LONG":
+            sl_price = base_price * (1 - analysis['sl'])
+            tp_price = base_price * (1 + analysis['tp'])
+        else:
+            sl_price = base_price * (1 + analysis['sl'])
+            tp_price = base_price * (1 - analysis['tp'])
 
         # 2. Execute Order
         try:
+            # Trailing stop removed to fix StrategyConfig attribute error
             order_result = self.executor.place_order(
                 symbol=symbol,
                 side=direction.lower(),
@@ -387,10 +381,8 @@ class PositionManager:
                 leverage=self.config.exchange.leverage,
                 sl_price=sl_price,
                 tp_price=tp_price,
-                trailing_callback=trailing_callback,
-                activation_price=activation_price,
-                order_type='LIMIT' if analysis.get('limit_price', 0) > 0 else 'MARKET',
-                price=analysis.get('limit_price', 0)
+                order_type='LIMIT' if limit_price > 0 else 'MARKET',
+                price=limit_price
             )
             
             if not order_result or 'order_id' not in order_result:
