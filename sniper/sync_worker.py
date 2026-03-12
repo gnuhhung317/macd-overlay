@@ -157,6 +157,8 @@ def extract_features_live(df_1h, df_1d, btc_df):
     tr = pd.concat([df['high'] - df['low'], abs(df['high'] - df['close'].shift(1)), abs(df['low'] - df['close'].shift(1))], axis=1).max(axis=1)
     df['atr_14'] = tr.rolling(14).mean()
     df['volatility_14'] = df['log_returns'].rolling(14).std()
+    
+    # Volatility Compression (Match original feature.py: StdDev ratio)
     df['vol_sma_14'] = df['volatility_14'].rolling(14).mean()
     df['vol_compression'] = df['volatility_14'] / (df['vol_sma_14'] + 1e-9)
     
@@ -222,7 +224,7 @@ def extract_features_live(df_1h, df_1d, btc_df):
     # 9. 1D MTF (Anti-Lookahead)
     if df_1d is not None and not df_1d.empty:
         d1d_ema = df_1d['close'].ewm(span=200).mean().shift(1).iloc[-1]
-        df['ema_200_1d_dist'] = (df['close'] - d1d_ema) / df['close']
+        df['ema_200_1d_dist'] = (df['close'] - d1d_ema) / d1d_ema
         df['rsi_14_1d'] = calculate_rsi(df_1d['close'], 14).shift(1).iloc[-1]
     else:
         df['ema_200_1d_dist'] = np.nan
@@ -418,7 +420,8 @@ def sync_all(lookback=1):
                 cond_rsi_fresh = (55 <= rsi_val <= 72)
                 
                 dist_to_res = (res50_val - close_val) / (close_val + 1e-9)
-                cond_near_res = dist_to_res > -0.05
+                # cond_near_res = dist_to_res > -0.05 (Removed: Performance killer)
+                cond_near_res = True
 
                 if not (cond_green_bar and cond_body_size and cond_vol_ignition and cond_rsi_fresh and cond_near_res):
                     continue

@@ -71,14 +71,20 @@ class SniperScanner:
             df['atr_pct'] = (df['atr_14'] / df['close']) * 100
         
         # 4. Volatility
+        df['log_returns'] = np.log(df['close'] / df['close'].shift(1))
         df['volatility_14'] = df['log_returns'].rolling(14).std()
+        
+        # Volatility Compression (Match original feature.py: StdDev ratio)
         df['vol_sma_14'] = df['volatility_14'].rolling(14).mean()
         df['vol_compression'] = df['volatility_14'] / (df['vol_sma_14'] + 1e-9)
         
         # 5. Volume
+        # Match data_pipeline.py: volume / volume_sma_14
+        df['volume_sma_14'] = df['volume'].rolling(14).mean()
+        df['volume_std_14'] = df['volume'].rolling(14).std()
+        df['volume_ratio'] = df['volume'] / (df['volume_sma_14'] + 1e-9)
         df['volume_sma_20'] = df['volume'].rolling(20).mean()
         df['volume_std_20'] = df['volume'].rolling(20).std()
-        df['volume_ratio'] = df['volume'] / (df['volume_sma_20'] + 1e-9)
         df['volume_zscore'] = (df['volume'] - df['volume_sma_20']) / (df['volume_std_20'] + 1e-9)
         df['volume_trend'] = df['volume'].rolling(7).mean() / (df['volume'].rolling(21).mean() + 1e-9)
         
@@ -89,6 +95,7 @@ class SniperScanner:
         rs = gain / (loss + 1e-9)
         df['rsi_14'] = 100 - (100 / (1 + rs))
         df['rsi_14'] = df['rsi_14'].fillna(50)
+        # Match original feature.py: diff(3)
         df['rsi_slope'] = df['rsi_14'].diff(3)
         
         l14 = df['low'].rolling(14).min(); h14 = df['high'].rolling(14).max()
@@ -101,10 +108,11 @@ class SniperScanner:
         df['momentum_30'] = df['close'].pct_change(30)
         df['price_vs_sma_30'] = df['close'] / (df['sma_30'] + 1e-9)
         
-        df['dist_to_high_30d'] = (df['close'] - df['high'].rolling(30).max()) / df['close']
-        df['dist_to_low_30d'] = (df['close'] - df['low'].rolling(30).min()) / df['close']
+        df['dist_to_high_30d'] = (df['close'] - df['high'].rolling(30).max()) / (df['close'] + 1e-9)
+        df['dist_to_low_30d'] = (df['close'] - df['low'].rolling(30).min()) / (df['close'] + 1e-9)
         for e in [21, 50, 200]:
-            df[f'dist_to_ema_{e}_pct'] = (df['close'] - df[f'ema_{e}']) / df['close']
+            # Match original feature.py: (P - EMA) / P
+            df[f'dist_to_ema_{e}_pct'] = (df['close'] - df[f'ema_{e}']) / (df['close'] + 1e-9)
             
         # 8. MACD
         ema_fast = df['close'].ewm(span=12, adjust=False).mean()
@@ -148,6 +156,7 @@ class SniperScanner:
         # 13. Regime
         df['trend_state'] = np.where(df['close'] > df['sma_50'], 1, np.where(df['close'] < df['sma_50'], -1, 0))
         df['is_trending'] = (df['adx'] > 25).astype(int)
+        # Match original feature.py logic
         df['is_volatile'] = (df['vol_compression'] > 1.5).astype(int)
         
         # 14. BTC Context Integration
@@ -238,7 +247,7 @@ class SniperScanner:
                 btc_df['adx'] = (100 * abs(pdi - mdi) / (pdi + mdi).replace(0, np.nan)).rolling(14).mean()
         except Exception as e:
             print(f"[SniperScanner] Failed to fetch BTC context: {e}")
-
+        print(f"[SniperScanner] Fetched BTC context: {btc_df}")
         total_symbols = len(symbols)
         start_time = time.time()
         
@@ -302,7 +311,8 @@ class SniperScanner:
                 cond_rsi_fresh = (55 <= row['rsi_14'] <= 72)
                 
                 dist_to_res = (resistance_50 - row['close']) / (row['close'] + 1e-9)
-                cond_near_res = dist_to_res > -0.05
+                # cond_near_res = dist_to_res > -0.05 (Removed: Backtest shows this kills super-winners)
+                cond_near_res = True 
                 
                 if not (cond_green_bar and cond_body_size and cond_vol_ignition and cond_rsi_fresh and cond_near_res):
                     continue 

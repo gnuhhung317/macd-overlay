@@ -229,12 +229,17 @@ def backtest_symbol(file_path, features, clf, threshold, config: BacktestConfig)
         
         # 1. Stage 1 Filter: Ignition Bar
         vol_sma = df['volume'].rolling(20).mean().shift(1)
+        resistance_50 = df['high'].rolling(50).max().shift(1)
+        dist_to_res = (resistance_50 - df['close']) / (df['close'] + 1e-9)
+        
         c1 = (df['close'] > df['open']) & (df['close'] > df['ema_20'])
         c2 = ((df['close'] - df['open']) / df['open']) > 0.015
         c3 = (df['volume'] > vol_sma * 1.5) & (df['volume'] < vol_sma * 4.0)
         c4 = (df['rsi_14'] >= 55) & (df['rsi_14'] <= 72)
+        # c5 = dist_to_res > -0.05 (Removed: Counter-productive to profitability)
+        c5 = True
         
-        ignition_mask = (c1 & c2 & c3 & c4).reindex(scan_indices, fill_value=False)
+        ignition_mask = (c1 & c2 & c3 & c4 & c5).reindex(scan_indices, fill_value=False)
         final_scan_indices = scan_indices[ignition_mask]
         
         if len(final_scan_indices) == 0: return None, None

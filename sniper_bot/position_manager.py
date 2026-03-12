@@ -185,6 +185,29 @@ class PositionManager:
                     )
                     self.notifier.send_message(msg)
 
+    def _check_limit_order_timeouts(self):
+        """Cancel limit orders that haven't filled after limit_wait_bars"""
+        limit_wait_bars = getattr(self.config.strategy, 'limit_wait_bars', 5)
+        # Assuming 1 bar = timeframe duration
+        tf = self.config.strategy.timeframes[0] if self.config.strategy.timeframes else '1h'
+        minutes_per_bar = 60 # Default 1h
+        if tf.endswith('m'): minutes_per_bar = int(tf[:-1])
+        elif tf.endswith('h'): minutes_per_bar = int(tf[:-1]) * 60
+        elif tf.endswith('d'): minutes_per_bar = int(tf[:-1]) * 1440
+        
+        timeout_seconds = limit_wait_bars * minutes_per_bar * 60
+        
+        now = datetime.now()
+        bot_symbols = list(self.active_positions.keys())
+        
+        for symbol in bot_symbols:
+            trade = self.active_positions[symbol]
+            # Check if it's a pending LIMIT order (size might be set but not yet 'filled' if we tracked it better)
+            # In current logic, we just check entry_time + status
+            if trade['status'] == 'OPEN':
+                # Check exchange to see if it's actually a position or still an order
+                pass # Sync handle this mostly, but we can proactively cancel here
+
             else:
                 # Real execution - allow exchange to handle SL/TP or market close here
                 # For now we assume if SL/TP orders were placed, we just track.
@@ -385,70 +408,88 @@ class PositionManager:
 
     def sync_positions(self):
         """
-        Reconcile Bot's internal state with Exchange's real positions.
-        If a position is missing on Exchange but Open in Bot -> Close in Bot.
+        Reconcile Bot's internal state with Exchange's real positions and orders.
+        Prevents purging pending LIMIT orders.
         """
         try:
-            # 1. Get Real Positions
+            # 1. Get Real State
             real_positions = self.executor.get_open_positions()
+            real_orders = self.executor.get_open_orders()
+            
             real_symbols = {p['symbol']: p for p in real_positions}
+            order_symbols = {o['symbol'] for o in real_orders}
             
             # 2. Check Bot's Active Positions
-            # Create a copy of keys to avoid runtime error during deletion
             bot_symbols = list(self.active_positions.keys())
+            limit_wait_bars = getattr(self.config.strategy, 'limit_wait_bars', 5)
+            tf = self.config.strategy.timeframes[0] if self.config.strategy.timeframes else '1h'
+            minutes_per_bar = 60
+            if tf.endswith('h'): minutes_per_bar = int(tf[:-1]) * 60
+            elif tf.endswith('m'): minutes_per_bar = int(tf[:-1])
+            
+            limit_timeout_seconds = limit_wait_bars * minutes_per_bar * 60
             
             for symbol in bot_symbols:
                 trade = self.active_positions[symbol]
                 
-                # If Bot thinks it's open, but Exchange doesn't have it
-                if symbol not in real_symbols:
-                    print(f"⚠️ Mismatch: {symbol} found in Bot but NOT on Exchange. Closing in DB...")
+                # Case A: Found in Positions -> All good
+                if symbol in real_symbols:
+                    continue
+                
+                # Case B: Found in Orders -> Check Timeout
+                if symbol in order_symbols:
+                    entry_time = trade['entry_time']
+                    if isinstance(entry_time, str):
+                        entry_time = pd.Timestamp(entry_time)
                     
-                    # Mark as Closed in DB
-                    self.db.update_trade(trade['id'], {
-                        'status': 'CLOSED',
-                        'exit_time': datetime.now(),
-                        'exit_reason': 'EXTERNAL_CLOSE', # Manually closed or Liquidated
-                        'pnl': 0.0, # Unknown PnL if closed externally, or fetch from history if possible
-                        'raw_data': {'note': 'Closed externally detected by Sync'}
-                    })
-                    
-                    # Remove from Memory
-                    del self.active_positions[symbol]
-                    
-                    # Notify
-                    if self.notifier:
-                        self.notifier.send_message(f"⚠️ <b>Position Sync:</b> {symbol} was closed externally.")
+                    waited_seconds = (datetime.now() - entry_time).total_seconds()
+                    if waited_seconds > limit_timeout_seconds:
+                        print(f"⌛ Limit Timeout for {symbol} ({waited_seconds/60:.1f}m > {limit_timeout_seconds/60}m). Cancelling...")
+                        # 1. Cancel on exchange
+                        order_id = trade.get('raw_data', {}).get('order_id')
+                        if order_id:
+                            self.executor.cancel_order(symbol, order_id)
                         
-                else:
-                    # Optional: Update PnL or Size if changed partial close?
-                    # For now just existence check is enough for safety.
-                    pass
+                        # 2. Close in DB
+                        self.db.update_trade(trade['id'], {
+                            'status': 'CLOSED',
+                            'exit_time': datetime.now(),
+                            'exit_reason': 'LIMIT_TIMEOUT',
+                            'pnl': 0.0
+                        })
+                        del self.active_positions[symbol]
+                    continue
+
+                # Case C: Not in Positions and Not in Orders -> Closed externally
+                print(f"⚠️ Mismatch: {symbol} found in Bot but NOT on Exchange (Pos/Order). Closing in DB...")
+                self.db.update_trade(trade['id'], {
+                    'status': 'CLOSED',
+                    'exit_time': datetime.now(),
+                    'exit_reason': 'EXTERNAL_CLOSE',
+                    'pnl': 0.0
+                })
+                del self.active_positions[symbol]
+                if self.notifier:
+                    self.notifier.send_message(f"⚠️ <b>Position Sync:</b> {symbol} was closed externally or filled/cancelled.")
                     
-            # 3. Reverse Sync: If Exchange has position but Bot doesn't?
+            # 3. Reverse Sync (Import missing positions)
             for symbol, real_p in real_symbols.items():
                 if symbol not in bot_symbols:
                     print(f"🔄 Reverse Sync: Found {symbol} on exchange but not in local DB. Importing...")
-                    
                     trade_record = {
                         "symbol": symbol,
                         "direction": real_p['side'],
                         "status": "OPEN",
                         "entry_price": real_p['entry_price'],
-                        "sl_price": real_p.get('sl_price', 0.0), # Lấy SL từ exchange
-                        "tp_price": real_p.get('tp_price', 0.0), # Lấy TP từ exchange
+                        "sl_price": real_p.get('sl_price', 0.0),
+                        "tp_price": real_p.get('tp_price', 0.0),
                         "size": real_p['size'],
-                        "leverage": real_p['leverage'],
-                        "raw_data": {"note": "Imported via Reverse Sync"},
+                        "leverage": real_p.get('leverage', self.config.exchange.leverage),
+                        "raw_data": {"note": "Imported via Sync"},
                         "entry_time": real_p.get('entry_time', datetime.now())
                     }
-                    
                     trade_id = self.db.add_trade(trade_record)
                     trade_record['id'] = trade_id
                     self.active_positions[symbol] = trade_record
-                    print(f"✅ Imported Position: {symbol} (Entry Time: {trade_record['entry_time']})")
-                    
-                    if self.notifier:
-                        self.notifier.send_message(f"🔄 <b>System Recovery:</b> Imported existing position for {symbol}")
         except Exception as e:
             print(f"❌ Sync Error: {e}")

@@ -29,6 +29,11 @@ class ExchangeExecutor(ABC):
         """Get all open positions from exchange"""
         pass
 
+    @abstractmethod
+    def get_open_orders(self, symbol: Optional[str] = None) -> list:
+        """Get all open/pending orders from exchange"""
+        pass
+
 class DryRunExecutor(ExchangeExecutor):
     def __init__(self, config: BotConfig):
         self.config = config
@@ -67,6 +72,9 @@ class DryRunExecutor(ExchangeExecutor):
         print(f"💰 [DRY RUN] Balance updated: ${self.balance:,.2f} ({'+' if amount >= 0 else ''}{amount:,.2f})")
 
     def get_open_positions(self) -> list:
+        return []
+
+    def get_open_orders(self, symbol: Optional[str] = None) -> list:
         return []
 
 import ccxt
@@ -317,6 +325,23 @@ class CCXTExecutor(ExchangeExecutor):
             return active_positions
         except Exception as e:
             print(f"❌ Error fetching positions via CCXT: {e}")
+            return []
+
+    def get_open_orders(self, symbol: Optional[str] = None) -> list:
+        try:
+            orders = self.client.fetch_open_orders(symbol)
+            return [{
+                "symbol": o['symbol'].replace('/', '').replace(':', ''),
+                "id": o['id'],
+                "type": o['type'].upper(),
+                "side": o['side'].upper(),
+                "price": float(o['price'] or 0),
+                "amount": float(o['amount']),
+                "remaining": float(o['remaining']),
+                "timestamp": datetime.fromtimestamp(o['timestamp'] / 1000.0) if o['timestamp'] else datetime.now()
+            } for o in orders]
+        except Exception as e:
+            print(f"❌ Error fetching orders via CCXT: {e}")
             return []
 
 try:
@@ -597,6 +622,23 @@ class BinanceExecutor(ExchangeExecutor):
             return active_positions
         except Exception as e:
             print(f"❌ Error fetching positions: {e}")
+            return []
+
+    def get_open_orders(self, symbol: Optional[str] = None) -> list:
+        try:
+            orders = self.client.futures_get_open_orders(symbol=symbol) if symbol else self.client.futures_get_open_orders()
+            return [{
+                "symbol": o['symbol'],
+                "id": o['orderId'],
+                "type": o['type'],
+                "side": o['side'],
+                "price": float(o['price']),
+                "amount": float(o['origQty']),
+                "remaining": float(o['origQty']) - float(o['executedQty']),
+                "timestamp": datetime.fromtimestamp(o['time'] / 1000.0)
+            } for o in orders]
+        except Exception as e:
+            print(f"❌ Error fetching orders via Binance: {e}")
             return []
 
 def get_executor(config: BotConfig) -> ExchangeExecutor:
