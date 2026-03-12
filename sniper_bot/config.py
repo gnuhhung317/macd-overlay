@@ -12,8 +12,10 @@ class ExchangeConfig(BaseModel):
     api_key: str = ""
     api_secret: str = ""
     passphrase: str = ""
+    password: str = "" # Used by some exchanges via CCXT
     leverage: int = 1
     dry_run: bool = True
+    slippage: float = 0.0005 # 0.05% default
     margin_mode: str = "ISOLATED"
     use_testnet: bool = False
 

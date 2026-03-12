@@ -326,7 +326,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AI Sniper Real-time Scanner")
     parser.add_argument("--limit", type=int, help="Limit number of symbols to scan")
     parser.add_argument("--workers", type=int, default=15, help="Number of parallel workers")
-    parser.add_argument("--lookback", type=int, default=1, help="Number of previous bars to scan")
+    parser.add_argument("--lookback", type=int, default=2, help="Number of previous bars to scan")
     args = parser.parse_args()
 
     scanner = SniperRealtimeScanner()

@@ -13,8 +13,8 @@ class PositionManager:
         config: SniperBotConfig, 
         db: DatabaseManager, 
         executor: ExchangeExecutor,
-        signal_engine: Any, # SniperBot doesn't use SignalEngine
         data_provider: DataProvider,
+        signal_engine: Any = None, # Unused in SniperBot
         notifier: Any = None
     ):
         self.config = config
@@ -36,37 +36,32 @@ class PositionManager:
         print(f"[PositionManager] Restored {len(self.active_positions)} active positions")
 
     def process_symbol(self, symbol: str, timeframe: str):
-        """Main logic loop for a single symbol"""
+        """Main logic loop for a single symbol (Management only for SniperBot)"""
         
         # 1. Check if we already have a position
         current_trade = self.active_positions.get(symbol)
         
-        # 2. Fetch Data
-        df = self.data_provider.fetch_closed_candles(symbol, timeframe)
-        if df.empty:
-            return
-
-        # Augment with indicators
-        df = self.data_provider.calculate_indicators(df)
-        
-        # 3. Handle Active Position (Management)
+        # 2. Handle Active Position (Management)
         if current_trade:
-            self._manage_active_position(current_trade, symbol, df)
-            return
-
-        # 4. Handle No Position
-        # LEGACY: self._scan_for_entry(symbol, df, timeframe)
-        # We now use SmartScanner in main.py for new entries. 
-        # So we do nothing here to avoid double scanning / WAIT logs.
+            # We don't need to fetch candles here for SL/TP if we use get_current_price 
+            # or if we only need the latest close.
+            # However, _manage_active_position handles it internally.
+            self._manage_active_position(current_trade, symbol, None)
+            
         return
 
-    def _manage_active_position(self, trade: Dict, symbol: str, df: pd.DataFrame):
+    def _manage_active_position(self, trade: Dict, symbol: str, df: pd.DataFrame = None):
         """Logic to manage an open trade (check SL/TP)"""
-        current_price = df.iloc[-1]['close'] # Use close of last candle for now, or get_current_price
-        # Better: use get_current_price for realtime accuracy
+        current_price = 0.0
+        
+        # 1. Try to get Live Price first
         live_price = self.data_provider.get_current_price(symbol)
         if live_price > 0:
             current_price = live_price
+        elif df is not None and not df.empty:
+            current_price = df.iloc[-1]['close']
+        else:
+            return # Cannot manage without price
             
         direction = trade['direction']
         sl_price = trade['sl_price']
@@ -220,45 +215,6 @@ class PositionManager:
             
         return max(0, position_size)
 
-    def _scan_for_entry(self, symbol: str, df: pd.DataFrame, timeframe: str):
-        """Logic to find and execute new entries"""
-        
-        # Risk Check: Max Slots
-        if len(self.active_positions) >= self.config.risk.max_open_positions:
-            return
-
-        # NEW: Fresh Crossover Check
-        if self.config.strategy.require_fresh_crossover:
-            last_exit = self.db.get_last_trade_exit(symbol)
-            if last_exit:
-                # Crossover time is the timestamp of the LAST CLOSED candle (since we look at closed candles)
-                crossover_time = df.iloc[-1]['timestamp']
-                
-                # Ensure crossover is AFTER last exit
-                # If crossover_time <= last_exit, it means this signal belongs to a past event we already traded
-                if crossover_time <= last_exit:
-                   # print(f"⏳ Skipping {symbol}: Waiting for fresh crossover (Exit: {last_exit}, Cross: {crossover_time})")
-                    return
-
-        # Fetch Funding Rate
-        funding_rate = self.data_provider.get_funding_rate(symbol)
-
-        # Analyze Signal
-        analysis = self.signal_engine.analyze(symbol, df, timeframe, funding_rate=funding_rate)
-        
-        # Log signal for audit
-        self.db.log_signal({
-            'symbol': symbol,
-            'timeframe': timeframe,
-            'confidence': analysis['confidence'],
-            'sl_pct': analysis['sl'],
-            'tp_pct': analysis['tp'],
-            'action': analysis['action'],
-            'raw_data': analysis['metadata']
-        })
-
-        if analysis['action'] == "ENTRY":
-            self._execute_entry(symbol, analysis)
 
     def execute_calculated_signal(self, signal_data: Dict[str, Any], timeframe: str):
         """

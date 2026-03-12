@@ -239,15 +239,42 @@ class SniperScanner:
         except Exception as e:
             print(f"[SniperScanner] Failed to fetch BTC context: {e}")
 
-        for symbol in symbols:
+        total_symbols = len(symbols)
+        start_time = time.time()
+        
+        for i, symbol in enumerate(symbols):
             try:
-                time.sleep(0.08) # Rate Limit Protection
+                # Progress logging (every 10%)
+                if total_symbols >= 10 and (i + 1) % (total_symbols // 10) == 0:
+                    percent = ((i + 1) / total_symbols) * 100
+                    elapsed = time.time() - start_time
+                    avg_time = elapsed / (i + 1)
+                    rem_time = avg_time * (total_symbols - (i + 1))
+                    print(f"⏳ [Scanner] Progress: {percent:.0f}% ({i+1}/{total_symbols}) | Elapsed: {elapsed:.1f}s | Est. Rem: {rem_time:.1f}s")
+
+                time.sleep(0.05) # Reduced Rate Limit Protection (slightly faster)
                 
                 # Fetch 1H base data
                 df = self.processor.get_historical_data(symbol, timeframe, fetch_start, 'now UTC')
                 if df.empty or len(df) < 50: continue
                 
-                # Fetch 1D target data for Context
+                # PRELIMINARY FILTER (Stage 0): Ignition Bar check on 1H ONLY
+                # This avoids unnecessary 1D fetches for most coins
+                last_idx = df.index[-1]
+                # We check the PREVIOUS candle (closed)
+                closed_candle_idx = df.index[-2] if len(df) > 1 else last_idx
+                row = df.loc[closed_candle_idx]
+                
+                vol_sma = df['volume'].rolling(20).mean().shift(1).loc[closed_candle_idx]
+                
+                cond_green_bar = (row['close'] > row['open']) and (row['close'] > row['close'] * 0.98) # Basic green check
+                cond_vol_ignition = (vol_sma * 1.5 < row['volume']) # Basic volume check
+                
+                # If it doesn't even look like an ignition bar, skip the 1D fetch
+                if not (cond_green_bar and cond_vol_ignition):
+                    continue
+
+                # Fetch 1D target data for Context (LAZY FETCH)
                 df_1d = None
                 try:
                     df_1d = self.processor.get_historical_data(symbol, '1d', "250 days ago UTC", 'now UTC')
@@ -257,17 +284,17 @@ class SniperScanner:
                 live_price = df['close'].iloc[-1]
                 
                 # Use only completed candles for robust signal generation
-                df = df.iloc[:-1].copy()
+                df_calc = df.iloc[:-1].copy()
                 
-                df = self.calculate_features_sniper(df, df_1d, btc_df)
+                df_calc = self.calculate_features_sniper(df_calc, df_1d, btc_df)
                 
-                # Focus only on the VERY LAST completed candle to generate "live" actionable signals
-                last_idx = df.index[-1]
-                row = df.loc[last_idx]
+                # Focus only on the VERY LAST completed candle
+                last_calc_idx = df_calc.index[-1]
+                row = df_calc.loc[last_calc_idx]
                 
-                # Stage 1 Filter: Ignition Bar (EXACTLY as in train_sniper.py)
-                vol_sma = df['volume'].rolling(20).mean().shift(1).loc[last_idx]
-                resistance_50 = df['high'].rolling(50).max().shift(1).loc[last_idx]
+                # Stage 1 Filter: Ignition Bar (Full Check)
+                vol_sma = df_calc['volume'].rolling(20).mean().shift(1).loc[last_calc_idx]
+                resistance_50 = df_calc['high'].rolling(50).max().shift(1).loc[last_calc_idx]
                 
                 cond_green_bar = (row['close'] > row['open']) and (row['close'] > row['ema_20'])
                 cond_body_size = ((row['close'] - row['open']) / row['open']) > 0.015
@@ -278,13 +305,10 @@ class SniperScanner:
                 cond_near_res = dist_to_res > -0.05
                 
                 if not (cond_green_bar and cond_body_size and cond_vol_ignition and cond_rsi_fresh and cond_near_res):
-                    continue # Not an ignition bar matching training data
-                
-                # If we are here, it's a valid Ignition Bar
-                # print(f"🔥 Ignition Bar Found: {symbol} | Vol: {row['volume']/vol_sma:.1f}x | RSI: {row['rsi_14']:.1f}")
-                    
+                    continue 
+
                 # Stage 2: ML Scoring
-                x_input = df.loc[[last_idx], self.features].apply(pd.to_numeric, errors='coerce').fillna(0)
+                x_input = df_calc.loc[[last_calc_idx], self.features].apply(pd.to_numeric, errors='coerce').fillna(0)
                 probas = self.clf.predict_proba(x_input)[0]
                 
                 prob_long = probas[1]

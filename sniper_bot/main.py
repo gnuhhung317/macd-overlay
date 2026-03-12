@@ -1,6 +1,7 @@
 import time
 import signal
 import sys
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -13,8 +14,25 @@ from bot.db import DatabaseManager
 from bot.data_provider import DataProvider
 from bot.executor import get_executor
 from .position_manager import PositionManager
-
 from sniper_bot.sniper_scanner import SniperScanner
+
+# Configure Logging
+log_dir = Path("logs")
+log_dir.mkdir(exist_ok=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    handlers=[
+        logging.FileHandler(log_dir / "sniper_bot.log", encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+# Force UTF-8 for stdout/stderr on Windows to handle emojis correctly
+if sys.platform == "win32":
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+logger = logging.getLogger("SniperBot")
 
 class SniperBot:
     def __init__(self):
@@ -32,7 +50,7 @@ class SniperBot:
         # Initialize Telegram Notifier
         self.notifier = None
         if self.config.telegram.enabled and self.config.telegram.token:
-            print(f"📱 Telegram Enabled. Chat ID: {self.config.telegram.chat_id}")
+            logger.info(f"📱 Telegram Enabled. Chat ID: {self.config.telegram.chat_id}")
             self.notifier = TelegramNotifier(
                 token=self.config.telegram.token, 
                 chat_id=self.config.telegram.chat_id
@@ -44,8 +62,8 @@ class SniperBot:
             self.config,
             self.db,
             self.executor,
-            self.signal_engine,
             self.data_provider,
+            self.signal_engine,
             self.notifier
         )
         
@@ -53,32 +71,32 @@ class SniperBot:
         signal.signal(signal.SIGTERM, self.stop)
 
     def stop(self, signum, frame):
-        print("\n\n🛑 Stopping Sniper Bot...")
+        logger.info(f"🛑 Received signal {signum}. Stopping Sniper Bot...")
         self.running = False
+        if self.notifier:
+            try:
+                self.notifier.send_message("🛑 <b>Sniper Bot Stopped Gracefully</b>")
+            except:
+                pass
 
-    def run(self):
-        print(f"🏹 Starting ML Sniper Bot [{datetime.now()}]")
-        print(f"🔧 Mode: {'DRY RUN' if self.config.exchange.dry_run else 'LIVE TRADING'}")
-        print(f"📊 TF: {self.config.strategy.timeframes}")
-        
     def _fetch_top_symbols(self):
-        print("🔄 Fetching top symbols by volume...")
+        logger.info("🔄 Fetching top symbols by volume...")
         try:
             limit = getattr(self.config, 'max_symbols', 0)
             min_vol = self.config.strategy.min_volume_usdt
             fetched_coins = self.data_provider.get_top_symbols(limit=limit, min_volume=min_vol)
             if fetched_coins:
                self.config.coins = fetched_coins
-               print(f"✅ Found {len(fetched_coins)} coins with Volume > ${min_vol:,.0f}")
+               logger.info(f"✅ Found {len(fetched_coins)} coins with Volume > ${min_vol:,.0f}")
             else:
-               print("⚠️ No coins found matching criteria! Retaining current list.")
+               logger.warning("⚠️ No coins found matching criteria! Retaining current list.")
         except Exception as e:
-            print(f"❌ Error fetching coins: {e}")
+            logger.error(f"❌ Error fetching coins: {e}")
             
     def run(self):
-        print(f"🏹 Starting ML Sniper Bot [{datetime.now()}]")
-        print(f"🔧 Mode: {'DRY RUN' if self.config.exchange.dry_run else 'LIVE TRADING'}")
-        print(f"📊 TF: {self.config.strategy.timeframes}")
+        logger.info(f"🏹 Starting ML Sniper Bot [{datetime.now()}]")
+        logger.info(f"🔧 Mode: {'DRY RUN' if self.config.exchange.dry_run else 'LIVE TRADING'}")
+        logger.info(f"📊 TF: {self.config.strategy.timeframes}")
         
         if getattr(self.config, 'use_all_symbols', False):
             self._fetch_top_symbols()
@@ -90,7 +108,7 @@ class SniperBot:
             try:
                 if not hasattr(self, 'last_sync'): self.last_sync = 0
                 if time.time() - self.last_sync > 300: # 5 mins
-                    print("🔄 Syncing positions with Exchange...")
+                    logger.info("🔄 Syncing positions with Exchange...")
                     self.position_manager.sync_positions()
                     self.last_sync = time.time()
                 
@@ -108,16 +126,16 @@ class SniperBot:
                         try:
                             self.position_manager.process_symbol(symbol, tf)
                         except Exception as e:
-                            print(f"⚠️ Error processing {symbol} {tf}: {e}")
+                            logger.error(f"⚠️ Error processing {symbol} {tf}: {e}")
 
                 # 2. Scan for NEW Entries using Sniper Scanner
                 if len(self.position_manager.active_positions) < self.config.risk.max_open_positions:
                     for tf in self.config.strategy.timeframes:
-                        print(f"📡 Scanning {len(self.config.coins)} coins on {tf} (Sniper Model)...")
+                        logger.info(f"📡 Scanning {len(self.config.coins)} coins on {tf} (Sniper Model)...")
                         try:
                             signals = self.scanner.scan(self.config.coins, tf)
                             if signals:
-                                print(f"🎯 Found {len(signals)} potential signals!")
+                                logger.info(f"🎯 Found {len(signals)} potential signals!")
                             
                             # PRIORITIZATION: Sort signals by confidence (descending)
                             signals.sort(key=lambda x: x.get('confidence', 0), reverse=True)
@@ -126,7 +144,7 @@ class SniperBot:
                                 if not self.running: break
                                 self.position_manager.execute_calculated_signal(sig, tf)
                         except Exception as e:
-                            print(f"❌ Scanner Error: {e}")
+                            logger.error(f"❌ Scanner Error: {e}")
                             
                 # Sleep logic
                 min_tf_minutes = float('inf')
@@ -152,9 +170,13 @@ class SniperBot:
                     time.sleep(1) 
             
             except KeyboardInterrupt:
-                self.stop(None, None)
+                self.stop("KeyboardInterrupt", None)
             except Exception as e:
-                print(f"❌ Critical Loop Error: {e}")
+                logger.critical(f"❌ Critical Loop Error: {e}", exc_info=True)
+                if self.notifier:
+                    try:
+                        self.notifier.send_message(f"🚨 <b>CRITICAL ERROR:</b>\n<code>{str(e)[:100]}</code>\nBot will retry in 60s.")
+                    except: pass
                 time.sleep(60)
 
 if __name__ == "__main__":
