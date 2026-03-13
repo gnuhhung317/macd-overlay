@@ -384,6 +384,15 @@ class BinanceExecutor(ExchangeExecutor):
                 self.symbol_info[s['symbol']] = s
         except Exception as e:
             print(f"⚠️ Error fetching exchange info: {e}")
+            
+        # Cache leverage brackets
+        self.leverage_brackets = {}
+        try:
+            brackets = self.client.futures_leverage_bracket()
+            for b in brackets:
+                self.leverage_brackets[b['symbol']] = b['brackets']
+        except Exception as e:
+            print(f"⚠️ Error fetching leverage brackets: {e}")
 
     def _get_precision(self, symbol: str) -> int:
         """Get quantity precision for symbol"""
@@ -456,6 +465,20 @@ class BinanceExecutor(ExchangeExecutor):
                 if "-4046" not in str(e):
                     print(f"⚠️ Could not change margin type to {margin_type} for {symbol}: {e}")
             
+            # Apply Max Notional Limit from Binance
+            if hasattr(self, 'leverage_brackets') and symbol in self.leverage_brackets:
+                max_notional = float('inf')
+                for bracket in self.leverage_brackets[symbol]:
+                    if leverage <= int(bracket['initialLeverage']):
+                        cap = float(bracket.get('notionalCap', bracket.get('notionalVal', 0)))
+                        if cap > 0 and cap < max_notional:
+                            max_notional = cap
+                
+                # Take 5% buffer from cap to avoid rejection due to slight price shifts
+                if max_notional < float('inf') and size > max_notional * 0.95:
+                    print(f"⚠️ Size {size} > Max Notional {max_notional} for {leverage}x leverage. Reducing size...")
+                    size = max_notional * 0.95
+            
             # 2. Convert USDT Size to Quantity
             try:
                 price_tick = self.client.futures_symbol_ticker(symbol=symbol)
@@ -469,6 +492,20 @@ class BinanceExecutor(ExchangeExecutor):
             current_price = price if order_type.upper() == 'LIMIT' and price > 0 else ref_price
             
             quantity = size / current_price
+            
+            # Apply MAX_QTY filter from Exchange Info
+            if symbol in self.symbol_info:
+                max_qty = float('inf')
+                for f in self.symbol_info[symbol].get('filters', []):
+                    if f.get('filterType') in ['LOT_SIZE', 'MARKET_LOT_SIZE']:
+                        q = float(f.get('maxQty', float('inf')))
+                        if q > 0 and q < max_qty:
+                            max_qty = q
+                
+                if max_qty < float('inf') and quantity > max_qty * 0.95:
+                    print(f"⚠️ Quantity {quantity} > Max Qty {max_qty}. Reducing quantity...")
+                    quantity = max_qty * 0.95
+                    
             prec = self._get_precision(symbol)
             quantity = round(quantity, prec)
             
@@ -496,31 +533,42 @@ class BinanceExecutor(ExchangeExecutor):
             order = self.client.futures_create_order(**order_params)
             
             # 4. Place SL & TP (Reduce Only)
-            
-            # SL
-            sl_side = SIDE_SELL if side.upper() == 'LONG' else SIDE_BUY
-            self.client.futures_create_order(
-                symbol=symbol,
-                side=sl_side,
-                type='STOP_MARKET',
-                quantity=quantity, # Explicit quantity instead of closePosition
-                stopPrice=self.format_price(symbol, sl_price),
-                reduceOnly=True # Use reduceOnly instead of closePosition
-            )
-            
-            # TP
-            if trailing_callback <= 0:
+            try:
+                # SL
+                sl_side = SIDE_SELL if side.upper() == 'LONG' else SIDE_BUY
                 self.client.futures_create_order(
                     symbol=symbol,
                     side=sl_side,
-                    type='TAKE_PROFIT_MARKET',
+                    type='STOP_MARKET',
                     quantity=quantity, # Explicit quantity instead of closePosition
-                    stopPrice=self.format_price(symbol, tp_price),
+                    stopPrice=self.format_price(symbol, sl_price),
                     reduceOnly=True # Use reduceOnly instead of closePosition
                 )
-                print(f"✅ Order & Standard SL/TP Placed for {symbol}")
-            else:
-                print(f"✅ Order & Standard SL Placed for {symbol} (TP skipped due to Trailing Stop)")
+                
+                # TP
+                if trailing_callback <= 0:
+                    self.client.futures_create_order(
+                        symbol=symbol,
+                        side=sl_side,
+                        type='TAKE_PROFIT_MARKET',
+                        quantity=quantity, # Explicit quantity instead of closePosition
+                        stopPrice=self.format_price(symbol, tp_price),
+                        reduceOnly=True # Use reduceOnly instead of closePosition
+                    )
+                    print(f"✅ Order & Standard SL/TP Placed for {symbol}")
+                else:
+                    print(f"✅ Order & Standard SL Placed for {symbol} (TP skipped due to Trailing Stop)")
+            except Exception as sl_tp_err:
+                print(f"⚠️ Error placing SL/TP: {sl_tp_err}. Cancelling/Closing entry order to avoid unprotected position.")
+                try:
+                    if binance_type == ORDER_TYPE_LIMIT:
+                        self.client.futures_cancel_order(symbol=symbol, orderId=order['orderId'])
+                    else:
+                        self.client.futures_create_order(symbol=symbol, side=sl_side, type=ORDER_TYPE_MARKET, quantity=quantity, reduceOnly=True)
+                except Exception as rollback_err:
+                    print(f"❌ Rollback failed! Manual intervention required for {symbol}: {rollback_err}")
+                return {}
+
             
             # 5. Place Native Trailing Stop (Reduce Only) if configured
             if trailing_callback > 0:

@@ -32,9 +32,9 @@ class BacktestConfig:
     start_date: str = '2025-01-01'
     end_date: str = None
     leverage: float = 1.0
-    long_atr_offset: float = -0.18
-    short_atr_offset: float = 0.09
-    limit_wait_bars: int = 3
+    long_atr_offset: float =  -0.9755 #-0.18
+    short_atr_offset: float =0.4527 #0.09
+    limit_wait_bars: int = 2
     tp_mult_long: float = 3.4
     sl_mult_long: float = 1.4
     tp_mult_short: float = 3.9
@@ -212,12 +212,12 @@ def backtest_symbol(file_path, features, clf, threshold, config: BacktestConfig)
         df['timestamp'] = pd.to_datetime(df['timestamp']).dt.tz_localize(None)
         df = df.sort_values('timestamp').reset_index(drop=True)
         
+        start_ts = pd.to_datetime(config.start_date) if config.start_date else df['timestamp'].min()
+        end_ts = pd.to_datetime(config.end_date) if config.end_date else df['timestamp'].max()
+
         # Optimize: Crop to window + padding for indicators
         if config.start_date:
-            start_ts = pd.to_datetime(config.start_date)
-            end_ts = pd.to_datetime(config.end_date) if config.end_date else df['timestamp'].max()
             padding_bars = 1000
-            
             # Find index of start_date and take 1000 bars before it
             start_idx = df[df['timestamp'] >= start_ts].index
             if len(start_idx) > 0:
@@ -231,7 +231,7 @@ def backtest_symbol(file_path, features, clf, threshold, config: BacktestConfig)
         
         scan_indices = df.index
         if config.start_date:
-            scan_indices = df[(df['timestamp'] >= pd.to_datetime(config.start_date)) & (df['timestamp'] <= pd.to_datetime(config.end_date))].index
+            scan_indices = df[(df['timestamp'] >= start_ts) & (df['timestamp'] <= end_ts)].index
         
         vol_sma = df['volume'].rolling(20).mean().shift(1)
         c1 = (df['close'] > df['open']) & (df['close'] > df['ema_20'])
@@ -329,7 +329,7 @@ def run_portfolio_simulation(all_signals, full_price_db, config: BacktestConfig)
                     
                     sl_dist_pct = abs(sl_p - l_p) / l_p
                     pos_size_usd = min(risk_amount / max(sl_dist_pct, 0.003), available_capital * config.leverage * 0.95)
-                    pos_size_usd =  min(pos_size_usd, 10)
+                    # pos_size_usd =  min(pos_size_usd, 10)
                     if pos_size_usd >= 10:
                         pending_trades.append(Trade(sig['symbol'], ts, sig['type'], l_p, tp_p, sl_p, sig['atr_val'], pos_size_usd=pos_size_usd))
                         available_capital -= (pos_size_usd / config.leverage)

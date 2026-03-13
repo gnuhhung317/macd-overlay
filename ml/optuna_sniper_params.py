@@ -6,6 +6,7 @@ import os
 import sys
 from pathlib import Path
 from datetime import datetime, timedelta
+import math
 
 # Add current directory to sys.path to allow imports from ml package
 sys.path.append(os.getcwd())
@@ -18,10 +19,10 @@ from ml.backtest_sniper import (
 
 # Configuration for Optuna
 START_DATE = '2025-01-01'
-INITIAL_CAPITAL = 1000.0
+INITIAL_CAPITAL = 100.0
 RISK_PER_TRADE = 0.05
 MAX_OPEN_TRADES = 10
-LEVERAGE = 1.0
+LEVERAGE = 20.0
 
 def precompute_data():
     """Scan all symbols once and collect potential signals and price data."""
@@ -54,13 +55,10 @@ def precompute_data():
 def objective(trial, signals, full_price_db, config_base):
     # Search Space
     params = {
-        'limit_wait_bars': trial.suggest_int('limit_wait_bars', 2, 10),
-        # 'long_atr_offset': trial.suggest_float('long_atr_offset', -1.2, 0.2),
-        # 'short_atr_offset': trial.suggest_float('short_atr_offset', -0.2, 1.2),
+        'long_atr_offset': trial.suggest_float('long_atr_offset', -1.2, 0.2),
+        'short_atr_offset': trial.suggest_float('short_atr_offset', -0.2, 1.2),
         # 'tp_mult_long': trial.suggest_float('tp_mult_long', 1.0, 5.0),
         # 'sl_mult_long': trial.suggest_float('sl_mult_long', 0.5, 3.0),
-        # 'tp_mult_short': trial.suggest_float('tp_mult_short', 1.0, 5.0),
-        # 'sl_mult_short': trial.suggest_float('sl_mult_short', 0.5, 3.0),
     }
     
     config = BacktestConfig(
@@ -72,46 +70,57 @@ def objective(trial, signals, full_price_db, config_base):
         **params
     )
     
-    # Run simulation on provided signals (which are already filtered for the IS time range)
     trades, equity_curve, _ = run_portfolio_simulation(signals, full_price_db, config)
     
+    # Gradient trừng phạt mượt mà cho các trường hợp không có lệnh
     if not trades or len(equity_curve) < 2:
         return -100.0
 
     report_df = pd.DataFrame([vars(t) for t in trades])
     report_df = report_df[report_df['result'] != 'MISSED']
     
-    if len(report_df) < 15: # Minimum trades required for a fold
-        return -50.0 + len(report_df)/100.0
+    # RẤT TỐT: Đoạn này tạo gradient để Optuna biết hướng tìm thêm lệnh
+    min_trades = 15
+    if len(report_df) < min_trades: 
+        return -50.0 + (len(report_df) / 100.0)
         
     equity_series = pd.DataFrame(equity_curve, columns=['time', 'val']).set_index('time')['val']
     daily_equity = equity_series.resample('D').last().ffill()
     daily_returns = daily_equity.pct_change().dropna()
     
-    # Calculation Metrics
+    # Base Metrics
     std = daily_returns.std()
     sharpe = (daily_returns.mean() / (std + 1e-9)) * np.sqrt(365) if std > 0 else 0
     
     roll_max = equity_series.cummax()
     drawdowns = (equity_series - roll_max) / (roll_max + 1e-9)
-    max_dd = drawdowns.min()
+    max_dd = abs(drawdowns.min()) # Biến đổi DD thành số dương để dễ tính toán
     
-    days = (equity_series.index[-1] - equity_series.index[0]).days
-    ann_return = ((equity_series.iloc[-1] / equity_series.iloc[0]) - 1) / (max(days, 1) / 365.25)
+    days = max((equity_series.index[-1] - equity_series.index[0]).days, 1)
+    years = days / 365.25
     
-    # Math Safety for Calmar
-    eff_dd = max(abs(max_dd), 0.01)
-    calmar = abs(ann_return / eff_dd)
+    # ĐÃ SỬA: Tính chuẩn CAGR (Lãi kép)
+    cagr = (equity_series.iloc[-1] / equity_series.iloc[0]) ** (1 / years) - 1
     
-    score = (sharpe * 0.7) + (calmar * 0.3)
+    # ĐÃ SỬA: Loại bỏ hàm abs() bao ngoài cagr. Âm là âm, dương là dương!
+    calmar = cagr / max(max_dd, 0.01)
     
-    # RISK PENALTIES (User defined)
-    if abs(max_dd) > 0.5:
-        return -1e9
-    if abs(max_dd) > 0.4:
-        score *= 0.1
-        
-    return score
+    # Tối ưu hóa: Trừng phạt nếu PnL âm (Không cho Optuna lươn lẹo)
+    if cagr < 0:
+        return cagr * 100 # Phóng đại độ âm để nó học cách né
+    
+    # ĐÃ SỬA: Trừng phạt Rủi ro phi tuyến tính (Exponential Penalty)
+    # Không dùng if/else chặn -1e9 nữa. Drawdown càng cao, điểm càng bị ép về 0.
+    # Với DD = 30% -> penalty = 0.22; DD = 50% -> penalty = 0.08; DD = 60% -> penalty = 0.04
+    dd_penalty = math.exp(-max_dd * 5.0) 
+    
+    # Kết hợp điểm (Có thể tùy chỉnh trọng số tùy gu của bạn)
+    raw_score = (sharpe * 0.4) + (calmar * 0.6)
+    
+    # Điểm cuối cùng bị bào mòn bởi rủi ro drawdown
+    final_score = raw_score * dd_penalty
+    
+    return final_score
 
 def run_test_on_range(signals, full_price_db, config):
     """Run a single backtest for a specific range and return key metrics."""
