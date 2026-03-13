@@ -1,3 +1,4 @@
+import time
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 from datetime import datetime
@@ -361,6 +362,16 @@ class BinanceExecutor(ExchangeExecutor):
         # Use testnet if configured
         use_testnet = getattr(self.config.exchange, 'use_testnet', False)
         self.client = Client(self.config.exchange.api_key, self.config.exchange.api_secret, testnet=use_testnet)
+        
+        # Add recvWindow and timestamp sync to prevent code=-1021
+        try:
+            server_time = self.client.get_server_time()
+            self.client.timestamp_offset = server_time['serverTime'] - int(time.time() * 1000)
+        except Exception as e:
+            print(f"⚠️ Could not sync time: {e}")
+            
+        # Add default recvWindow to all futures requests
+        self.client.futures_recv_window = 60000
         
         mode_str = "Testnet" if use_testnet else "Real"
         print(f"[Executor] Initialized Binance Executor ({mode_str} Trading)")
