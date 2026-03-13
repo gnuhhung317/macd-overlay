@@ -211,11 +211,27 @@ def backtest_symbol(file_path, features, clf, threshold, config: BacktestConfig)
         symbol = Path(file_path).stem.replace('_USDT', '').replace('USDT', '')
         df['timestamp'] = pd.to_datetime(df['timestamp']).dt.tz_localize(None)
         df = df.sort_values('timestamp').reset_index(drop=True)
+        
+        # Optimize: Crop to window + padding for indicators
+        if config.start_date:
+            start_ts = pd.to_datetime(config.start_date)
+            end_ts = pd.to_datetime(config.end_date) if config.end_date else df['timestamp'].max()
+            padding_bars = 1000
+            
+            # Find index of start_date and take 1000 bars before it
+            start_idx = df[df['timestamp'] >= start_ts].index
+            if len(start_idx) > 0:
+                crop_start = max(0, start_idx[0] - padding_bars)
+                # Also crop the end to save memory
+                end_idx = df[df['timestamp'] <= end_ts].index
+                crop_end = end_idx[-1] + padding_bars if len(end_idx) > 0 else len(df)
+                df = df.iloc[crop_start:crop_end].reset_index(drop=True)
+
         df = calculate_features_backtest(df)
         
         scan_indices = df.index
         if config.start_date:
-            scan_indices = df[df['timestamp'] >= pd.to_datetime(config.start_date)].index
+            scan_indices = df[(df['timestamp'] >= pd.to_datetime(config.start_date)) & (df['timestamp'] <= pd.to_datetime(config.end_date))].index
         
         vol_sma = df['volume'].rolling(20).mean().shift(1)
         c1 = (df['close'] > df['open']) & (df['close'] > df['ema_20'])
@@ -313,7 +329,7 @@ def run_portfolio_simulation(all_signals, full_price_db, config: BacktestConfig)
                     
                     sl_dist_pct = abs(sl_p - l_p) / l_p
                     pos_size_usd = min(risk_amount / max(sl_dist_pct, 0.003), available_capital * config.leverage * 0.95)
-                    
+                    pos_size_usd =  min(pos_size_usd, 10)
                     if pos_size_usd >= 10:
                         pending_trades.append(Trade(sig['symbol'], ts, sig['type'], l_p, tp_p, sl_p, sig['atr_val'], pos_size_usd=pos_size_usd))
                         available_capital -= (pos_size_usd / config.leverage)
@@ -370,12 +386,14 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--start', type=str, default='2025-01-01')
+    parser.add_argument('--end', type=str, default='2026-03-01')
     parser.add_argument('--leverage', type=float, default=1.0)
     parser.add_argument('--capital', type=float, default=100.0)
     parser.add_argument('--risk', type=float, default=0.05)
     args = parser.parse_args()
     config = BacktestConfig(
         start_date=args.start,
+        end_date=args.end,
         leverage=args.leverage,
         initial_capital=args.capital,
         risk_per_trade=args.risk

@@ -38,6 +38,9 @@ def process_single_file(file_path, features, clf, threshold, horizon=48):
         df['timestamp'] = pd.to_datetime(df['timestamp']).dt.tz_localize(None)
         df = df[df['timestamp'] > cutoff_date]
         
+        # --- SỬA: Loại bỏ nến đang chạy (incomplete candle) ---
+        df = df.iloc[:-1]
+        
         if df.empty: return None
 
         df = df.sort_values('timestamp').reset_index(drop=True)
@@ -70,6 +73,10 @@ def process_single_file(file_path, features, clf, threshold, horizon=48):
         df['dist_to_ema50_atr'] = (df['close'] - df['ema_50']) / (df['atr_14'] + 1e-9)
         df['vol_acceleration'] = df['volume'] / (df['volume'].shift(1) + 1e-9)
         
+        # Distance to resistance (Resistance 50)
+        df['resistance_50'] = df['high'].rolling(50).max().shift(1)
+        df['dist_to_res'] = (df['resistance_50'] - df['close']) / (df['close'] + 1e-9)
+
         # Áp dụng Tầng 1: Filter cứng (Ignition Bar)
         c1 = (df['close'] > df['open']) & (df['close'] > df['ema_20'])
         c2 = ((df['close'] - df['open']) / df['open']) > 0.015
@@ -87,11 +94,9 @@ def process_single_file(file_path, features, clf, threshold, horizon=48):
         hits['prob_short'] = probas[:, 2]
         
         # Logic bóp cò: 
-        # Nếu Prob(Long) > 0.6 -> LONG
-        # Nếu Prob(Short) > 0.6 -> SHORT
         hits['final_signal'] = 'WAIT'
-        hits.loc[hits['prob_long'] > 0.6, 'final_signal'] = '🚀 LONG'
-        hits.loc[hits['prob_short'] > 0.6, 'final_signal'] = '💀 SHORT'
+        hits.loc[hits['prob_long'] > threshold, 'final_signal'] = '🚀 LONG'
+        hits.loc[hits['prob_short'] > threshold, 'final_signal'] = '💀 SHORT'
         
         return hits[hits['final_signal'] != 'WAIT']
     except:

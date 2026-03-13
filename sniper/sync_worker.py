@@ -354,16 +354,16 @@ def sync_all(lookback=1):
             if lookback > 1:
                 ohlcv_1h = fetch_ohlcv_paginated(api_sym, '1h', lookback)
             else:
-                # Normal fast fetch for loop
-                ohlcv_1h = fetch_ohlcv_with_retry(api_sym, '1h', 50) # fetch 50 to have context for updates
+                # Increased limit from 50 to 500 to stabilize EMA 200
+                ohlcv_1h = fetch_ohlcv_with_retry(api_sym, '1h', 500) 
             
             if not ohlcv_1h: continue
                 
             df_1h = pd.DataFrame(ohlcv_1h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             df_1h['timestamp'] = pd.to_datetime(df_1h['timestamp'], unit='ms')
             
-            # 1D data for MTF (Keep it fast)
-            ohlcv_1d = fetch_ohlcv_with_retry(api_sym, '1d', 50)
+            # 1D data for MTF (Increased to 300 for stable daily EMA 200)
+            ohlcv_1d = fetch_ohlcv_with_retry(api_sym, '1d', 300)
             df_1d = pd.DataFrame(ohlcv_1d, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             df_1h['timestamp'] = pd.to_datetime(df_1h['timestamp'], unit='ms')
             df_1d.to_parquet(SYMBOLS_DIR_1D / f"{sym}.parquet", index=False)
@@ -407,7 +407,7 @@ def sync_all(lookback=1):
                 if sig_id in existing_ids:
                     continue
 
-                # Stage 1: Ignition Filter
+                # Tầng 1: Ignition Filter (Synced with Train)
                 vol_sma_series = completed_df['volume'].rolling(20).mean().shift(1)
                 vol_sma_val = vol_sma_series.iloc[row_idx]
                 
@@ -416,15 +416,11 @@ def sync_all(lookback=1):
                 rsi_val = curr_row['rsi_14'].iloc[0]
                 ema20_val = curr_row['ema_20'].iloc[0]
                 
-                # Use rolling high from completed_df
-                res50_series = completed_df['high'].rolling(50).max().shift(1)
-                res50_val = res50_series.iloc[row_idx]
-                
                 cond_green_bar = (close_val > open_val) and (close_val > ema20_val)
                 cond_body_size = ((close_val - open_val) / open_val) > 0.015
                 cond_vol_ignition = (vol_sma_val * 1.5 < curr_row['volume'].iloc[0] < vol_sma_val * 4.0)
                 cond_rsi_fresh = (55 <= rsi_val <= 72)
-                
+
                 if not (cond_green_bar and cond_body_size and cond_vol_ignition and cond_rsi_fresh):
                     continue
                 
