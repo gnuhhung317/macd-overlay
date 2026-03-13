@@ -247,7 +247,6 @@ class SniperScanner:
                 btc_df['adx'] = (100 * abs(pdi - mdi) / (pdi + mdi).replace(0, np.nan)).rolling(14).mean()
         except Exception as e:
             print(f"[SniperScanner] Failed to fetch BTC context: {e}")
-        print(f"[SniperScanner] Fetched BTC context: {btc_df}")
         total_symbols = len(symbols)
         start_time = time.time()
         

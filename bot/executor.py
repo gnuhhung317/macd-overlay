@@ -446,8 +446,13 @@ class BinanceExecutor(ExchangeExecutor):
                     print(f"⚠️ Could not change margin type to {margin_type} for {symbol}: {e}")
             
             # 2. Convert USDT Size to Quantity
-            price_tick = self.client.futures_symbol_ticker(symbol=symbol)
-            ref_price = float(price_tick['price'])
+            try:
+                price_tick = self.client.futures_symbol_ticker(symbol=symbol)
+                ref_price = float(price_tick['price'])
+            except (KeyError, TypeError, Exception) as e:
+                print(f"⚠️ Error fetching ticker for {symbol}, falling back to mark price: {e}")
+                mark_info = self.client.futures_mark_price(symbol=symbol)
+                ref_price = float(mark_info['markPrice'])
             
             # Use provided price for limit orders if available
             current_price = price if order_type.upper() == 'LIMIT' and price > 0 else ref_price
@@ -487,8 +492,9 @@ class BinanceExecutor(ExchangeExecutor):
                 symbol=symbol,
                 side=sl_side,
                 type='STOP_MARKET',
+                quantity=quantity, # Explicit quantity instead of closePosition
                 stopPrice=self.format_price(symbol, sl_price),
-                closePosition=True
+                reduceOnly=True # Use reduceOnly instead of closePosition
             )
             
             # TP
@@ -497,8 +503,9 @@ class BinanceExecutor(ExchangeExecutor):
                     symbol=symbol,
                     side=sl_side,
                     type='TAKE_PROFIT_MARKET',
+                    quantity=quantity, # Explicit quantity instead of closePosition
                     stopPrice=self.format_price(symbol, tp_price),
-                    closePosition=True
+                    reduceOnly=True # Use reduceOnly instead of closePosition
                 )
                 print(f"✅ Order & Standard SL/TP Placed for {symbol}")
             else:

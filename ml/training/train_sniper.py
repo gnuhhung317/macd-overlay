@@ -70,7 +70,15 @@ def prepare_cascade_data_optimized(parquet_path):
         filters=[('timestamp', '<', pd.Timestamp('2025-01-01')), ('usd_vol_24h', '>=', 1000000)]
     )
     df['timestamp'] = pd.to_datetime(df['timestamp']).dt.tz_localize(None)
-
+    max_ts = df['timestamp'].max()
+    min_ts = df['timestamp'].min()
+    
+    print(f"\n🕒 KIỂM TRA TIMESTAMP TRÊN DF:")
+    print(f"   - Min (Cũ nhất): {min_ts}")
+    print(f"   - Max (Mới nhất): {max_ts}")
+    print(f"   - Tổng số dòng đã load: {len(df):,}\n")
+    if True:
+        return 0
     # Merge Macro vào df
     if not btc_df.empty:
         df = df.merge(btc_df[['timestamp', 'btc_close', 'btc_returns', 'btc_vol_24h', 'btc_ema_20', 'btc_ema_50']], 

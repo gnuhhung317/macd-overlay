@@ -12,7 +12,7 @@
         "leverage": 20,
         "dry_run": false,
         "use_testnet": true,
-        "margin_mode": "ISOLATED"
+        "margin_mode": "CROSS"
     },
     "risk": {
         "max_open_positions": 10,
@@ -26,13 +26,13 @@
         "entry_threshold": 0.6,
         "min_volume_usdt": 10000.0,
         "timeout_candles": 48,
-        "long_atr_offset": -0.1,
-        "short_atr_offset": 0.5,
+        "long_atr_offset": -0.18,
+        "short_atr_offset": 0.09,
         "limit_wait_bars": 5,
-        "sl_atr_multiplier_long": 1.0,
-        "tp_atr_multiplier_long": 2.0,
-        "sl_atr_multiplier_short": 1.5,
-        "tp_atr_multiplier_short": 2.5
+        "sl_atr_multiplier_long": 1.4,
+        "tp_atr_multiplier_long": 3.4,
+        "sl_atr_multiplier_short": 2.1,
+        "tp_atr_multiplier_short": 3.9
     },
     "coins": [
         "BTCUSDT",

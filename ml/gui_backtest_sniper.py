@@ -25,14 +25,19 @@ class SniperBacktestGUI(tk.Tk):
         self.geometry("1300x1000")
         
         self.trades = trades
-        self.price_db = price_db
+        # Align price_db: set timestamp as index and use 'close' for lookups
+        self.price_db = {
+            sym: df.set_index('timestamp')['close'] 
+            for sym, df in price_db.items() 
+            if 'timestamp' in df.columns
+        }
         self.config = config
         
         # Get all unique timestamps from all trades
         all_ts = set()
         for t in self.trades:
-            all_ts.add(t.entry_time)
-            all_ts.add(t.exit_time)
+            if t.entry_time: all_ts.add(t.entry_time)
+            if t.exit_time: all_ts.add(t.exit_time)
             
         self.timestamps = sorted(list(all_ts))
         if not self.timestamps:
@@ -60,13 +65,13 @@ class SniperBacktestGUI(tk.Tk):
         for t in self.timestamps:
             # Replicate portfoilo logic
             # Close trades
-            closed = [tr for tr in open_positions if tr.exit_time <= t]
+            closed = [tr for tr in open_positions if tr.exit_time and tr.exit_time <= t]
             for tr in closed:
                 realized_capital += tr.pnl_usd
                 open_positions.remove(tr)
                 
             # Add new trades
-            new_trades = [tr for tr in self.trades if tr.entry_time == t]
+            new_trades = [tr for tr in self.trades if tr.entry_time and tr.entry_time == t]
             open_positions.extend(new_trades)
             
             # Calculate floating PnL
@@ -253,8 +258,8 @@ class SniperBacktestGUI(tk.Tk):
     def _update_ui_for_current_bar(self):
         t = self.timestamps[self.current_idx]
         
-        closed_trades = [tr for tr in self.trades if tr.exit_time <= t]
-        open_trades = [tr for tr in self.trades if tr.entry_time <= t and tr.exit_time > t]
+        closed_trades = [tr for tr in self.trades if tr.exit_time and tr.exit_time <= t]
+        open_trades = [tr for tr in self.trades if tr.entry_time and tr.entry_time <= t and (not tr.exit_time or tr.exit_time > t)]
         
         realized_pnl = sum(tr.pnl_usd for tr in closed_trades)
         capital = self.config.initial_capital + realized_pnl

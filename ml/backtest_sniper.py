@@ -7,50 +7,70 @@ from pathlib import Path
 from datetime import datetime, timedelta
 import warnings
 from dataclasses import dataclass, field
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Set
+from enum import Enum
+from bisect import bisect_left, bisect_right
 
 warnings.filterwarnings('ignore')
 
 # ============================================================
-# CONFIG & DATA STRUCTURES
+# DATA STRUCTURES & ENUMS
+# ============================================================
+class TradeState(Enum):
+    PENDING = "PENDING"
+    ACTIVE = "ACTIVE"
+    CLOSED = "CLOSED"
+
+@dataclass
+class BacktestConfig:
+    initial_capital: float = 100.0
+    risk_per_trade: float = 0.05
+    fee_rate: float = 0.001
+    slippage: float = 0.005
+    max_open_trades: int = 10
+    max_bars_hold: int = 48
+    start_date: str = '2025-01-01'
+    end_date: str = None
+    leverage: float = 1.0
+    long_atr_offset: float = -0.18
+    short_atr_offset: float = 0.09
+    limit_wait_bars: int = 3
+    tp_mult_long: float = 3.4
+    sl_mult_long: float = 1.4
+    tp_mult_short: float = 3.9
+    sl_mult_short: float = 2.1
+
+@dataclass
+class Trade:
+    symbol: str
+    signal_time: datetime
+    type: str  # LONG/SHORT
+    limit_price: float
+    tp_price: float
+    sl_price: float
+    atr_val: float
+    entry_time: Optional[datetime] = None
+    exit_time: Optional[datetime] = None
+    entry_price: float = 0.0
+    exit_price: float = 0.0
+    state: TradeState = TradeState.PENDING
+    result: str = 'PENDING'
+    pnl_usd: float = 0.0
+    pnl_pct: float = 0.0
+    fees: float = 0.0
+    duration: int = 0
+    wait_bars: int = 0
+    pos_size_usd: float = 0.0
+    mfe_atr: float = 0.0
+    mae_atr: float = 0.0
+
+# ============================================================
+# ASSETS & FEATURES
 # ============================================================
 BASE_DIR = Path(r"d:\Code\Projects\self-projects\macd-overlay - Copy")
 SYMBOLS_DIR = BASE_DIR / "data" / "processed" / "symbols_v3"
 MODEL_PATH = BASE_DIR / "ml" / "training" / "models" / "1h" / "ensemble_lgbm_tabular.joblib"
 META_PATH = BASE_DIR / "ml" / "training" / "models" / "1h" / "ensemble_meta.joblib"
-
-@dataclass
-class BacktestConfig:
-    initial_capital: float = 100.0
-    risk_per_trade: float = 0.05  # 10% of capital per trade
-    fee_rate: float = 0.001       # 0.1% per trade
-    slippage: float = 0.0005      # 0.05% slippage
-    max_open_trades: int = 10
-    max_bars_hold: int = 48
-    start_date: str = '2025-03-11'
-    end_date: str = None
-    leverage: float = 1.0
-    # Limit Order Params
-    long_atr_offset: float = -0.1
-    short_atr_offset: float = 0.5
-    limit_wait_bars: int = 5
-
-@dataclass
-class Trade:
-    symbol: str
-    entry_time: datetime
-    exit_time: datetime
-    type: str  # LONG/SHORT
-    entry_price: float
-    exit_price: float
-    result: str  # WIN/LOSS/TIMEOUT/MISSED
-    pnl_usd: float
-    pnl_pct: float
-    fees: float
-    duration: int
-    mfe_atr: float
-    mae_atr: float
-    pos_size_usd: float = 0.0
 
 def load_assets():
     if not META_PATH.exists() or not MODEL_PATH.exists():
@@ -63,443 +83,301 @@ def load_assets():
     return clf, features, threshold
 
 def calculate_features_backtest(df):
-    """Calculate missing features for backtesting logic if not present."""
     df = df.copy()
-    
-    # Ensure EMA
     if 'ema_20' not in df.columns:
         df['ema_20'] = df['close'].ewm(span=20).mean()
     if 'ema_50' not in df.columns:
         df['ema_50'] = df['close'].ewm(span=50).mean()
-    
-    # Volume SMA for ratio
     if 'vol_ratio' not in df.columns:
         vol_sma = df['volume'].rolling(20).mean().shift(1)
         df['vol_ratio'] = df['volume'] / (vol_sma + 1e-9)
-    
-    # ATR Calculation
     if 'atr_14' not in df.columns:
         high_low = df['high'] - df['low']
         high_close = np.abs(df['high'] - df['close'].shift())
         low_close = np.abs(df['low'] - df['close'].shift())
         tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
         df['atr_14'] = tr.rolling(14).mean()
-        
     if 'atr_pct' not in df.columns:
         df['atr_pct'] = (df['atr_14'] / df['close']) * 100
-    
-    # Sniper-specific features
     if 'upper_wick_ratio' not in df.columns:
         df['upper_wick_ratio'] = (df['high'] - df[['open', 'close']].max(axis=1)) / (df['high'] - df['low'] + 1e-9)
     if 'dist_to_ema50_atr' not in df.columns:
         df['dist_to_ema50_atr'] = (df['close'] - df['ema_50']) / (df['atr_14'] + 1e-9)
     if 'vol_acceleration' not in df.columns:
         df['vol_acceleration'] = df['volume'] / (df['volume'].shift(1) + 1e-9)
-    
     return df
 
-def simulate_trade(df, entry_idx, trade_type, config: BacktestConfig):
-    """
-    Simulate trade with Limit Order validation and Fixed Entry Price.
-    """
-    horizon = config.max_bars_hold
-    full_len = len(df)
-    
-    ident_row = df.iloc[entry_idx]
-    close_at_ident = ident_row['close']
-    atr_val = ident_row['atr_14']
-    
-    # Pre-calculated Entry Level (Fixed, NOT updated in loop)
-    if trade_type == 'LONG':
-        # return
-        limit_price = close_at_ident + (config.long_atr_offset * atr_val)
-        tp_price = limit_price + (2.0 * atr_val)
-        sl_price = limit_price - (1.0 * atr_val)
-    else: # SHORT
-        limit_price = close_at_ident + (config.short_atr_offset * atr_val)
-        tp_price = limit_price - (2.5 * atr_val)
-        sl_price = limit_price + (1.5 * atr_val)
+# ============================================================
+# STATE MACHINE LOGIC
+# ============================================================
+def simulate_trade_step(trade: Trade, row: pd.Series, config: BacktestConfig):
+    if trade.state == TradeState.CLOSED:
+        return False, trade
 
-    # 1. LIMIT ORDER VALIDATION: Check if filled within wait bars
-    is_filled = False
-    fill_idx = -1
-    for i in range(1, config.limit_wait_bars + 1):
-        idx = entry_idx + i
-        if idx >= full_len: break
-        
-        row = df.iloc[idx]
-        if trade_type == 'LONG':
-            if row['low'] < limit_price: # Price must PENETRATE limit
-                is_filled = True
-                fill_idx = idx
-                break
+    if trade.state == TradeState.PENDING:
+        trade.wait_bars += 1
+        is_filled = False
+        if trade.type == 'LONG':
+            if row['open'] <= trade.limit_price:
+                trade.entry_price = row['open']; is_filled = True
+            elif row['low'] < trade.limit_price:
+                trade.entry_price = trade.limit_price; is_filled = True
         else: # SHORT
-            if row['high'] > limit_price: # Price must PENETRATE limit
-                is_filled = True
-                fill_idx = idx
-                break
-    
-    if not is_filled:
-        return 'MISSED', 0, 0, 0, limit_price, limit_price, ident_row['timestamp']
-
-    # 2. TRADE SIMULATION from fill point
-    entry_price = limit_price # Assume filled at limit (slightly optimistic, but better than market)
-    max_mfe_atr = 0
-    min_mae_atr = 0
-    result = 'TIMEOUT'
-    
-    start_sim_idx = fill_idx
-    remaining_horizon = max(1, horizon - (fill_idx - entry_idx))
-    
-    exit_price = df.iloc[min(start_sim_idx + remaining_horizon, full_len-1)]['close']
-    exit_time = df.iloc[min(start_sim_idx + remaining_horizon, full_len-1)]['timestamp']
-    duration = remaining_horizon
-
-    for i in range(0, remaining_horizon + 1):
-        idx = start_sim_idx + i
-        if idx >= full_len: break
+            if row['open'] >= trade.limit_price:
+                trade.entry_price = row['open']; is_filled = True
+            elif row['high'] > trade.limit_price:
+                trade.entry_price = trade.limit_price; is_filled = True
         
-        row = df.iloc[idx]
-        
-        if trade_type == 'LONG':
-            # INTRA-BAR: Check if both hit in same candle
-            # Worst-case: SL hit first
-            if row['low'] <= sl_price:
-                result = 'LOSS'
-                duration = i + (fill_idx - entry_idx)
-                exit_price = sl_price * (1 - config.slippage)
-                exit_time = row['timestamp']
-                break
-            elif row['high'] >= tp_price:
-                result = 'WIN'
-                duration = i + (fill_idx - entry_idx)
-                exit_price = tp_price * (1 - config.slippage)
-                exit_time = row['timestamp']
-                break
+        if is_filled:
+            trade.state = TradeState.ACTIVE
+            trade.entry_time = row.name # Assume timestamp is index
+            # Pessimistic Intrabar
+            if trade.type == 'LONG':
+                if row['low'] <= trade.sl_price:
+                    trade.state = TradeState.CLOSED; trade.result = 'LOSS'
+                    trade.exit_price = min(row['open'], trade.sl_price) * (1 - config.slippage)
+                    trade.exit_time = row.name
+                elif row['high'] >= trade.tp_price:
+                    trade.state = TradeState.CLOSED; trade.result = 'WIN'
+                    trade.exit_price = trade.tp_price * (1 - config.slippage)
+                    trade.exit_time = row.name
+            else: # SHORT
+                if row['high'] >= trade.sl_price:
+                    trade.state = TradeState.CLOSED; trade.result = 'LOSS'
+                    trade.exit_price = max(row['open'], trade.sl_price) * (1 + config.slippage)
+                    trade.exit_time = row.name
+                elif row['low'] <= trade.tp_price:
+                    trade.state = TradeState.CLOSED; trade.result = 'WIN'
+                    trade.exit_price = trade.tp_price * (1 + config.slippage)
+                    trade.exit_time = row.name
+            return True, trade
+
+        if trade.wait_bars >= config.limit_wait_bars:
+            trade.state = TradeState.CLOSED; trade.result = 'MISSED'
+            return True, trade
+        return False, trade
+
+    if trade.state == TradeState.ACTIVE:
+        trade.duration += 1
+        if trade.type == 'LONG':
+            if row['open'] <= trade.sl_price:
+                trade.state = TradeState.CLOSED; trade.result = 'LOSS'
+                trade.exit_price = row['open'] * (1 - config.slippage)
+                trade.exit_time = row.name
+            elif row['low'] <= trade.sl_price:
+                trade.state = TradeState.CLOSED; trade.result = 'LOSS'
+                trade.exit_price = trade.sl_price * (1 - config.slippage)
+                trade.exit_time = row.name
+            elif row['high'] >= trade.tp_price:
+                trade.state = TradeState.CLOSED; trade.result = 'WIN'
+                trade.exit_price = trade.tp_price * (1 - config.slippage)
+                trade.exit_time = row.name
             
-            # Update MFE/MAE
-            current_mfe_atr = (row['high'] - entry_price) / (atr_val + 1e-9)
-            current_mae_atr = (row['low'] - entry_price) / (atr_val + 1e-9)
+            if trade.state == TradeState.ACTIVE:
+                trade.mfe_atr = max(trade.mfe_atr, (row['high'] - trade.entry_price) / (trade.atr_val + 1e-9))
+                trade.mae_atr = min(trade.mae_atr, (row['low'] - trade.entry_price) / (trade.atr_val + 1e-9))
         else: # SHORT
-            # Worst-case: SL hit first
-            if row['high'] >= sl_price:
-                result = 'LOSS'
-                duration = i + (fill_idx - entry_idx)
-                exit_price = sl_price * (1 + config.slippage)
-                exit_time = row['timestamp']
-                break
-            elif row['low'] <= tp_price:
-                result = 'WIN'
-                duration = i + (fill_idx - entry_idx)
-                exit_price = tp_price * (1 + config.slippage)
-                exit_time = row['timestamp']
-                break
-                
-            current_mfe_atr = (entry_price - row['low']) / (atr_val + 1e-9)
-            current_mae_atr = (entry_price - row['high']) / (atr_val + 1e-9)
+            if row['open'] >= trade.sl_price:
+                trade.state = TradeState.CLOSED; trade.result = 'LOSS'
+                trade.exit_price = row['open'] * (1 + config.slippage)
+                trade.exit_time = row.name
+            elif row['high'] >= trade.sl_price:
+                trade.state = TradeState.CLOSED; trade.result = 'LOSS'
+                trade.exit_price = trade.sl_price * (1 + config.slippage)
+                trade.exit_time = row.name
+            elif row['low'] <= trade.tp_price:
+                trade.state = TradeState.CLOSED; trade.result = 'WIN'
+                trade.exit_price = trade.tp_price * (1 + config.slippage)
+                trade.exit_time = row.name
 
-        max_mfe_atr = max(max_mfe_atr, current_mfe_atr)
-        min_mae_atr = min(min_mae_atr, current_mae_atr)
+            if trade.state == TradeState.ACTIVE:
+                trade.mfe_atr = max(trade.mfe_atr, (trade.entry_price - row['low']) / (trade.atr_val + 1e-9))
+                trade.mae_atr = min(trade.mae_atr, (trade.entry_price - row['high']) / (trade.atr_val + 1e-9))
 
-    return result, duration, max_mfe_atr, min_mae_atr, entry_price, exit_price, exit_time
+        if trade.state == TradeState.ACTIVE and trade.duration >= config.max_bars_hold:
+            trade.state = TradeState.CLOSED; trade.result = 'TIMEOUT'
+            trade.exit_price = row['close']; trade.exit_time = row.name
 
+        return trade.state == TradeState.CLOSED, trade
+    return False, trade
+
+# ============================================================
+# MAIN BACKTEST ENGINE
+# ============================================================
 def backtest_symbol(file_path, features, clf, threshold, config: BacktestConfig):
     try:
         df = pd.read_parquet(file_path)
         if df.empty: return None, None
-        
         symbol = Path(file_path).stem.replace('_USDT', '').replace('USDT', '')
         df['timestamp'] = pd.to_datetime(df['timestamp']).dt.tz_localize(None)
         df = df.sort_values('timestamp').reset_index(drop=True)
-        
         df = calculate_features_backtest(df)
         
         scan_indices = df.index
         if config.start_date:
-            start_ts = pd.to_datetime(config.start_date)
-            scan_indices = df[df['timestamp'] >= start_ts].index
-            
-        if config.end_date:
-            end_ts = pd.to_datetime(config.end_date)
-            # Find intersection of previous index filter and end_date filter
-            end_indices = df[df['timestamp'] <= end_ts].index
-            scan_indices = scan_indices.intersection(end_indices)
-            
-        if len(scan_indices) == 0: return None, None
+            scan_indices = df[df['timestamp'] >= pd.to_datetime(config.start_date)].index
         
-        # 1. Stage 1 Filter: Ignition Bar
         vol_sma = df['volume'].rolling(20).mean().shift(1)
-        resistance_50 = df['high'].rolling(50).max().shift(1)
-        dist_to_res = (resistance_50 - df['close']) / (df['close'] + 1e-9)
-        
         c1 = (df['close'] > df['open']) & (df['close'] > df['ema_20'])
         c2 = ((df['close'] - df['open']) / df['open']) > 0.015
         c3 = (df['volume'] > vol_sma * 1.5) & (df['volume'] < vol_sma * 4.0)
         c4 = (df['rsi_14'] >= 55) & (df['rsi_14'] <= 72)
-        # c5 = dist_to_res > -0.05 (Removed: Counter-productive to profitability)
-        c5 = True
         
-        ignition_mask = (c1 & c2 & c3 & c4 & c5).reindex(scan_indices, fill_value=False)
+        ignition_mask = (c1 & c2 & c3 & c4).reindex(scan_indices, fill_value=False)
         final_scan_indices = scan_indices[ignition_mask]
+        if len(final_scan_indices) == 0: return None, df
         
-        if len(final_scan_indices) == 0: return None, None
-        
-        # 2. Stage 2: VECTORIZED Scoring
         X_batch = df.loc[final_scan_indices, features].apply(pd.to_numeric, errors='coerce').fillna(0)
-        probas_batch = clf.predict_proba(X_batch)
+        probas = clf.predict_proba(X_batch)
         
-        prob_long = probas_batch[:, 1]
-        prob_short = probas_batch[:, 2]
-        
-        all_potential_signals = []
+        potential_signals = []
         for i, idx in enumerate(final_scan_indices):
-            pl, ps = prob_long[i], prob_short[i]
+            pl, ps = probas[i, 1], probas[i, 2]
             if pl > threshold or ps > threshold:
-                trade_type = 'LONG' if pl > threshold else 'SHORT'
-                
-                result, duration, res_mfe, res_mae, entry_p, exit_p, exit_t = simulate_trade(df, idx, trade_type, config)
-                
-                if result == 'MISSED': continue # Pro Quant: Ignore signals that never fill
-                
-                all_potential_signals.append({
-                    'timestamp': df.iloc[idx]['timestamp'],
-                    'symbol': symbol,
-                    'type': trade_type,
-                    'entry_price': entry_p,
-                    'exit_price': exit_p,
-                    'exit_time': exit_t,
-                    'prob_long': pl,
-                    'prob_short': ps,
-                    'result': result,
-                    'duration': duration,
-                    'mfe_atr': res_mfe,
-                    'mae_atr': res_mae,
-                    'atr_val': df.iloc[idx]['atr_14']
+                potential_signals.append({
+                    'timestamp': df.iloc[idx]['timestamp'], 'symbol': symbol,
+                    'type': 'LONG' if pl > ps else 'SHORT',
+                    'prob_long': pl, 'prob_short': ps,
+                    'atr_val': df.iloc[idx]['atr_14'], 'close': df.iloc[idx]['close']
                 })
-        
-        # Return signals AND the price series for MTM lookups
-        price_series = df.set_index('timestamp')['close']
-        return all_potential_signals, price_series
-        
+        return potential_signals, df
     except Exception as e:
-        print(f"Error processing {file_path.name}: {e}")
-        return None, None
+        print(f"Error processing {file_path.name}: {e}"); return None, None
 
-def run_portfolio_simulation(all_signals, price_db, config: BacktestConfig):
+def run_portfolio_simulation(all_signals, full_price_db, config: BacktestConfig):
     if not all_signals: return None, []
-    all_signals = sorted(all_signals, key=lambda x: x['timestamp'])
+    print(f"Processing {len(all_signals)} potential signals against global timeline...")
     
-    realized_capital = config.initial_capital
-    available_capital = config.initial_capital # Free Margin
-    active_trades: List[Trade] = []
-    closed_trades: List[Trade] = []
-    equity_curve = [(all_signals[0]['timestamp'] - timedelta(hours=1), realized_capital)]
-    max_open_notional = 0.0
+    unique_ts = sorted(set().union(*(df['timestamp'] for df in full_price_db.values())))
+    signals_by_time = {}
+    for sig in all_signals:
+        ts = sig['timestamp']
+        if ts not in signals_by_time: signals_by_time[ts] = []
+        signals_by_time[ts].append(sig)
     
-    for signal in all_signals:
-        curr_time = signal['timestamp']
+    price_lookups = {sym: df.set_index('timestamp') for sym, df in full_price_db.items()}
+    realized_capital = config.initial_capital; available_capital = config.initial_capital
+    active_trades: List[Trade] = []; pending_trades: List[Trade] = []; closed_trades: List[Trade] = []
+    equity_curve = []
+    
+    unique_ts_list = sorted(unique_ts)
+    signal_times = sorted(signals_by_time.keys())
+    
+    ts_idx = 0
+    while ts_idx < len(unique_ts_list):
+        ts = unique_ts_list[ts_idx]
         
-        # 1. Resolve trades that exited BEFORE or AT current signal time
-        active_trades.sort(key=lambda x: x.exit_time)
-        while active_trades and active_trades[0].exit_time <= curr_time:
-            t = active_trades.pop(0)
-            realized_capital += t.pnl_usd
-            # Return margin + net profit (which could be negative)
-            available_capital += (t.pos_size_usd / config.leverage) + t.pnl_usd
-            closed_trades.append(t)
-            equity_curve.append((t.exit_time, realized_capital))
-            
-        # 2. Calculate MTM Equity for sizing
-        floating_pnl = 0
-        used_margin = 0
-        for t in active_trades:
-            used_margin += t.pos_size_usd / config.leverage
-            if t.symbol in price_db and curr_time in price_db[t.symbol].index:
-                curr_p = price_db[t.symbol].loc[curr_time]
-                if t.type == 'LONG':
-                    pnl_pct = (curr_p - t.entry_price) / (t.entry_price + 1e-9)
-                else:
-                    pnl_pct = (t.entry_price - curr_p) / (t.entry_price + 1e-9)
-                floating_pnl += t.pos_size_usd * pnl_pct
+        # A. Process Pending & Active
+        still_processing = pending_trades + active_trades
+        pending_trades = []; active_trades = []
+        
+        for t in still_processing:
+            if t.symbol in price_lookups and ts in price_lookups[t.symbol].index:
+                row = price_lookups[t.symbol].loc[ts]
+                _, updated_t = simulate_trade_step(t, row, config)
                 
-        mtm_equity = realized_capital + floating_pnl
-        current_open_notional = sum(t.pos_size_usd for t in active_trades)
-        max_open_notional = max(max_open_notional, current_open_notional)
-            
-        # 3. Check if we can open new trade
-        if len(active_trades) < config.max_open_trades:
-            # Risk Management (based on MTM Equity)
-            risk_amount = mtm_equity * config.risk_per_trade
-            atr = signal['atr_val']
-            sl_dist = 1.0 * atr if signal['type'] == 'LONG' else 1.5 * atr
-            # Safety: Ensure SL distance is at least 0.3% to prevent extreme volume
-            min_sl_dist = signal['entry_price'] * 0.003
-            effective_sl_dist = max(sl_dist, min_sl_dist)
-            
-            # Position sizing based on risk
-            pos_size_usd = (risk_amount * signal['entry_price']) / (effective_sl_dist + 1e-9)
-            
-            # Margin Check: Can't exceed available capital * leverage
-            max_allowed_pos = available_capital * config.leverage * 0.95
-            pos_size_usd = min(pos_size_usd, max_allowed_pos)
-            
-            if pos_size_usd < 10: continue
+                if updated_t.state == TradeState.CLOSED:
+                    if updated_t.result != 'MISSED':
+                        fee_entry = updated_t.pos_size_usd * config.fee_rate
+                        fee_exit = (updated_t.pos_size_usd * (updated_t.exit_price / updated_t.entry_price)) * config.fee_rate
+                        updated_t.fees = fee_entry + fee_exit
+                        raw_pnl = (updated_t.exit_price - updated_t.entry_price)/updated_t.entry_price if updated_t.type == 'LONG' else (updated_t.entry_price - updated_t.exit_price)/updated_t.entry_price
+                        updated_t.pnl_usd = (updated_t.pos_size_usd * raw_pnl) - updated_t.fees
+                        updated_t.pnl_pct = (updated_t.pnl_usd / updated_t.pos_size_usd) * 100
+                        realized_capital += updated_t.pnl_usd
+                        available_capital += (updated_t.pos_size_usd / config.leverage) + updated_t.pnl_usd
+                    else:
+                        available_capital += (updated_t.pos_size_usd / config.leverage)
+                    closed_trades.append(updated_t)
+                elif updated_t.state == TradeState.ACTIVE: active_trades.append(updated_t)
+                else: pending_trades.append(updated_t)
 
-            fee_entry = pos_size_usd * config.fee_rate
-            fee_exit = (pos_size_usd * (signal['exit_price'] / (signal['entry_price'] + 1e-9))) * config.fee_rate
-            total_fees = fee_entry + fee_exit
-            
-            if signal['type'] == 'LONG':
-                raw_pnl_pct = (signal['exit_price'] - signal['entry_price']) / (signal['entry_price'] + 1e-9)
+        # B. MTM & Equity
+        floating_pnl = 0
+        for t in active_trades:
+            if t.symbol in price_lookups and ts in price_lookups[t.symbol].index:
+                curr_p = price_lookups[t.symbol].loc[ts, 'close']
+                raw_pnl = (curr_p - t.entry_price)/t.entry_price if t.type == 'LONG' else (t.entry_price - curr_p)/t.entry_price
+                floating_pnl += t.pos_size_usd * raw_pnl
+        equity_curve.append((ts, realized_capital + floating_pnl))
+
+        # C. New Signals
+        if ts in signals_by_time:
+            sorted_sigs = sorted(signals_by_time[ts], key=lambda x: max(x['prob_long'], x['prob_short']), reverse=True)
+            for sig in sorted_sigs:
+                if len(active_trades) + len(pending_trades) < config.max_open_trades:
+                    risk_amount = (realized_capital + floating_pnl) * config.risk_per_trade
+                    l_p = sig['close'] + (config.long_atr_offset * sig['atr_val']) if sig['type'] == 'LONG' else sig['close'] + (config.short_atr_offset * sig['atr_val'])
+                    sl_p = l_p - (config.sl_mult_long * sig['atr_val']) if sig['type'] == 'LONG' else l_p + (config.sl_mult_short * sig['atr_val'])
+                    tp_p = l_p + (config.tp_mult_long * sig['atr_val']) if sig['type'] == 'LONG' else l_p - (config.tp_mult_short * sig['atr_val'])
+                    
+                    sl_dist_pct = abs(sl_p - l_p) / l_p
+                    pos_size_usd = min(risk_amount / max(sl_dist_pct, 0.003), available_capital * config.leverage * 0.95)
+                    
+                    if pos_size_usd >= 10:
+                        pending_trades.append(Trade(sig['symbol'], ts, sig['type'], l_p, tp_p, sl_p, sig['atr_val'], pos_size_usd=pos_size_usd))
+                        available_capital -= (pos_size_usd / config.leverage)
+
+        # D. Optimization: Jump Logic
+        if not pending_trades and not active_trades:
+            next_sig_idx = bisect_right(signal_times, ts)
+            if next_sig_idx < len(signal_times):
+                next_ts = signal_times[next_sig_idx]
+                ts_idx = bisect_left(unique_ts_list, next_ts)
             else:
-                raw_pnl_pct = (signal['entry_price'] - signal['exit_price']) / (signal['entry_price'] + 1e-9)
-                
-            gross_pnl_usd = pos_size_usd * raw_pnl_pct
-            net_pnl_usd = gross_pnl_usd - total_fees
-            
-            trade_obj = Trade(
-                symbol=signal['symbol'],
-                entry_time=signal['timestamp'],
-                exit_time=signal['exit_time'],
-                type=signal['type'],
-                entry_price=signal['entry_price'],
-                exit_price=signal['exit_price'],
-                result=signal['result'],
-                pnl_usd=net_pnl_usd,
-                pnl_pct=(net_pnl_usd / (pos_size_usd + 1e-9)) * 100,
-                fees=total_fees,
-                duration=signal['duration'],
-                mfe_atr=signal['mfe_atr'],
-                mae_atr=signal['mae_atr'],
-                pos_size_usd=pos_size_usd
-            )
-            
-            margin_required = pos_size_usd / config.leverage
-            available_capital -= margin_required
-            active_trades.append(trade_obj)
-    
-    # 3. Final cleanup
-    active_trades.sort(key=lambda x: x.exit_time)
-    for t in active_trades:
-        realized_capital += t.pnl_usd
-        closed_trades.append(t)
-        equity_curve.append((t.exit_time, realized_capital))
-            
-    return closed_trades, equity_curve, max_open_notional
+                break
+        else:
+            ts_idx += 1
+
+    return closed_trades, equity_curve, 0
 
 def run_backtest_with_config(config: BacktestConfig):
-    print(f"\n{'='*60}")
-    print(f"🚀 QUANT-REFINED SNIPER BACKTEST")
-    print(f"Fixed Entry Logic | Limit Validation | Vectorized AI")
-    print(f"Leverage: {config.leverage}x | Risk: {config.risk_per_trade * 100}% | Range: {config.start_date} to {config.end_date if config.end_date else 'Now'}")
-    print(f"{'='*60}")
-    
     clf, features, threshold = load_assets()
     if clf is None: return None, None, None, None
     
     all_files = list(SYMBOLS_DIR.glob("*.parquet"))
     print(f"Scanning {len(all_files)} symbols...")
-    
-    potential_signals = []
-    price_db = {}
+    potential_signals = []; full_price_db = {}
     for i, file_path in enumerate(all_files):
-        if i % 100 == 0:
-            print(f"Progress: {i}/{len(all_files)}...")
-            
-        res, prices = backtest_symbol(file_path, features, clf, threshold, config)
-        if res:
-            potential_signals.extend(res)
-            symbol = Path(file_path).stem.replace('_USDT', '').replace('USDT', '')
-            price_db[symbol] = prices
-            
-    if not potential_signals:
-        print("No signals found.")
-        return None, None, None, None
-        
-    print(f"Found {len(potential_signals)} filled signals. Simulating portfolio...")
-    trades, equity_curve, max_notional = run_portfolio_simulation(potential_signals, price_db, config)
+        if i % 100 == 0: print(f"Progress: {i}/{len(all_files)}...")
+        res, ohlcv = backtest_symbol(file_path, features, clf, threshold, config)
+        if res: potential_signals.extend(res); full_price_db[Path(file_path).stem.replace('_USDT', '').replace('USDT', '')] = ohlcv
     
-    if not trades:
-        print("No trades executed.")
-        return potential_signals, price_db, trades, equity_curve
+    trades, equity_curve, _ = run_portfolio_simulation(potential_signals, full_price_db, config)
+    if not trades: print("No trades executed."); return potential_signals, full_price_db, trades, equity_curve
 
     report_df = pd.DataFrame([vars(t) for t in trades])
-    report_df = report_df.sort_values('entry_time')
+    report_df = report_df[report_df['result'] != 'MISSED'].sort_values('entry_time')
     
-    print(f"\n✅ PORTFOLIO RESULTS:")
+    print(f"\n✅ PORTFOLIO RESULTS (State Machine):")
     final_cap = config.initial_capital + report_df['pnl_usd'].sum()
-    total_return = ((final_cap / config.initial_capital) - 1) * 100
-    
-    print(f"Initial Capital: ${config.initial_capital:.2f}")
-    print(f"Final Capital:   ${final_cap:.2f}")
-    print(f"Total Return:    {total_return:.2f}%")
-    print(f"Total Trades:    {len(report_df)}")
+    print(f"Initial: ${config.initial_capital:.2f} | Final: ${final_cap:.2f} | Return: {((final_cap/config.initial_capital)-1)*100:.2f}%")
+    print(f"Trades: {len(report_df)}")
     
     equity_series = pd.DataFrame(equity_curve, columns=['time', 'val']).set_index('time')['val']
-    
-    # Advanced Metrics
-    # 1. Profit Factor
-    total_gains = report_df[report_df['pnl_usd'] > 0]['pnl_usd'].sum()
-    total_losses = abs(report_df[report_df['pnl_usd'] < 0]['pnl_usd'].sum())
-    profit_factor = total_gains / (total_losses + 1e-9)
-    
-    # 2. Daily Returns for Sharpe
     daily_equity = equity_series.resample('D').last().ffill()
     daily_returns = daily_equity.pct_change().dropna()
     sharpe = (daily_returns.mean() / (daily_returns.std() + 1e-9)) * np.sqrt(365) if len(daily_returns) > 1 else 0
+    roll_max = equity_series.cummax(); max_dd = ((equity_series - roll_max)/roll_max).min() * 100
     
-    # 3. Calmar
-    roll_max = equity_series.cummax()
-    daily_drawdown = (equity_series - roll_max) / (roll_max + 1e-9)
-    max_dd = daily_drawdown.min() * 100
+    print(f"MaxDrawdown: {max_dd:.2f}% | Sharpe: {sharpe:.2f}")
     
-    ann_return = total_return / (max(1, (equity_series.index[-1] - equity_series.index[0]).days) / 365.25)
-    calmar = abs(ann_return / (max_dd + 1e-9)) if max_dd != 0 else 0
-
-    print(f"Peak Open Vol:   ${max_notional:.2f} (Limit: ${config.initial_capital * config.leverage:.2f})")
-    print(f"Max Drawdown:    {max_dd:.2f}%")
-    print(f"Profit Factor:   {profit_factor:.2f}")
-    print(f"Sharpe Ratio:    {sharpe:.2f}")
-    print(f"Calmar Ratio:    {calmar:.2f}")
-
-    for t in ['LONG', 'SHORT']:
-        subset = report_df[report_df['type'] == t]
-        if subset.empty: print(f"\n--- No {t} trades executed ---"); continue
-        
-        wins = len(subset[subset['result'] == 'WIN'])
-        losses = len(subset[subset['result'] == 'LOSS'])
-        wr = (wins / len(subset)) * 100
-        print(f"\n--- {t} Performance ---")
-        print(f"Trades: {len(subset)} | Winrate: {wr:.2f}%")
-        print(f"Avg PnL: ${subset['pnl_usd'].mean():.2f}")
-        print(f"Median MFE-ATR: {subset['mfe_atr'].median():.2f} | MAE-ATR: {subset['mae_atr'].median():.2f}")
-
     output_file = BASE_DIR / "ml" / "backtest_results_quant_sniper.csv"
-    report_df.to_csv(output_file, index=False)
-    print(f"\nQuant report saved: {output_file}")
-    
-    return potential_signals, price_db, trades, equity_curve
+    report_df.to_csv(output_file, index=False); print(f"Report saved: {output_file}")
+    return potential_signals, full_price_db, trades, equity_curve
 
-def main():
+if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Sniper Model Backtest")
-    parser.add_argument('--start', type=str, default='2025-01-01', help='Start date (YYYY-MM-DD)')
-    parser.add_argument('--end', type=str, default=None, help='End date (YYYY-MM-DD)')
-    parser.add_argument('--leverage', type=float, default=1.0, help='Leverage multiplier')
-    parser.add_argument('--capital', type=float, default=100.0, help='Initial capital')
-    parser.add_argument('--risk', type=float, default=0.05, help='Risk per trade (0.1 = 10%)')
-    
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--start', type=str, default='2025-01-01')
+    parser.add_argument('--leverage', type=float, default=1.0)
+    parser.add_argument('--capital', type=float, default=100.0)
+    parser.add_argument('--risk', type=float, default=0.05)
     args = parser.parse_args()
-    
     config = BacktestConfig(
         start_date=args.start,
-        end_date=args.end,
         leverage=args.leverage,
         initial_capital=args.capital,
         risk_per_trade=args.risk
     )
-    
     run_backtest_with_config(config)
-
-if __name__ == "__main__":
-    main()
