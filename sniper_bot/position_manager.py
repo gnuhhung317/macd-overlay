@@ -216,24 +216,29 @@ class PositionManager:
                 # We would wait for WS update to partial/full fill to update DB
                 pass
 
-    def _calculate_position_size(self, capital: float, sl_pct: float, confidence: float) -> float:
-        """Calculate position size using Fixed Risk"""
-        # 1. Fixed Risk Sizing
-        risk_amount = capital * self.config.risk.max_risk_per_trade
+    def _calculate_position_size(self, total_capital: float, available_capital: float, sl_pct: float, confidence: float) -> float:
+        """
+        Calculate position size using Fixed Risk (Total Equity) 
+        and cap it by Available Buying Power (Available Margin).
+        """
+        # 1. Fixed Risk Sizing based on Total Equity (Consistensy)
+        risk_amount = total_capital * self.config.risk.max_risk_per_trade
         
         # 2. Calculate Size from Risk & SL (Total Nominal Value)
         # Position Size = (Capital * Risk%) / SL%
         if sl_pct <= 0: sl_pct = 0.02
         position_size = risk_amount / sl_pct
         
-        # 3. Cap by Leveraged Buying Power (Available Capital * Leverage)
-        # We use 90% of buying power to allow for fees and market variations
-        max_buying_power = capital * self.config.exchange.leverage * 0.90
+        # 3. Cap by Leveraged Buying Power (Available Margin * Leverage)
+        # We use available_capital (Free Balance) here to prevent "exceeds balance" errors.
+        # 0.9 safety buffer for fees/slippage.
+        max_buying_power = available_capital * self.config.exchange.leverage * 0.90
         
         if position_size > max_buying_power:
+            print(f"⚠️ Sizing Cap: Reducing {position_size:.0f} to available buying power {max_buying_power:.0f}")
             position_size = max_buying_power
             
-        # Hard Cap on Position Size (USD)
+        # Hard Cap on Position Size (USD) from Config
         if hasattr(self.config.risk, 'max_position_size_usd'):
             position_size = min(position_size, self.config.risk.max_position_size_usd)
             
@@ -304,9 +309,11 @@ class PositionManager:
         print(f"🚀 ENTRY SIGNAL FOUND: {symbol} | Conf: {analysis['confidence']:.2%} | RR: {analysis.get('risk_reward', 0):.2f}")
         
         # 1. Calc Sizing
-        balance = self.executor.get_balance()
-        if balance <= 0:
-            print("❌ Insufficient Balance")
+        total_balance = self.executor.get_balance()
+        available_balance = self.executor.get_available_balance()
+        
+        if available_balance <= 0:
+            print(f"❌ Insufficient Available Balance: {available_balance}")
             return
 
         # Pseudo-ISOLATED: Cap SL at 0.99/leverage so we simulate isolated liquidation
@@ -326,7 +333,7 @@ class PositionManager:
 
         sl_pct = analysis['sl'] if analysis['sl'] > 0 else 0.01
         
-        final_size = self._calculate_position_size(balance, sl_pct, analysis['confidence'])
+        final_size = self._calculate_position_size(total_balance, available_balance, sl_pct, analysis['confidence'])
         
         if final_size <= 0:
             print("❌ Calculated size is 0")

@@ -7,7 +7,12 @@ from .config import BotConfig
 class ExchangeExecutor(ABC):
     @abstractmethod
     def get_balance(self) -> float:
-        """Get available USDT balance"""
+        """Get total account equity/balance (for sizing)"""
+        pass
+
+    @abstractmethod
+    def get_available_balance(self) -> float:
+        """Get available margin/free balance (for execution capping)"""
         pass
 
     @abstractmethod
@@ -42,6 +47,9 @@ class DryRunExecutor(ExchangeExecutor):
         print("[Executor] Initialized in DRY RUN mode")
 
     def get_balance(self) -> float:
+        return self.balance
+
+    def get_available_balance(self) -> float:
         return self.balance
 
     def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float, trailing_callback: float = 0.0, activation_price: float = 0.0, order_type: str = 'MARKET', price: float = 0.0) -> Dict[str, Any]:
@@ -128,15 +136,25 @@ class CCXTExecutor(ExchangeExecutor):
         return symbol.replace("USDT", "/USDT:USDT")
 
     def get_balance(self) -> float:
+        """Total Equity (Wallet Balance + Unrealized PnL)"""
         try:
             balance = self.client.fetch_balance()
             if 'USDT' in balance:
-                # Use 'free' (available for new orders) instead of 'total' (equity)
-                # This ensures we don't try to open orders with locked margin
+                return float(balance['USDT'].get('total', 0.0))
+            return 0.0
+        except Exception as e:
+            print(f"❌ Error getting total balance via CCXT: {e}")
+            return 0.0
+
+    def get_available_balance(self) -> float:
+        """Available Margin (Free Balance)"""
+        try:
+            balance = self.client.fetch_balance()
+            if 'USDT' in balance:
                 return float(balance['USDT'].get('free', balance['USDT'].get('available', 0.0)))
             return 0.0
         except Exception as e:
-            print(f"❌ Error getting balance via CCXT: {e}")
+            print(f"❌ Error getting available balance via CCXT: {e}")
             return 0.0
 
     def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float, trailing_callback: float = 0.0, activation_price: float = 0.0, order_type: str = 'MARKET', price: float = 0.0) -> Dict[str, Any]:
@@ -428,19 +446,33 @@ class BinanceExecutor(ExchangeExecutor):
         return round(ticks * tick_size, precision)
 
     def get_balance(self) -> float:
-        """Get USDT Balance (Total Equity/Margin Balance)"""
+        """Total Equity (Margin Balance)"""
         try:
             balances = self.client.futures_account_balance()
             for b in balances:
                 if b['asset'] == 'USDT':
-                    # Support multiple potential keys for better compatibility (Standard vs Portfolio)
-                    # Priority: marginBalance (Equity) -> balance (Wallet) -> crossMarginBalance
-                    val = b.get('marginBalance') or b.get('balance') or b.get('walletBalance') or b.get('totalMarginBalance')
+                    # marginBalance includes PnL and Locked Margin
+                    val = b.get('marginBalance') or b.get('balance')
                     if val is not None:
                         return float(val)
             return 0.0
         except Exception as e:
-            print(f"❌ Error getting balance: {e}")
+            print(f"❌ Error getting total balance: {e}")
+            return 0.0
+
+    def get_available_balance(self) -> float:
+        """Available Margin"""
+        try:
+            balances = self.client.futures_account_balance()
+            for b in balances:
+                if b['asset'] == 'USDT':
+                    # maxWithdrawAmount often represents the truly free margin in futures
+                    val = b.get('withdrawAvailable') or b.get('availableBalance') or b.get('free')
+                    if val is not None:
+                        return float(val)
+            return 0.0
+        except Exception as e:
+            print(f"❌ Error getting available balance: {e}")
             return 0.0
 
     def place_order(self, symbol: str, side: str, size: float, leverage: int, sl_price: float, tp_price: float, trailing_callback: float = 0.0, activation_price: float = 0.0, order_type: str = 'MARKET', price: float = 0.0) -> Dict[str, Any]:
