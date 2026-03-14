@@ -221,16 +221,17 @@ class PositionManager:
         # 1. Fixed Risk Sizing
         risk_amount = capital * self.config.risk.max_risk_per_trade
         
-        # 2. Calculate Size from Risk & SL
+        # 2. Calculate Size from Risk & SL (Total Nominal Value)
+        # Position Size = (Capital * Risk%) / SL%
         if sl_pct <= 0: sl_pct = 0.02
         position_size = risk_amount / sl_pct
         
-        # 3. Apply Limits (Leveraged)
-        position_size = position_size * self.config.exchange.leverage
+        # 3. Cap by Leveraged Buying Power (Available Capital * Leverage)
+        # We use 90% of buying power to allow for fees and market variations
+        max_buying_power = capital * self.config.exchange.leverage * 0.90
         
-        # Available Capital check
-        if position_size > capital * self.config.exchange.leverage:
-            position_size = capital * self.config.exchange.leverage
+        if position_size > max_buying_power:
+            position_size = max_buying_power
             
         # Hard Cap on Position Size (USD)
         if hasattr(self.config.risk, 'max_position_size_usd'):

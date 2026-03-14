@@ -32,8 +32,8 @@ class BacktestConfig:
     start_date: str = '2025-01-01'
     end_date: str = None
     leverage: float = 1.0
-    long_atr_offset: float =  -0.9755 #-0.18
-    short_atr_offset: float =0.4527 #0.09
+    long_atr_offset: float = -0.18 #-0.18 -0.9755
+    short_atr_offset: float =0.09 #0.09 0.4527
     limit_wait_bars: int = 2
     tp_mult_long: float = 3.4
     sl_mult_long: float = 1.4
@@ -114,91 +114,81 @@ def simulate_trade_step(trade: Trade, row: pd.Series, config: BacktestConfig):
     if trade.state == TradeState.CLOSED:
         return False, trade
 
+    # 1. Entry Logic (PENDING -> ACTIVE)
     if trade.state == TradeState.PENDING:
         trade.wait_bars += 1
         is_filled = False
         if trade.type == 'LONG':
             if row['open'] <= trade.limit_price:
                 trade.entry_price = row['open']; is_filled = True
-            elif row['low'] < trade.limit_price:
+            elif row['low'] <= trade.limit_price:
                 trade.entry_price = trade.limit_price; is_filled = True
         else: # SHORT
             if row['open'] >= trade.limit_price:
                 trade.entry_price = row['open']; is_filled = True
-            elif row['high'] > trade.limit_price:
+            elif row['high'] >= trade.limit_price:
                 trade.entry_price = trade.limit_price; is_filled = True
         
         if is_filled:
             trade.state = TradeState.ACTIVE
-            trade.entry_time = row.name # Assume timestamp is index
-            # Pessimistic Intrabar
-            if trade.type == 'LONG':
-                if row['low'] <= trade.sl_price:
-                    trade.state = TradeState.CLOSED; trade.result = 'LOSS'
-                    trade.exit_price = min(row['open'], trade.sl_price) * (1 - config.slippage)
-                    trade.exit_time = row.name
-                elif row['high'] >= trade.tp_price:
-                    trade.state = TradeState.CLOSED; trade.result = 'WIN'
-                    trade.exit_price = trade.tp_price * (1 - config.slippage)
-                    trade.exit_time = row.name
-            else: # SHORT
-                if row['high'] >= trade.sl_price:
-                    trade.state = TradeState.CLOSED; trade.result = 'LOSS'
-                    trade.exit_price = max(row['open'], trade.sl_price) * (1 + config.slippage)
-                    trade.exit_time = row.name
-                elif row['low'] <= trade.tp_price:
-                    trade.state = TradeState.CLOSED; trade.result = 'WIN'
-                    trade.exit_price = trade.tp_price * (1 + config.slippage)
-                    trade.exit_time = row.name
-            return True, trade
-
-        if trade.wait_bars >= config.limit_wait_bars:
+            trade.entry_time = row.name
+        elif trade.wait_bars >= config.limit_wait_bars:
             trade.state = TradeState.CLOSED; trade.result = 'MISSED'
             return True, trade
-        return False, trade
 
+    # 2. Active Logic (including the bar it was just filled in)
     if trade.state == TradeState.ACTIVE:
+        # A. Update MFE/MAE (Normalize by signal ATR)
+        if trade.type == 'LONG':
+            trade.mfe_atr = max(trade.mfe_atr, (row['high'] - trade.entry_price) / (trade.atr_val + 1e-9))
+            trade.mae_atr = min(trade.mae_atr, (row['low'] - trade.entry_price) / (trade.atr_val + 1e-9))
+        else: # SHORT
+            trade.mfe_atr = max(trade.mfe_atr, (trade.entry_price - row['low']) / (trade.atr_val + 1e-9))
+            trade.mae_atr = min(trade.mae_atr, (trade.entry_price - row['high']) / (trade.atr_val + 1e-9))
+
         trade.duration += 1
+        
+        # B. Exit Logic
+        closed_this_bar = False
         if trade.type == 'LONG':
             if row['open'] <= trade.sl_price:
                 trade.state = TradeState.CLOSED; trade.result = 'LOSS'
                 trade.exit_price = row['open'] * (1 - config.slippage)
-                trade.exit_time = row.name
+                closed_this_bar = True
             elif row['low'] <= trade.sl_price:
                 trade.state = TradeState.CLOSED; trade.result = 'LOSS'
                 trade.exit_price = trade.sl_price * (1 - config.slippage)
-                trade.exit_time = row.name
+                closed_this_bar = True
             elif row['high'] >= trade.tp_price:
                 trade.state = TradeState.CLOSED; trade.result = 'WIN'
                 trade.exit_price = trade.tp_price * (1 - config.slippage)
-                trade.exit_time = row.name
-            
-            if trade.state == TradeState.ACTIVE:
-                trade.mfe_atr = max(trade.mfe_atr, (row['high'] - trade.entry_price) / (trade.atr_val + 1e-9))
-                trade.mae_atr = min(trade.mae_atr, (row['low'] - trade.entry_price) / (trade.atr_val + 1e-9))
+                closed_this_bar = True
         else: # SHORT
             if row['open'] >= trade.sl_price:
                 trade.state = TradeState.CLOSED; trade.result = 'LOSS'
                 trade.exit_price = row['open'] * (1 + config.slippage)
-                trade.exit_time = row.name
+                closed_this_bar = True
             elif row['high'] >= trade.sl_price:
                 trade.state = TradeState.CLOSED; trade.result = 'LOSS'
                 trade.exit_price = trade.sl_price * (1 + config.slippage)
-                trade.exit_time = row.name
+                closed_this_bar = True
             elif row['low'] <= trade.tp_price:
                 trade.state = TradeState.CLOSED; trade.result = 'WIN'
                 trade.exit_price = trade.tp_price * (1 + config.slippage)
-                trade.exit_time = row.name
+                closed_this_bar = True
 
-            if trade.state == TradeState.ACTIVE:
-                trade.mfe_atr = max(trade.mfe_atr, (trade.entry_price - row['low']) / (trade.atr_val + 1e-9))
-                trade.mae_atr = min(trade.mae_atr, (trade.entry_price - row['high']) / (trade.atr_val + 1e-9))
+        if closed_this_bar:
+            trade.exit_time = row.name
+            return True, trade
 
-        if trade.state == TradeState.ACTIVE and trade.duration >= config.max_bars_hold:
+        # C. Timeout Check
+        if trade.duration >= config.max_bars_hold:
             trade.state = TradeState.CLOSED; trade.result = 'TIMEOUT'
-            trade.exit_price = row['close']; trade.exit_time = row.name
+            trade.exit_price = row['close']
+            trade.exit_time = row.name
+            return True, trade
 
-        return trade.state == TradeState.CLOSED, trade
+    return trade.state == TradeState.CLOSED, trade
     return False, trade
 
 # ============================================================

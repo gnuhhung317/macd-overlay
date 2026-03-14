@@ -131,7 +131,9 @@ class CCXTExecutor(ExchangeExecutor):
         try:
             balance = self.client.fetch_balance()
             if 'USDT' in balance:
-                return float(balance['USDT']['total']) # Use Total (Equity/Margin Balance) instead of Free
+                # Use 'free' (available for new orders) instead of 'total' (equity)
+                # This ensures we don't try to open orders with locked margin
+                return float(balance['USDT'].get('free', balance['USDT'].get('available', 0.0)))
             return 0.0
         except Exception as e:
             print(f"❌ Error getting balance via CCXT: {e}")
