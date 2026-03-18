@@ -14,3 +14,4 @@ ccxt
 dash
 dash-bootstrap-components
 pyarrow
+pydantic

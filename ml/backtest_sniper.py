@@ -26,19 +26,19 @@ class BacktestConfig:
     initial_capital: float = 100.0
     risk_per_trade: float = 0.05
     fee_rate: float = 0.001
-    slippage: float = 0.005
+    slippage: float = 0.01
     max_open_trades: int = 5
-    max_bars_hold: int = 48
+    max_bars_hold: int = 36
     start_date: str = '2025-01-01'
     end_date: str = None
     leverage: float = 1.0
     long_atr_offset: float = -0.18 #-0.18 -0.9755
     short_atr_offset: float =0.09 #0.09 0.4527
     limit_wait_bars: int = 2
-    tp_mult_long: float = 3.4
-    sl_mult_long: float = 1.4
-    tp_mult_short: float = 3.9
-    sl_mult_short: float = 2.1
+    tp_mult_long: float = 3.13
+    sl_mult_long: float = 2.51
+    tp_mult_short: float = 4
+    sl_mult_short: float = 2.2
 
 @dataclass
 class Trade:

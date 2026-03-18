@@ -125,19 +125,21 @@ class PositionManager:
                     
             except Exception as e:
                 print(f"⚠️ Error checking timeout for {symbol}: {e}")
-                
         if exit_reason:
             print(f"🛑 {symbol} {exit_reason}! Price: {current_price} (SL: {sl_price}, TP: {tp_price})")
             
             # Close trade
+            exit_time = datetime.now()
+            pnl = 0.0
+            pnl_pct = 0.0
+            
             if self.config.exchange.dry_run:
                 # Calculate PnL locally for simulation
                 size = trade['size']
                 entry_price = trade['entry_price']
-                leverage = trade.get('leverage', 1)
                 
                 # Apply slippage
-                slippage = self.config.exchange.slippage
+                slippage = self.config.exchange.slippage if hasattr(self.config.exchange, 'slippage') else 0.001
                 if direction == 'LONG':
                     if exit_reason == 'SL_HIT':
                         exit_price = exit_price * (1 - slippage)
@@ -151,39 +153,52 @@ class PositionManager:
                         exit_price = exit_price * (1 + slippage)
                     pnl_pct = (entry_price - exit_price) / entry_price
                 
-                # PnL = Position Value * % Change
-                # Position Value = Margin * Leverage
-                # Or simply size * pnl_pct for linear contracts (assuming size in USDT)
                 pnl = size * pnl_pct
                 
                 # Update executor balance
                 if hasattr(self.executor, 'update_balance'):
                     self.executor.update_balance(pnl)
                 
-                # Update DB
-                self.db.update_trade(trade['id'], {
-                    'status': 'CLOSED',
-                    'exit_price': exit_price,
-                    'exit_time': datetime.now(),
-                    'exit_reason': exit_reason,
-                    'pnl': pnl
-                })
+                print(f"✅ [DRY RUN] Trade Closed: {symbol} | PnL: ${pnl:.2f}")
+            else:
+                # LIVE / TESTNET CLOSE
+                print(f"📡 Sending Close Order for {symbol} ({exit_reason})...")
+                success = self.executor.close_position(symbol)
+                if not success:
+                    print(f"❌ Failed to close position for {symbol} on exchange!")
+                    return # Don't update DB yet if it failed
                 
-                # Clean up local state
-                del self.active_positions[symbol]
-                print(f"✅ Trade Closed: {symbol} | PnL: ${pnl:.2f}")
+                # For Live Trades, PnL is often updated via WS/Sync later, 
+                # but we can try to estimate or just log the close.
+                # Real PnL will be reconciled by Sync.
+                exit_price = current_price
+                print(f"✅ [LIVE] Position Close Order Sent for {symbol}")
 
-                # Send Telegram Alert
-                if self.notifier:
-                    emoji = "🤑" if pnl > 0 else "😭"
-                    msg = (
-                        f"{emoji} <b>Trade Closed: {symbol}</b>\n"
-                        f"Type: {exit_reason}\n"
-                        f"PnL: <b>${pnl:.2f} ({pnl_pct*100:.2f}%)</b>\n"
-                        f"Exit Price: {exit_price}\n"
-                        f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                    )
-                    self.notifier.send_message(msg)
+            # Update DB
+            self.db.update_trade(trade['id'], {
+                'status': 'CLOSED',
+                'exit_price': exit_price,
+                'exit_time': exit_time,
+                'exit_reason': exit_reason,
+                'pnl': pnl
+            })
+            
+            # Clean up local state
+            if symbol in self.active_positions:
+                del self.active_positions[symbol]
+
+            # Send Telegram Alert
+            if self.notifier:
+                emoji = "🤑" if pnl > 0 or exit_reason == 'TP_HIT' else "🛑"
+                pnl_str = f"PnL: <b>${pnl:.2f} ({pnl_pct*100:.2f}%)</b>\n" if self.config.exchange.dry_run else ""
+                msg = (
+                    f"{emoji} <b>Trade Closed: {symbol}</b>\n"
+                    f"Type: {exit_reason}\n"
+                    f"{pnl_str}"
+                    f"Exit Price: {exit_price}\n"
+                    f"Time: {exit_time.strftime('%Y-%m-%d %H:%M:%S')}"
+                )
+                self.notifier.send_message(msg)
 
     def _check_limit_order_timeouts(self):
         """Cancel limit orders that haven't filled after limit_wait_bars"""
@@ -447,8 +462,36 @@ class PositionManager:
             for symbol in bot_symbols:
                 trade = self.active_positions[symbol]
                 
-                # Case A: Found in Positions -> All good
+                # Case A: Found in Positions -> CHECK TIMEOUT
                 if symbol in real_symbols:
+                    real_p = real_symbols[symbol]
+                    # Check timeout for existing position
+                    entry_time = trade.get('entry_time')
+                    if not entry_time or not isinstance(entry_time, (datetime, pd.Timestamp)):
+                        # Default to exchange timestamp if internal missing
+                        entry_time = real_p.get('entry_time', datetime.now())
+                        if isinstance(entry_time, str): entry_time = pd.Timestamp(entry_time)
+                    
+                    waited_seconds = (datetime.now() - entry_time).total_seconds()
+                    
+                    # Calculate timeout in seconds
+                    timeout_candles = getattr(self.config.strategy, 'timeout_candles', 48)
+                    timeout_seconds = timeout_candles * minutes_per_bar * 60
+                    
+                    if waited_seconds > timeout_seconds:
+                        print(f"⌛ Position Timeout for {symbol} ({waited_seconds/3600:.1f}h > {timeout_seconds/3600:.1f}h). Closing...")
+                        if not self.config.exchange.dry_run:
+                            self.executor.close_position(symbol)
+                        
+                        self.db.update_trade(trade['id'], {
+                            'status': 'CLOSED',
+                            'exit_time': datetime.now(),
+                            'exit_reason': 'TIMEOUT',
+                            'pnl': real_p.get('pnl', 0.0)
+                        })
+                        del self.active_positions[symbol]
+                        if self.notifier:
+                            self.notifier.send_message(f"⌛ <b>Position Timeout:</b> {symbol} closed after {waited_seconds/3600:.1f} hours.")
                     continue
                 
                 # Case B: Found in Orders -> Check Timeout
@@ -463,17 +506,18 @@ class PositionManager:
                     if waited_seconds > limit_timeout_seconds:
                         print(f"⌛ Limit Timeout for {symbol} ({waited_seconds/60:.1f}m > {limit_timeout_seconds/60:.1f}m). Cancelling...")
                         # 1. Cancel on exchange
-                        # Try to get order_id from raw_data (it might be in a nested field depending on executor)
-                        raw = trade.get('raw_data', {})
-                        if isinstance(raw, str):
-                            try: raw = json.loads(raw)
-                            except: raw = {}
-                            
-                        order_id = raw.get('order_id') or raw.get('id')
-                        if order_id:
-                            self.executor.cancel_order(symbol, order_id)
-                        else:
-                            print(f"⚠️ Could not find order_id for {symbol} to cancel.")
+                        if not self.config.exchange.dry_run:
+                            raw = trade.get('raw_data', {})
+                            if isinstance(raw, str):
+                                try: raw = json.loads(raw)
+                                except: raw = {}
+                                
+                            order_id = raw.get('order_id') or raw.get('id')
+                            if order_id:
+                                self.executor.cancel_order(symbol, order_id)
+                            else:
+                                # Fallback: cancel all for symbol
+                                self.executor.cancel_order(symbol, "all")
                         
                         # 2. Close in DB
                         self.db.update_trade(trade['id'], {

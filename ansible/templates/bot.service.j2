@@ -1,26 +1,33 @@
 [Unit]
 Description=Trading Bot - {{ bot_name }}
-# Đợi mạng lên xong mới chạy service
-After=network.target
+# Đảm bảo có Internet thực sự mới chạy
+Wants=network-online.target
+After=network-online.target
 
 [Service]
 Type=simple
-User=root
+# KHÔNG DÙNG ROOT. Hãy thay 'ubuntu' bằng user bạn đang dùng trên server, 
+# hoặc tốt nhất là dùng biến {{ ansible_user | default('ubuntu') }}
+User={{ ansible_user | default('ubuntu') }}
+
 WorkingDirectory={{ bot_dir }}
-# Lệnh chạy bot. Chú ý đường dẫn
+
+# Biến môi trường: Tắt buffer log + Ép đường dẫn module
+Environment=PYTHONUNBUFFERED=1
+Environment="PYTHONPATH={{ bot_dir }}"
+
+# Lệnh chạy bot (đảm bảo bot_command đã trỏ vào venv như tôi hướng dẫn ở bước trước)
 ExecStart={{ bot_command }}
 
-# Tự động restart nếu code bị crash 
+# Tự động restart. Thêm giới hạn StartLimitIntervalSec để tránh loop vô hạn gây treo CPU
 Restart=always
 RestartSec=10
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
-# Đẩy hết log (print) về system journal để xem bằng lệnh journalctl
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier={{ bot_name }}
-
-# Lưu ý môi trường: Nếu chạy file python cần đọc env hoặc load biến
-Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=multi-user.target
