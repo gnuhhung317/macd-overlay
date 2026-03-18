@@ -1,3 +1,6 @@
+import pandas as pd
+import numpy as np
+
 def load_ohlcv_1h(symbol):
     for name in [f"{symbol}_USDT.parquet", f"{symbol}.parquet"]:
         fp = OHLCV_DIR / name
@@ -41,12 +44,12 @@ def calculate_liquidity_sweep(df, lookback=20):
     df['macd_cross_up'] = df['bullish_sweep']
     df['macd_cross_down'] = df['bearish_sweep']
     return df
-def calculate_features(df):
-    df=df.copy(); df['log_returns']=np.log(df['close']/df['close'].shift(1))
+def calculate_features(df, df_1d=None, btc_df=None):
+    df=df.copy(); df['log_returns']=np.log(df['close']/(df['close'].shift(1)+1e-9))
     df['high_low_range']=(df['high']-df['low'])/df['close']; df['body_size']=abs(df['close']-df['open'])/df['close']
     df['candle_range']=df['high']-df['low']+1e-9; df['lower_wick']=df[['open','close']].min(axis=1)-df['low']; df['upper_wick']=df['high']-df[['open','close']].max(axis=1)
     df['lower_wick_ratio_current']=df['lower_wick']/df['candle_range']; df['upper_wick_ratio_current']=df['upper_wick']/df['candle_range']
-    for p in [7,14,21,50,100,200]: df[f'ema_{p}']=df['close'].ewm(span=p).mean()
+    for p in [7,14,21,50,100,200]: df[f'ema_{p}']=df['close'].ewm(span=p, adjust=True).mean()
     for p in [10,20,50,200]: df[f'sma_{p}']=df['close'].rolling(p).mean()
     tr=pd.concat([df['high']-df['low'],abs(df['high']-df['close'].shift(1)),abs(df['low']-df['close'].shift(1))],axis=1).max(axis=1)
     df['atr_14']=tr.rolling(14).mean(); df['volatility_14']=df['log_returns'].rolling(14).std()
@@ -54,7 +57,7 @@ def calculate_features(df):
     df['volume_sma_20']=df['volume'].rolling(20).mean(); df['volume_std_20']=df['volume'].rolling(20).std()
     df['volume_ratio']=df['volume']/(df['volume_sma_20']+1e-9); df['volume_zscore']=(df['volume']-df['volume_sma_20'])/(df['volume_std_20']+1e-9)
     df['volume_trend']=df['volume'].rolling(7).mean()/(df['volume'].rolling(21).mean()+1e-9); df['volume_spike']=(df['volume_ratio']>2).astype(int)
-    df['rsi_14']=calculate_rsi(df['close'], 14); df['rsi_slope']=df['rsi_14'].diff(3)
+    df['rsi_14']=calculate_rsi(df['close'], 14); df['rsi_slope']=df['rsi_14'].diff(3) # Match Ground Truth (No /3)
     l14=df['low'].rolling(14).min(); h14=df['high'].rolling(14).max()
     df['stoch_k']=100*(df['close']-l14)/(h14-l14).replace(0,np.nan); df['stoch_d']=df['stoch_k'].rolling(3).mean()
     df['roc_7']=df['close'].pct_change(7); df['roc_14']=df['close'].pct_change(14)
@@ -88,6 +91,41 @@ def calculate_features(df):
     df=calculate_macd(df); df=df.drop(columns=['macd_cross_up','macd_cross_down'], errors='ignore')
     df=calculate_liquidity_sweep(df)
     df['usd_vol_24h'] = (df['volume'] * df['close']).rolling(24).sum()
+
+    # --- PORTED FROM sync_worker.py (PHASE 11 & BTC CONTEXT) ---
+    df['dist_to_ema50_atr'] = (df['close'] - df['ema_50']) / (df['atr_14'] + 1e-9)
+    df['vol_acceleration'] = df['volume'] / (df['volume'].shift(1) + 1e-9)
+    df['resistance_50'] = df['high'].rolling(50).max().shift(1) # Shift 1 to avoid lookahead
+    df['dist_to_res'] = (df['resistance_50'] - df['close']) / (df['close'] + 1e-9)
+
+    # Daily MTF (Anti-Lookahead)
+    if df_1d is not None and not df_1d.empty:
+        d1d_ema = df_1d['ema_200'].iloc[-1] if 'ema_200' in df_1d.columns else df_1d['close'].ewm(span=200).mean().iloc[-1]
+        df['ema_200_1d_dist'] = (df['close'] - d1d_ema) / (d1d_ema + 1e-9)
+        df['rsi_14_1d'] = calculate_rsi(df_1d['close'], 14).iloc[-1]
+    else:
+        df['ema_200_1d_dist'] = np.nan; df['rsi_14_1d'] = np.nan
+
+    # BTC Context
+    if btc_df is not None and not btc_df.empty:
+        btc_map = btc_df.set_index('timestamp')
+        df['btc_close'] = df['timestamp'].map(btc_map['close']).ffill()
+        df['btc_ema_200'] = df['timestamp'].map(btc_map['ema_200']).ffill()
+        df['btc_adx'] = df['timestamp'].map(btc_map['adx']).ffill()
+        df['btc_returns_hist'] = df['timestamp'].map(btc_map['log_returns']).fillna(0)
+        
+        df['btc_is_bull_regime'] = (df['btc_close'] > df['btc_ema_200']).astype(int)
+        df['btc_trend_strength'] = (df['btc_adx'] > 25).astype(int)
+        df['rs_vs_btc'] = df['log_returns'] - df['btc_returns_hist']
+        df['rs_vs_btc_sma7'] = df['rs_vs_btc'].rolling(7).mean()
+        df['btc_corr'] = df['log_returns'].rolling(14).corr(df['btc_returns_hist']).fillna(0)
+        
+        # Cleanup temp btc columns
+        df.drop(columns=['btc_close', 'btc_ema_200', 'btc_adx', 'btc_returns_hist'], inplace=True, errors='ignore')
+    else:
+        for c in ['btc_is_bull_regime', 'btc_trend_strength', 'btc_corr', 'rs_vs_btc', 'rs_vs_btc_sma7']:
+            df[c] = np.nan
+
     return df.dropna(subset=['macd','swing_low','vol_sma_20','vwap_30d','usd_vol_24h'])
 def generate_momentum_labels(df, horizon=12, min_pump=0.10):
     df = df.copy()
@@ -123,6 +161,7 @@ def apply_winsorization(df,fc,lo=0.01,hi=0.99):
 def apply_feature_shift(df):
     ex={'timestamp','symbol','open','high','low','close','volume','label','ignition','trade_result','macd_cross_up','macd_cross_down'}
     sc=[c for c in df.columns if c not in ex]
+    
     if 'symbol' in df.columns: df[sc]=df.groupby('symbol')[sc].shift(1)
     else: df[sc]=df[sc].shift(1)
     return df.dropna(subset=sc[:3])

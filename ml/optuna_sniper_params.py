@@ -20,12 +20,19 @@ from ml.backtest_sniper import (
 # Configuration for Optuna
 START_DATE = '2025-01-01'
 INITIAL_CAPITAL = 100.0
-RISK_PER_TRADE = 0.05
+RISK_PER_TRADE = 0.02
 MAX_OPEN_TRADES = 10
 LEVERAGE = 20.0
 
-def precompute_data():
-    """Scan all symbols once and collect potential signals and price data."""
+def precompute_data(force_recompute=False):
+    """Scan symbols once, cache the result, load from cache next time."""
+    cache_path = Path(os.getcwd()) / "data" / "cache" / "precomputed_signals.joblib"
+    
+    # Tư duy mở: Nếu cache tồn tại và không bị ép tính lại, load luôn cho nhanh
+    if not force_recompute and cache_path.exists():
+        print(f"♻️ Bỏ qua quét dữ liệu! Đang load từ Cache: {cache_path}...")
+        return joblib.load(cache_path)
+
     print("🚀 Precomputing signals and price data (Stage 1 & 2)...")
     config = BacktestConfig(start_date=START_DATE)
     clf, features, threshold = load_assets()
@@ -50,76 +57,106 @@ def precompute_data():
             full_price_db[Path(file_path).stem.replace('_USDT', '').replace('USDT', '')] = ohlcv
             
     print(f"✅ Precomputation complete. Found {len(all_signals)} potential signals.")
+    
+    # GHI CACHE: Lưu lại thành quả để lần sau dùng
+    os.makedirs(cache_path.parent, exist_ok=True)
+    joblib.dump((all_signals, full_price_db), cache_path)
+    print(f"💾 Đã lưu cache tại {cache_path}")
+    
     return all_signals, full_price_db
 
 def objective(trial, signals, full_price_db, config_base):
     # Search Space
     params = {
-        'long_atr_offset': trial.suggest_float('long_atr_offset', -1.2, 0.2),
-        'short_atr_offset': trial.suggest_float('short_atr_offset', -0.2, 1.2),
+        # 'long_atr_offset': trial.suggest_float('long_atr_offset', -2, 0.2),
+        # 'short_atr_offset': trial.suggest_float('short_atr_offset', -0.2, 1.2),
+        # 'max_open_trades': trial.suggest_int('max_open_trades', 5, 25),
+        'risk_per_trade': trial.suggest_float('risk_per_trade', 0.02, 0.10),
         # 'tp_mult_long': trial.suggest_float('tp_mult_long', 1.0, 5.0),
         # 'sl_mult_long': trial.suggest_float('sl_mult_long', 0.5, 3.0),
+        # 'tp_mult_short': trial.suggest_float('tp_mult_short', 1.0, 5.0),
+        # 'sl_mult_short': trial.suggest_float('sl_mult_short', 0.5, 3.0),
     }
     
     config = BacktestConfig(
         start_date=config_base.start_date,
         initial_capital=config_base.initial_capital,
-        risk_per_trade=config_base.risk_per_trade,
-        max_open_trades=config_base.max_open_trades,
         leverage=config_base.leverage,
         **params
     )
     
     trades, equity_curve, _ = run_portfolio_simulation(signals, full_price_db, config)
     
-    # Gradient trừng phạt mượt mà cho các trường hợp không có lệnh
+    # 1. Tránh văng lỗi, nhưng không gán số âm khổng lồ mù quáng
     if not trades or len(equity_curve) < 2:
-        return -100.0
+        return -1.0 # Base loss để TPE biết hướng này tệ, không tốn time đào sâu
 
     report_df = pd.DataFrame([vars(t) for t in trades])
     report_df = report_df[report_df['result'] != 'MISSED']
+    num_trades = len(report_df)
     
-    # RẤT TỐT: Đoạn này tạo gradient để Optuna biết hướng tìm thêm lệnh
-    min_trades = 15
-    if len(report_df) < min_trades: 
-        return -50.0 + (len(report_df) / 100.0)
+    if num_trades == 0:
+        return -1.0
         
+    # 2. Tiền xử lý dữ liệu Equity
     equity_series = pd.DataFrame(equity_curve, columns=['time', 'val']).set_index('time')['val']
     daily_equity = equity_series.resample('D').last().ffill()
     daily_returns = daily_equity.pct_change().dropna()
     
-    # Base Metrics
-    std = daily_returns.std()
-    sharpe = (daily_returns.mean() / (std + 1e-9)) * np.sqrt(365) if std > 0 else 0
-    
-    roll_max = equity_series.cummax()
-    drawdowns = (equity_series - roll_max) / (roll_max + 1e-9)
-    max_dd = abs(drawdowns.min()) # Biến đổi DD thành số dương để dễ tính toán
-    
+    if daily_returns.empty:
+        return -1.0
+
     days = max((equity_series.index[-1] - equity_series.index[0]).days, 1)
     years = days / 365.25
     
-    # ĐÃ SỬA: Tính chuẩn CAGR (Lãi kép)
+    # 3. Tính Metrics Cốt Lõi
     cagr = (equity_series.iloc[-1] / equity_series.iloc[0]) ** (1 / years) - 1
     
-    # ĐÃ SỬA: Loại bỏ hàm abs() bao ngoài cagr. Âm là âm, dương là dương!
-    calmar = cagr / max(max_dd, 0.01)
+    roll_max = equity_series.cummax()
+    drawdowns = (roll_max - equity_series) / roll_max 
+    max_dd = float(drawdowns.max())
     
-    # Tối ưu hóa: Trừng phạt nếu PnL âm (Không cho Optuna lươn lẹo)
-    if cagr < 0:
-        return cagr * 100 # Phóng đại độ âm để nó học cách né
+    negative_returns = daily_returns[daily_returns < 0]
+    downside_std = negative_returns.std()
+    sortino = (daily_returns.mean() / (downside_std + 1e-9)) * np.sqrt(365) if downside_std > 0 else 0.0
+
+    # ---------------------------------------------------------
+    # 4. HỆ THỐNG PENALTY MƯỢT (SMOOTH CONTINUOUS PENALTIES)
+    # ---------------------------------------------------------
     
-    # ĐÃ SỬA: Trừng phạt Rủi ro phi tuyến tính (Exponential Penalty)
-    # Không dùng if/else chặn -1e9 nữa. Drawdown càng cao, điểm càng bị ép về 0.
-    # Với DD = 30% -> penalty = 0.22; DD = 50% -> penalty = 0.08; DD = 60% -> penalty = 0.04
-    dd_penalty = math.exp(-max_dd * 5.0) 
+    # A. Ngưỡng động (Dynamic Threshold) cho số lượng lệnh
+    # Tự động điều chỉnh theo độ dài của Fold thay vì hardcode số 30
+    # Kỳ vọng tối thiểu: Trung bình 1.5 lệnh / tuần
+    expected_min_trades = max(5.0, (days / 7.0) * 1.5) 
     
-    # Kết hợp điểm (Có thể tùy chỉnh trọng số tùy gu của bạn)
-    raw_score = (sharpe * 0.4) + (calmar * 0.6)
+    # Hàm Sigmoid phạt mượt: Ít lệnh -> tiệm cận 0 (bóp điểm). Vượt kỳ vọng -> tiệm cận 1.
+    # Hệ số k=0.3 kiểm soát độ dốc của hàm Sigmoid.
+    trade_factor = 1.0 / (1.0 + math.exp(-0.3 * (num_trades - expected_min_trades)))
     
-    # Điểm cuối cùng bị bào mòn bởi rủi ro drawdown
-    final_score = raw_score * dd_penalty
+    # B. Penalty Drawdown (Exponential Decay)
+    safe_dd_limit = 0.25  # Vùng an toàn 25%
+    k_factor = 18.0       # Tốc độ bào mòn điểm số khi vượt safe limit
+    excess_dd = max(0.0, max_dd - safe_dd_limit)
+    dd_penalty_factor = math.exp(-k_factor * excess_dd)
     
+    # ---------------------------------------------------------
+    # 5. ASYMMETRIC SCORING (CHỐNG LỖI TOÁN HỌC KHI TÍNH PHẠT)
+    # ---------------------------------------------------------
+    
+    if cagr > 0:
+        # Nếu hệ thống CÓ LÃI: Điểm là sự kết hợp giữa CAGR và Sortino, 
+        # sau đó bị "bóp" lại bằng các hệ số Penalty (nhân với số < 1).
+        raw_score = (cagr * 0.6) + (sortino * 0.4)
+        final_score = raw_score * trade_factor * dd_penalty_factor
+    else:
+        # LỖI CHẾT NGƯỜI Ở BẢN CŨ: Nếu CAGR âm (-0.5) mà đem NHÂN với penalty factor (0.1),
+        # kết quả ra -0.05 (Tức là tăng điểm, làm TPE hiểu lầm là DD càng cao thì đỡ tệ hơn).
+        # Khắc phục: Khi hệ thống LỖ, ta dùng phép TRỪ (Cộng dồn hình phạt).
+        
+        trade_shortfall_penalty = max(0.0, expected_min_trades - num_trades) / expected_min_trades
+        # Lỗ cơ bản (cagr) TRỪ ĐI hình phạt DD (nhân đôi trọng số) TRỪ ĐI hình phạt thiếu lệnh
+        final_score = cagr - (excess_dd * 2.5) - (trade_shortfall_penalty * 0.5)
+
     return final_score
 
 def run_test_on_range(signals, full_price_db, config):
@@ -147,10 +184,11 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Optuna Sniper with Walk-Forward Validation")
     parser.add_argument('--trials', type=int, default=50, help='Number of trials per fold')
+    parser.add_argument('--force-recompute', action='store_true', help='Force recomputation of signals')
     args = parser.parse_args()
 
     # 1. Precompute
-    all_signals, full_price_db = precompute_data()
+    all_signals, full_price_db = precompute_data(force_recompute=args.force_recompute)
     
     # Adjust folds for actual 2025-2026 context
     actual_folds = [
@@ -187,8 +225,29 @@ def main():
             continue
             
         # Optimize IS
-        study = optuna.create_study(direction='maximize')
-        study.optimize(lambda t: objective(t, is_signals, full_price_db, config_base), n_trials=args.trials)
+        # Tạo Database SQLite để lưu trạng thái Optuna vĩnh viễn
+        db_path = f"sqlite:///optuna_wfv.db"
+        study_name = f"fold_{i+1}_{is_start}_to_{is_end}"
+        
+        study = optuna.create_study(
+            study_name=study_name,
+            storage=db_path,
+            load_if_exists=True, # QUAN TRỌNG: Load lại nếu đã từng chạy
+            direction='maximize'
+        )
+        
+        # Chỉ chạy thêm số lượng trials còn thiếu, không chạy lại từ đầu
+        completed_trials = len(study.trials)
+        remaining_trials = max(0, args.trials - completed_trials)
+        
+        if remaining_trials > 0:
+            print(f"🔄 Tiếp tục chạy thêm {remaining_trials} trials cho Fold {i+1}...")
+            # Sử dụng n_jobs=-1 để chạy đa luồng (tận dụng hết số core CPU bạn có)
+            study.optimize(lambda t: objective(t, is_signals, full_price_db, config_base), 
+                           n_trials=remaining_trials, 
+                           n_jobs=-1) 
+        else:
+            print(f"✅ Fold {i+1} đã hoàn thành đủ {args.trials} trials từ trước. Bỏ qua chạy lại.")
         
         best_params = study.best_params
         

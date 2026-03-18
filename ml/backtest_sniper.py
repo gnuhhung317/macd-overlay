@@ -27,7 +27,7 @@ class BacktestConfig:
     risk_per_trade: float = 0.05
     fee_rate: float = 0.001
     slippage: float = 0.005
-    max_open_trades: int = 10
+    max_open_trades: int = 5
     max_bars_hold: int = 48
     start_date: str = '2025-01-01'
     end_date: str = None
@@ -319,7 +319,7 @@ def run_portfolio_simulation(all_signals, full_price_db, config: BacktestConfig)
                     
                     sl_dist_pct = abs(sl_p - l_p) / l_p
                     pos_size_usd = min(risk_amount / max(sl_dist_pct, 0.003), available_capital * config.leverage * 0.95)
-                    # pos_size_usd =  min(pos_size_usd, 10)
+                    pos_size_usd =  min(pos_size_usd, 10000)
                     if pos_size_usd >= 10:
                         pending_trades.append(Trade(sig['symbol'], ts, sig['type'], l_p, tp_p, sl_p, sig['atr_val'], pos_size_usd=pos_size_usd))
                         available_capital -= (pos_size_usd / config.leverage)

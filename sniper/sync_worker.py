@@ -15,6 +15,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 import argparse
 import warnings
+from sniper_bot.feature import calculate_features, apply_feature_shift
 warnings.filterwarnings('ignore')
 
 # ============================================================
@@ -115,25 +116,9 @@ def fetch_ohlcv_paginated(symbol, timeframe, lookback_total):
 # ============================================================
 # FEATURE ENGINEERING (REANIMATED BRAIN - 100% SYNCED)
 # ============================================================
-def calculate_rsi(prices, period=14):
-    d = prices.diff()
-    g = d.where(d > 0, 0).rolling(period).mean()
-    l = (-d.where(d < 0, 0)).rolling(period).mean()
-    return 100 - (100 / (1 + g / (l.replace(0, np.nan) + 1e-9)))
+# Centralized Feature Engineering (using sniper_bot/feature.py)
 
-def calculate_macd_features(df, fast=12, slow=26, signal=9):
-    ef = df['close'].ewm(span=fast).mean()
-    es = df['close'].ewm(span=slow).mean()
-    df['macd'] = ef - es
-    df['macd_signal'] = df['macd'].ewm(span=signal).mean()
-    df['macd_slope'] = df['macd'].diff()
-    df['macd_acceleration'] = df['macd_slope'].diff()
-    df['is_bullish_cross'] = ((df['macd'] > df['macd_signal']) & (df['macd'].shift(1) <= df['macd_signal'].shift(1))).astype(int)
-    return df
-
-def extract_features_live(df_1h, df_1d, btc_df):
-    """Tính toán Features chính xác từng dấu phẩy so với tập Train."""
-    df = df_1h.copy()
+# Obsolete: central logic in sniper_bot/feature.py
     
     # 1. Price & Range
     df['log_returns'] = np.log(df['close'] / (df['close'].shift(1) + 1e-9))
@@ -368,8 +353,9 @@ def sync_all(lookback=1):
             df_1h['timestamp'] = pd.to_datetime(df_1h['timestamp'], unit='ms')
             df_1d.to_parquet(SYMBOLS_DIR_1D / f"{sym}.parquet", index=False)
             
-            # Extract Features
-            full_df = extract_features_live(df_1h, df_1d, btc_1h)
+            # Extract Features using centralized engine
+            full_df = calculate_features(df_1h, df_1d, btc_1h)
+            full_df = apply_feature_shift(full_df)
             full_df.to_parquet(SYMBOLS_DIR_1H / f"{sym}.parquet", index=False)
             
             # --- UPDATE STATUS FOR EXISTING SIGNALS FOR THIS SYMBOL ---

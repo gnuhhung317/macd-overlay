@@ -160,7 +160,7 @@ def calculate_macd(df: pd.DataFrame, fast=12, slow=26, signal=9) -> pd.DataFrame
     return df
 
 
-def calculate_features(df: pd.DataFrame) -> pd.DataFrame:
+def calculate_features(df: pd.DataFrame, df_1d: pd.DataFrame = None, btc_df: pd.DataFrame = None) -> pd.DataFrame:
     """
     Calculate all features for ML.
     Note: This function should be called per-symbol to avoid data bleeding.
@@ -179,7 +179,8 @@ def calculate_features(df: pd.DataFrame) -> pd.DataFrame:
     # ===== Trend Features =====
     for period in [7, 14, 21, 50, 100, 200]:
         df[f'sma_{period}'] = df['close'].rolling(period).mean()
-        df[f'ema_{period}'] = df['close'].ewm(span=period, adjust=False).mean()
+        df[f'ema_{period}'] = df['close'].ewm(span=period, adjust=True).mean()
+        # Correct parity: The global shift will handle t-1. Use raw t here.
         df[f'price_to_sma_{period}'] = df['close'] / df[f'sma_{period}']
     
     # Trend strength
@@ -199,18 +200,12 @@ def calculate_features(df: pd.DataFrame) -> pd.DataFrame:
     df['macd_cross_down'] = ((df['macd'] < df['signal']) & (df['macd'].shift(1) >= df['signal'].shift(1))).astype(int)
     df['macd_crossover'] = df['macd_cross_up'] - df['macd_cross_down']
     
-    # Bars since crossover
-    df['bars_since_cross_up'] = 0
-    df['bars_since_cross_down'] = 0
+    # Vectorized bars since crossover (Significant performance boost)
+    df['bars_since_cross_up'] = df.groupby((df['macd_cross_up'] == 1).cumsum()).cumcount()
+    df.loc[df['macd_cross_up'].cumsum() == 0, 'bars_since_cross_up'] = 999
     
-    cross_up_idx = df[df['macd_cross_up'] == 1].index.tolist()
-    cross_down_idx = df[df['macd_cross_down'] == 1].index.tolist()
-    
-    for i in range(len(df)):
-        up_distances = [i - idx for idx in cross_up_idx if idx <= i]
-        down_distances = [i - idx for idx in cross_down_idx if idx <= i]
-        df.loc[df.index[i], 'bars_since_cross_up'] = min(up_distances) if up_distances else 999
-        df.loc[df.index[i], 'bars_since_cross_down'] = min(down_distances) if down_distances else 999
+    df['bars_since_cross_down'] = df.groupby((df['macd_cross_down'] == 1).cumsum()).cumcount()
+    df.loc[df['macd_cross_down'].cumsum() == 0, 'bars_since_cross_down'] = 999
     
     # ===== Volatility Features =====
     df['atr_14'] = calculate_atr(df, 14)
@@ -232,8 +227,8 @@ def calculate_features(df: pd.DataFrame) -> pd.DataFrame:
     df['rsi_7'] = calculate_rsi(df['close'], 7)
     
     # RSI Slope (momentum of momentum) - NEW for TP prediction
-    # BUG FIX: diff(-3) looks into the FUTURE. We must use historical diff: diff(3)
-    df['rsi_slope'] = df['rsi_14'].diff(3) / 3
+    # BUG FIX: Ground truth shows unscaled diff: diff(3)
+    df['rsi_slope'] = df['rsi_14'].diff(3)
     
     # Stochastic
     df['stoch_k'] = calculate_stochastic(df, 14)
@@ -279,10 +274,9 @@ def calculate_features(df: pd.DataFrame) -> pd.DataFrame:
     # ===== Advanced Regime Features =====
     
     # 1. Khoảng cách an toàn tới các đường EMA (Tính bằng %)
-    # Giúp mô hình biết giá đã đi quá xa trung bình chưa (rủi ro đảo chiều)
-    df['dist_to_ema_21_pct'] = (df['close'] - df['ema_21']) / df['ema_21']
-    df['dist_to_ema_50_pct'] = (df['close'] - df['ema_50']) / df['ema_50']
-    df['dist_to_ema_200_pct'] = (df['close'] - df['ema_200']) / df['ema_200']
+    df['dist_to_ema_21_pct'] = (df['close'] - df['ema_21']) / df['close']
+    df['dist_to_ema_50_pct'] = (df['close'] - df['ema_50']) / df['close']
+    df['dist_to_ema_200_pct'] = (df['close'] - df['ema_200']) / df['close']
     
     # 2. ADX Trend State (-1, 0, 1)
     # Kết hợp ADX và SMA để xác định rõ: Sideway (0), Uptrend mạnh (1), Downtrend mạnh (-1)
@@ -311,7 +305,7 @@ def calculate_features(df: pd.DataFrame) -> pd.DataFrame:
     # 6. Price Magnet (Alpha Feature: Distance to 30d high/low)
     df['high_30d'] = df['high'].rolling(30).max()
     df['low_30d'] = df['low'].rolling(30).min()
-    df['dist_to_high_30d'] = (df['high_30d'] - df['close']) / df['close']
+    df['dist_to_high_30d'] = (df['close'] - df['high_30d']) / df['close']
     df['dist_to_low_30d'] = (df['close'] - df['low_30d']) / df['close']
     
     # 7. Time-based features (Cyclical)
@@ -341,6 +335,10 @@ def calculate_features(df: pd.DataFrame) -> pd.DataFrame:
     # 4. Pre-Ignition Confluence Score
     # Thấp squeeze + thấp volume + neutral price action
     df['pre_ignition_score'] = (1 - df['squeeze_ratio']) + (1 - df['vol_depletion'])
+    
+    # 5. Institutional Scale Features (Missing in SHAP)
+    df['dist_to_ema50_atr'] = (df['close'] - df['ema_50']) / (df['atr_14'] + 1e-9)
+    df['vol_acceleration'] = df['volume'].diff().diff() / (df['volume_sma_20'] + 1e-9)
     
     return df
 
