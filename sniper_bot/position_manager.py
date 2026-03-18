@@ -440,6 +440,9 @@ class PositionManager:
             
             minutes_per_bar = get_minutes(tf)
             limit_timeout_seconds = limit_wait_bars * minutes_per_bar * 60
+
+            # 2. Check Bot's Active Positions
+            bot_symbols = list(self.active_positions.keys())
             
             for symbol in bot_symbols:
                 trade = self.active_positions[symbol]
