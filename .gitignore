@@ -17,3 +17,4 @@ bot_config*.json
 *.rar
 sniper/signals_live.json
 *.json
+ml/potential_signals_cache.joblib

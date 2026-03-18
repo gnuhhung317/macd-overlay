@@ -427,14 +427,18 @@ class PositionManager:
             real_symbols = {p['symbol']: p for p in real_positions}
             order_symbols = {o['symbol'] for o in real_orders}
             
-            # 2. Check Bot's Active Positions
-            bot_symbols = list(self.active_positions.keys())
+            # Get timeout settings
             limit_wait_bars = getattr(self.config.strategy, 'limit_wait_bars', 5)
             tf = self.config.strategy.timeframes[0] if self.config.strategy.timeframes else '1h'
-            minutes_per_bar = 60
-            if tf.endswith('h'): minutes_per_bar = int(tf[:-1]) * 60
-            elif tf.endswith('m'): minutes_per_bar = int(tf[:-1])
             
+            def get_minutes(tf_str):
+                if tf_str.endswith('m'): return int(tf_str[:-1])
+                if tf_str.endswith('h'): return int(tf_str[:-1]) * 60
+                if tf_str.endswith('d'): return int(tf_str[:-1]) * 1440
+                if tf_str.endswith('w'): return int(tf_str[:-1]) * 10080
+                return 60
+            
+            minutes_per_bar = get_minutes(tf)
             limit_timeout_seconds = limit_wait_bars * minutes_per_bar * 60
             
             for symbol in bot_symbols:
@@ -445,18 +449,28 @@ class PositionManager:
                     continue
                 
                 # Case B: Found in Orders -> Check Timeout
-                if symbol in order_symbols:
-                    entry_time = trade['entry_time']
-                    if isinstance(entry_time, str):
-                        entry_time = pd.Timestamp(entry_time)
+                matches = [o for o in real_orders if o['symbol'] == symbol]
+                if matches:
+                    # Use the creation timestamp provided by the exchange
+                    order_timestamp = matches[0]['timestamp']
+                    if isinstance(order_timestamp, str):
+                        order_timestamp = pd.Timestamp(order_timestamp)
                     
-                    waited_seconds = (datetime.now() - entry_time).total_seconds()
+                    waited_seconds = (datetime.now() - order_timestamp).total_seconds()
                     if waited_seconds > limit_timeout_seconds:
-                        print(f"⌛ Limit Timeout for {symbol} ({waited_seconds/60:.1f}m > {limit_timeout_seconds/60}m). Cancelling...")
+                        print(f"⌛ Limit Timeout for {symbol} ({waited_seconds/60:.1f}m > {limit_timeout_seconds/60:.1f}m). Cancelling...")
                         # 1. Cancel on exchange
-                        order_id = trade.get('raw_data', {}).get('order_id')
+                        # Try to get order_id from raw_data (it might be in a nested field depending on executor)
+                        raw = trade.get('raw_data', {})
+                        if isinstance(raw, str):
+                            try: raw = json.loads(raw)
+                            except: raw = {}
+                            
+                        order_id = raw.get('order_id') or raw.get('id')
                         if order_id:
                             self.executor.cancel_order(symbol, order_id)
+                        else:
+                            print(f"⚠️ Could not find order_id for {symbol} to cancel.")
                         
                         # 2. Close in DB
                         self.db.update_trade(trade['id'], {

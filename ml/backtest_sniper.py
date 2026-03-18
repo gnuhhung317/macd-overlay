@@ -366,7 +366,8 @@ def run_backtest_with_config(config: BacktestConfig):
     sharpe = (daily_returns.mean() / (daily_returns.std() + 1e-9)) * np.sqrt(365) if len(daily_returns) > 1 else 0
     roll_max = equity_series.cummax(); max_dd = ((equity_series - roll_max)/roll_max).min() * 100
     
-    print(f"MaxDrawdown: {max_dd:.2f}% | Sharpe: {sharpe:.2f}")
+    min_bal = equity_series.min()
+    print(f"MaxDrawdown: {max_dd:.2f}% | Sharpe: {sharpe:.2f} | Min Balance: ${min_bal:.2f}")
     
     output_file = BASE_DIR / "ml" / "backtest_results_quant_sniper.csv"
     report_df.to_csv(output_file, index=False); print(f"Report saved: {output_file}")

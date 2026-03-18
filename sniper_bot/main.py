@@ -110,11 +110,10 @@ class SniperBot:
         
         while self.running:
             try:
-                if not hasattr(self, 'last_sync'): self.last_sync = 0
-                if time.time() - self.last_sync > 300: # 5 mins
-                    logger.info("🔄 Syncing positions with Exchange...")
-                    self.position_manager.sync_positions()
-                    self.last_sync = time.time()
+                # Sync positions and handle limit order timeouts
+                logger.info("🔄 Syncing positions with Exchange...")
+                self.position_manager.sync_positions()
+                self.last_sync = time.time()
                 
                 # 0. Periodically refresh top symbols (e.g., every 6 hours)
                 if getattr(self.config, 'use_all_symbols', False) and (time.time() - self.last_fetch_time > 21600):

@@ -78,8 +78,8 @@ class DatabaseManager:
         with self._get_conn() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-            INSERT INTO trades (symbol, direction, status, entry_price, sl_price, tp_price, size, leverage, raw_data)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO trades (symbol, direction, status, entry_price, sl_price, tp_price, size, leverage, raw_data, entry_time)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 trade_data['symbol'],
                 trade_data['direction'],
@@ -89,7 +89,8 @@ class DatabaseManager:
                 float(trade_data.get('tp_price')) if trade_data.get('tp_price') is not None else None,
                 float(trade_data.get('size')) if trade_data.get('size') is not None else None,
                 int(trade_data.get('leverage')) if trade_data.get('leverage') is not None else None,
-                json.dumps(trade_data.get('raw_data', {}), cls=NumpyEncoder)
+                json.dumps(trade_data.get('raw_data', {}), cls=NumpyEncoder),
+                trade_data.get('entry_time').isoformat() if isinstance(trade_data.get('entry_time'), (datetime, pd.Timestamp)) else trade_data.get('entry_time')
             ))
             return cursor.lastrowid
 

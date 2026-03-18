@@ -110,6 +110,15 @@ class CCXTExecutor(ExchangeExecutor):
             
         self.client = exchange_class(exchange_args)
         
+    def _safe_float(self, value: Any, default: float = 0.0) -> float:
+        """Safely convert value to float, handling None and invalid strings"""
+        if value is None:
+            return default
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return default
+        
         # Enable Sandbox/Testnet mode if required
         if hasattr(config.exchange, 'use_testnet') and config.exchange.use_testnet:
             try:
@@ -140,7 +149,7 @@ class CCXTExecutor(ExchangeExecutor):
         try:
             balance = self.client.fetch_balance()
             if 'USDT' in balance:
-                return float(balance['USDT'].get('total', 0.0))
+                return self._safe_float(balance['USDT'].get('total', 0.0))
             return 0.0
         except Exception as e:
             print(f"❌ Error getting total balance via CCXT: {e}")
@@ -151,7 +160,7 @@ class CCXTExecutor(ExchangeExecutor):
         try:
             balance = self.client.fetch_balance()
             if 'USDT' in balance:
-                return float(balance['USDT'].get('free', balance['USDT'].get('available', 0.0)))
+                return self._safe_float(balance['USDT'].get('free', balance['USDT'].get('available', 0.0)))
             return 0.0
         except Exception as e:
             print(f"❌ Error getting available balance via CCXT: {e}")
@@ -175,7 +184,7 @@ class CCXTExecutor(ExchangeExecutor):
 
             # 3. Calculate Quantity
             ticker = self.client.fetch_ticker(ccxt_symbol)
-            current_price = price if order_type.upper() == 'LIMIT' and price > 0 else float(ticker['last'])
+            current_price = price if order_type.upper() == 'LIMIT' and price > 0 else self._safe_float(ticker['last'])
             
             quantity = size / current_price
             
@@ -252,7 +261,7 @@ class CCXTExecutor(ExchangeExecutor):
             return {
                 "order_id": order.get('id', 'unknown'),
                 "status": order.get('status', 'open'),
-                "filled_price": float(avg_price),
+                "filled_price": self._safe_float(avg_price),
                 "timestamp": datetime.now()
             }
             
@@ -273,7 +282,8 @@ class CCXTExecutor(ExchangeExecutor):
         try:
             positions = self.client.fetch_positions([ccxt_symbol])
             for p in positions:
-                if p['symbol'] == ccxt_symbol and float(p['contracts']) > 0:
+                contracts = self._safe_float(p.get('contracts', 0))
+                if p['symbol'] == ccxt_symbol and contracts > 0:
                     side = 'sell' if p['side'] == 'long' else 'buy'
                     params = {'reduceOnly': True}
                     
@@ -291,7 +301,7 @@ class CCXTExecutor(ExchangeExecutor):
                                 symbol=ccxt_symbol,
                                 type='market',
                                 side=side,
-                                amount=float(p['contracts']),
+                                amount=self._safe_float(p.get('contracts', 0)),
                                 params=params
                             )
                     else:
@@ -300,7 +310,7 @@ class CCXTExecutor(ExchangeExecutor):
                             symbol=ccxt_symbol,
                             type='market',
                             side=side,
-                            amount=float(p['contracts']),
+                            amount=self._safe_float(p.get('contracts', 0)),
                             params=params
                         )
                     print(f"⚠️ Closed position for {ccxt_symbol}")
@@ -316,27 +326,28 @@ class CCXTExecutor(ExchangeExecutor):
             active_positions = []
             
             for p in all_positions:
-                if float(p.get('contracts', 0)) > 0:
+                contracts = self._safe_float(p.get('contracts', 0))
+                if contracts > 0:
                     raw_symbol = p['symbol'].split(':')[0].replace('/', '')
                     
                     entry_time_ms = p.get('timestamp') or p.get('lastUpdateTimestamp')
                     entry_time = datetime.fromtimestamp(entry_time_ms / 1000.0) if entry_time_ms else datetime.now()
                     
-                    sl_price = float(p.get('stopLossPrice', 0))
-                    tp_price = float(p.get('takeProfitPrice', 0))
+                    sl_price = self._safe_float(p.get('stopLossPrice', 0))
+                    tp_price = self._safe_float(p.get('takeProfitPrice', 0))
                     
                     # Some exchanges hide it in info dict
                     if sl_price == 0 and 'info' in p:
                         info = p['info']
-                        sl_price = float(info.get('stopLossPrice', info.get('sl', 0)))
-                        tp_price = float(info.get('takeProfitPrice', info.get('tp', 0)))
+                        sl_price = self._safe_float(info.get('stopLossPrice', info.get('sl', 0)))
+                        tp_price = self._safe_float(info.get('takeProfitPrice', info.get('tp', 0)))
                         
                     active_positions.append({
                         "symbol": raw_symbol,
-                        "size": float(p['contracts']),
-                        "entry_price": float(p['entryPrice']),
-                        "mark_price": float(p.get('markPrice', p['entryPrice'])),
-                        "pnl": float(p.get('unrealizedPnl', 0)),
+                        "size": contracts,
+                        "entry_price": self._safe_float(p.get('entryPrice', 0)),
+                        "mark_price": self._safe_float(p.get('markPrice', p.get('entryPrice', 0))),
+                        "pnl": self._safe_float(p.get('unrealizedPnl', 0)),
                         "leverage": int(p.get('leverage', self.config.exchange.leverage)),
                         "side": p['side'].upper(),
                         "entry_time": entry_time,
@@ -356,9 +367,9 @@ class CCXTExecutor(ExchangeExecutor):
                 "id": o['id'],
                 "type": o['type'].upper(),
                 "side": o['side'].upper(),
-                "price": float(o['price'] or 0),
-                "amount": float(o['amount']),
-                "remaining": float(o['remaining']),
+                "price": self._safe_float(o.get('price', 0)),
+                "amount": self._safe_float(o.get('amount', 0)),
+                "remaining": self._safe_float(o.get('remaining', 0)),
                 "timestamp": datetime.fromtimestamp(o['timestamp'] / 1000.0) if o['timestamp'] else datetime.now()
             } for o in orders]
         except Exception as e:
