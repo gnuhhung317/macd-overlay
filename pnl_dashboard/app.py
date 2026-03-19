@@ -83,9 +83,11 @@ class DatabaseManager:
         finally:
             conn.close()
 
-    def get_global_history(self, limit: int = 1000) -> pd.DataFrame:
+    def get_global_history(self, limit: int = None) -> pd.DataFrame:
         conn = self._get_connection()
-        query = f"SELECT timestamp, total_equity, total_unrealized_pnl FROM global_equity_history ORDER BY timestamp DESC LIMIT {limit}"
+        query = "SELECT timestamp, total_equity, total_unrealized_pnl FROM global_equity_history ORDER BY timestamp DESC"
+        if limit:
+            query += f" LIMIT {limit}"
         df = pd.read_sql_query(query, conn)
         conn.close()
         
@@ -235,6 +237,38 @@ def main():
         st.warning(f"Chưa tìm thấy file `{credentials_file}`. Vui lòng tạo cấu hình API.", icon="⚠️")
         st.stop()
     
+    # LOAD ACCESS TOKEN
+    try:
+        with open(credentials_file, 'r') as f:
+            creds = json.load(f)
+            access_token = creds.get('access_token')
+    except Exception as e:
+        st.error(f"Lỗi khi load access_token từ {credentials_file}: {e}")
+        st.stop()
+
+    if not access_token:
+        st.error(f"File `{credentials_file}` thiếu trường `access_token`. Vui lòng cấu hình.", icon="🔒")
+        st.stop()
+
+    # AUTHENTICATION UI
+    if 'authenticated' not in st.session_state:
+        st.session_state.authenticated = False
+
+    if not st.session_state.authenticated:
+        st.markdown("### 🔒 Authentication Required")
+        input_token = st.text_input("Nhập Access Token để tiếp tục:", type="password")
+        if st.button("Truy cập Dashboard"):
+            if input_token == access_token:
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("Token không chính xác!")
+        st.stop()
+    
+    # ==========================================
+    # Nếu đã authenticated thì mới chạy tiếp bên dưới
+    # ==========================================
+    
     # Kích hoạt luồng lấy dữ liệu tự động ở background (chạy 1 lần duy nhất)
     start_background_collector(credentials_file)
 
@@ -251,9 +285,32 @@ def main():
     
     # ======= LỊCH SỬ THAY ĐỔI & BIỂU ĐỒ =======
     st.header("1. Equity History Chart")
-    db = DatabaseManager('pnl_history.db')
-    df_history = db.get_global_history(limit=500)
     
+    # Timeframe selection
+    timeframe_options = {
+        "Raw (5m)": None,
+        "1H": "H",
+        "4H": "4H",
+        "1D": "D",
+        "1W": "W",
+        "1M": "ME"
+    }
+    
+    selected_tf_label = st.selectbox("Select Timeframe:", list(timeframe_options.keys()), index=0)
+    selected_tf = timeframe_options[selected_tf_label]
+
+    db = DatabaseManager('pnl_history.db')
+    # Fetch more data if resampled, otherwise keep 500 for low latency "Raw" view
+    fetch_limit = None if selected_tf else 500
+    df_history = db.get_global_history(limit=fetch_limit)
+    
+    if not df_history.empty and selected_tf:
+        # Sort by timestamp (project rule reminder)
+        df_history = df_history.sort_values('timestamp')
+        df_history.set_index('timestamp', inplace=True)
+        # Resample and take the last value of each bucket
+        df_history = df_history.resample(selected_tf).last().dropna().reset_index()
+
     col_chart, col_live = st.columns([3, 1])
     
     with col_chart:
