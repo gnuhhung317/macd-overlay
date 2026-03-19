@@ -115,6 +115,8 @@ class DataFetcher:
     def _initialize_exchanges(self) -> Dict[str, ccxt.Exchange]:
         exchanges = {}
         for account_name, config in self.accounts_config.items():
+            if not isinstance(config, dict):
+                continue
             exchange_id = config.get('exchange')
             if not exchange_id or not hasattr(ccxt, exchange_id):
                 continue
