@@ -20,7 +20,7 @@ from ml.backtest_sniper import (
 # Configuration for Optuna
 START_DATE = '2025-01-01'
 INITIAL_CAPITAL = 100.0
-RISK_PER_TRADE = 0.04
+RISK_PER_TRADE = 0.1
 MAX_OPEN_TRADES = 5
 LEVERAGE = 20.0
 
@@ -76,7 +76,7 @@ def objective(trial, signals, full_price_db, config_base):
         # 'sl_mult_long': trial.suggest_float('sl_mult_long', 0.5, 3.0),
         # 'tp_mult_short': trial.suggest_float('tp_mult_short', 1.0, 5.0),
         # 'sl_mult_short': trial.suggest_float('sl_mult_short', 0.5, 3.0),
-        'max_bars_hold': trial.suggest_int('max_bars_hold', 28, 50),
+        'max_bars_hold': trial.suggest_int('max_bars_hold', 10, 50),
     }
     
     config = BacktestConfig(

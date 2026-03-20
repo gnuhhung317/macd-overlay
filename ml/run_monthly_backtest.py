@@ -86,11 +86,11 @@ def main():
     parser.add_argument('--capital', type=float, default=100.0, help='Initial capital for each month')
     parser.add_argument('--risk', type=float, default=0.05, help='Risk per trade (0.05 = 5%%)')
     parser.add_argument('--leverage', type=float, default=20.0, help='Leverage multiplier')
-    parser.add_argument('--max-positions', type=int, default=10, help='Max open positions')
+    parser.add_argument('--max-positions', type=int, default=5, help='Max open positions')
     parser.add_argument("--start", type=str, default='2025-10-01', help="Analysis start date (YYYY-MM-DD)")
     parser.add_argument("--end", type=str, default='2026-03-01', help="Analysis end date (YYYY-MM-DD)")
     parser.add_argument("--warmup-bars", type=int, default=1000, help="Warm-up bars")
-    
+    parser.add_argument('--max-bars-hold', type=int, default=24, help='Max bars to hold a trade')
     args = parser.parse_args()
     
     print(f"🚀 Monthly Sniper Backtest Runner")
@@ -107,7 +107,8 @@ def main():
         leverage=args.leverage,
         max_open_trades=args.max_positions,
         start_date=args.start,
-        end_date=args.end
+        end_date=args.end,
+        max_bars_hold=args.max_bars_hold
     )
     
     # 1. Scan all symbols for context + signals (with Caching)

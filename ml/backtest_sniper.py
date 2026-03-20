@@ -28,7 +28,7 @@ class BacktestConfig:
     fee_rate: float = 0.001
     slippage: float = 0.01
     max_open_trades: int = 5
-    max_bars_hold: int = 36
+    max_bars_hold: int = 24
     start_date: str = '2025-01-01'
     end_date: str = None
     leverage: float = 1.0
@@ -381,12 +381,16 @@ if __name__ == "__main__":
     parser.add_argument('--leverage', type=float, default=1.0)
     parser.add_argument('--capital', type=float, default=100.0)
     parser.add_argument('--risk', type=float, default=0.05)
+    parser.add_argument('--max-positions', type=int, default=5)
+    parser.add_argument('--max-bars-hold', type=int, default=24)
     args = parser.parse_args()
     config = BacktestConfig(
         start_date=args.start,
         end_date=args.end,
         leverage=args.leverage,
         initial_capital=args.capital,
-        risk_per_trade=args.risk
+        risk_per_trade=args.risk,
+        max_open_trades=args.max_positions,
+        max_bars_hold=args.max_bars_hold
     )
     run_backtest_with_config(config)
