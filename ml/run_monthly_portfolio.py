@@ -38,7 +38,6 @@ def main():
         
     # Apply global overrides to portfolios
     for port in portfolios:
-        if args.leverage is not None: port['leverage'] = args.leverage
         if args.threshold is not None: port['threshold'] = args.threshold
 
     start_dt = datetime.strptime(args.start, "%Y-%m-%d")

@@ -44,89 +44,166 @@ def calculate_liquidity_sweep(df, lookback=20):
     df['macd_cross_up'] = df['bullish_sweep']
     df['macd_cross_down'] = df['bearish_sweep']
     return df
-def calculate_features(df, df_1d=None, btc_df=None):
-    df=df.copy(); df['log_returns']=np.log(df['close']/(df['close'].shift(1)+1e-9))
-    df['high_low_range']=(df['high']-df['low'])/df['close']; df['body_size']=abs(df['close']-df['open'])/df['close']
-    df['candle_range']=df['high']-df['low']+1e-9; df['lower_wick']=df[['open','close']].min(axis=1)-df['low']; df['upper_wick']=df['high']-df[['open','close']].max(axis=1)
-    df['lower_wick_ratio_current']=df['lower_wick']/df['candle_range']; df['upper_wick_ratio_current']=df['upper_wick']/df['candle_range']
-    for p in [7,14,21,50,100,200]: df[f'ema_{p}']=df['close'].ewm(span=p, adjust=True).mean()
-    for p in [10,20,50,200]: df[f'sma_{p}']=df['close'].rolling(p).mean()
+def calculate_features(df, df_1d=None, btc_df=None, **kwargs):
+    if 'log_returns' not in df.columns: df['log_returns']=np.log(df['close']/(df['close'].shift(1)+1e-9))
+    if 'high_low_range' not in df.columns: df['high_low_range']=(df['high']-df['low'])/df['close']
+    if 'body_size' not in df.columns: df['body_size']=abs(df['close']-df['open'])/df['close']
+    if 'candle_range' not in df.columns: df['candle_range']=df['high']-df['low']+1e-9
+    if 'lower_wick' not in df.columns: df['lower_wick']=df[['open','close']].min(axis=1)-df['low']
+    if 'upper_wick' not in df.columns: df['upper_wick']=df['high']-df[['open','close']].max(axis=1)
+    if 'lower_wick_ratio_current' not in df.columns: df['lower_wick_ratio_current']=df['lower_wick']/df['candle_range']
+    if 'upper_wick_ratio_current' not in df.columns: df['upper_wick_ratio_current']=df['upper_wick']/df['candle_range']
+    
+    for p in [7,14,20,21,50,100,200]:
+        if f'ema_{p}' not in df.columns: df[f'ema_{p}']=df['close'].ewm(span=p, adjust=True).mean()
+    for p in [10,20,50,200]:
+        if f'sma_{p}' not in df.columns: df[f'sma_{p}']=df['close'].rolling(p).mean()
+        
     tr=pd.concat([df['high']-df['low'],abs(df['high']-df['close'].shift(1)),abs(df['low']-df['close'].shift(1))],axis=1).max(axis=1)
-    df['atr_14']=tr.rolling(14).mean(); df['volatility_14']=df['log_returns'].rolling(14).std()
-    df['vol_sma_14']=df['volatility_14'].rolling(14).mean(); df['vol_compression']=df['volatility_14']/(df['vol_sma_14']+1e-9)
-    df['volume_sma_20']=df['volume'].rolling(20).mean(); df['volume_std_20']=df['volume'].rolling(20).std()
-    df['volume_ratio']=df['volume']/(df['volume_sma_20']+1e-9); df['volume_zscore']=(df['volume']-df['volume_sma_20'])/(df['volume_std_20']+1e-9)
-    df['volume_trend']=df['volume'].rolling(7).mean()/(df['volume'].rolling(21).mean()+1e-9); df['volume_spike']=(df['volume_ratio']>2).astype(int)
-    df['rsi_14']=calculate_rsi(df['close'], 14); df['rsi_slope']=df['rsi_14'].diff(3) # Match Ground Truth (No /3)
+    if 'atr_14' not in df.columns: df['atr_14']=tr.rolling(14).mean()
+    if 'atr_pct' not in df.columns: df['atr_pct']=(df['atr_14']/df['close'])*100
+    if 'volatility_14' not in df.columns: df['volatility_14']=df['log_returns'].rolling(14).std()
+    if 'vol_sma_14' not in df.columns: df['vol_sma_14']=df['volatility_14'].rolling(14).mean()
+    if 'vol_compression' not in df.columns: df['vol_compression']=df['volatility_14']/(df['vol_sma_14']+1e-9)
+    
+    if 'volume_sma_20' not in df.columns: df['volume_sma_20']=df['volume'].rolling(20).mean()
+    if 'volume_std_20' not in df.columns: df['volume_std_20']=df['volume'].rolling(20).std()
+    if 'volume_ratio' not in df.columns: df['volume_ratio']=df['volume']/(df['volume_sma_20']+1e-9)
+    if 'vol_ratio' not in df.columns: df['vol_ratio']=df['volume_ratio']
+    if 'volume_zscore' not in df.columns: df['volume_zscore']=(df['volume']-df['volume_sma_20'])/(df['volume_std_20']+1e-9)
+    if 'volume_trend' not in df.columns: df['volume_trend']=df['volume'].rolling(7).mean()/(df['volume'].rolling(21).mean()+1e-9)
+    if 'volume_spike' not in df.columns: df['volume_spike']=(df['volume_ratio']>2).astype(int)
+    
+    if 'rsi_14' not in df.columns: df['rsi_14']=calculate_rsi(df['close'], 14)
+    if 'rsi_slope' not in df.columns: df['rsi_slope']=df['rsi_14'].diff(3)
+    
     l14=df['low'].rolling(14).min(); h14=df['high'].rolling(14).max()
-    df['stoch_k']=100*(df['close']-l14)/(h14-l14).replace(0,np.nan); df['stoch_d']=df['stoch_k'].rolling(3).mean()
-    df['roc_7']=df['close'].pct_change(7); df['roc_14']=df['close'].pct_change(14)
+    if 'stoch_k' not in df.columns: df['stoch_k']=100*(df['close']-l14)/(h14-l14).replace(0,np.nan)
+    if 'stoch_d' not in df.columns: df['stoch_d']=df['stoch_k'].rolling(3).mean()
+    if 'roc_7' not in df.columns: df['roc_7']=df['close'].pct_change(7)
+    if 'roc_14' not in df.columns: df['roc_14']=df['close'].pct_change(14)
     # Phase 11 Features
-    df['sma_30']=df['close'].rolling(30).mean(); df['price_vs_sma_30']=df['close']/(df['sma_30']+1e-9)
-    df['momentum_30']=df['close'].pct_change(30)
-    pdm=df['high'].diff(); mdm=-df['low'].diff()
-    pdm=pdm.where((pdm>mdm)&(pdm>0),0); mdm=mdm.where((mdm>pdm)&(mdm>0),0); atr_s=tr.rolling(14).mean()
-    pdi=100*(pdm.rolling(14).mean()/atr_s.replace(0,np.nan)); mdi=100*(mdm.rolling(14).mean()/atr_s.replace(0,np.nan))
-    df['adx']=(100*abs(pdi-mdi)/(pdi+mdi).replace(0,np.nan)).rolling(14).mean()
-    df['dist_to_high_30d']=(df['close']-df['high'].rolling(30).max())/df['close']
-    df['dist_to_low_30d']=(df['close']-df['low'].rolling(30).min())/df['close']
-    for e in [21,50,200]: df[f'dist_to_ema_{e}_pct']=(df['close']-df[f'ema_{e}'])/df['close']
-    df['trend_state']=np.where(df['close']>df['sma_50'],1,np.where(df['close']<df['sma_50'],-1,0))
-    df['is_trending']=(df['adx']>25).astype(int); df['is_volatile']=(df['vol_compression']>1.5).astype(int)
-    df['hour_sin']=np.sin(2*np.pi*df['timestamp'].dt.hour/24); df['hour_cos']=np.cos(2*np.pi*df['timestamp'].dt.hour/24)
-    df['day_sin']=np.sin(2*np.pi*df['timestamp'].dt.dayofweek/7); df['day_cos']=np.cos(2*np.pi*df['timestamp'].dt.dayofweek/7)
-    df['vol_ratio_alpha']=df['volume_ratio']*df['volatility_14']
-    df['market_structure_bull']=((df['close']>df['sma_200'])&(df['sma_50']>df['sma_200'])).astype(int)
-    bb_mid=df['close'].rolling(20).mean(); bb_std=df['close'].rolling(20).std()
-    bb_wd=(bb_mid+2*bb_std - (bb_mid-2*bb_std))/(bb_mid+1e-9)
-    df['bb_squeeze']=(bb_wd<bb_wd.rolling(20).quantile(0.2)).astype(int)
-    df['vwap_30d']=(df['close']*df['volume']).rolling(30).sum()/(df['volume'].rolling(30).sum()+1e-9)
-    df['above_poc']=(df['close']>df['vwap_30d']).astype(int)
+    if 'sma_30' not in df.columns: df['sma_30']=df['close'].rolling(30).mean()
+    if 'price_vs_sma_30' not in df.columns: df['price_vs_sma_30']=df['close']/(df['sma_30']+1e-9)
+    if 'momentum_30' not in df.columns: df['momentum_30']=df['close'].pct_change(30)
     
-    # Hit & Run 10% Features
-    df['micro_volume']=df['volume']/(df['volume'].rolling(5).mean()+1e-9)
-    df['price_accel']=df['close'].pct_change(1)/(df['close'].pct_change(4).replace(0,np.nan)+1e-9)
-    df['order_flow_proxy']=(df['close']-df['low'])/(df['high']-df['low']+1e-9)
+    if 'adx' not in df.columns:
+        pdm=df['high'].diff(); mdm=-df['low'].diff()
+        pdm=pdm.where((pdm>mdm)&(pdm>0),0); mdm=mdm.where((mdm>pdm)&(mdm>0),0); atr_s=tr.rolling(14).mean()
+        pdi=100*(pdm.rolling(14).mean()/atr_s.replace(0,np.nan)); mdi=100*(mdm.rolling(14).mean()/atr_s.replace(0,np.nan))
+        df['adx']=(100*abs(pdi-mdi)/(pdi+mdi).replace(0,np.nan)).rolling(14).mean()
+        
+    if 'dist_to_high_30d' not in df.columns: df['dist_to_high_30d']=(df['close']-df['high'].rolling(30).max())/df['close']
+    if 'dist_to_low_30d' not in df.columns: df['dist_to_low_30d']=(df['close']-df['low'].rolling(30).min())/df['close']
+    for e in [21,50,200]:
+        if f'dist_to_ema_{e}_pct' not in df.columns: df[f'dist_to_ema_{e}_pct']=(df['close']-df[f'ema_{e}'])/df['close']
+        
+    if 'trend_state' not in df.columns: df['trend_state']=np.where(df['close']>df['sma_50'],1,np.where(df['close']<df['sma_50'],-1,0))
+    if 'is_trending' not in df.columns: df['is_trending']=(df['adx']>25).astype(int)
+    if 'is_volatile' not in df.columns: df['is_volatile']=(df['vol_compression']>1.5).astype(int)
     
-    df=calculate_macd(df); df=df.drop(columns=['macd_cross_up','macd_cross_down'], errors='ignore')
-    df=calculate_liquidity_sweep(df)
-    df['usd_vol_24h'] = (df['volume'] * df['close']).rolling(24).sum()
+    if 'hour_sin' not in df.columns: df['hour_sin']=np.sin(2*np.pi*df['timestamp'].dt.hour/24); df['hour_cos']=np.cos(2*np.pi*df['timestamp'].dt.hour/24)
+    if 'day_sin' not in df.columns: df['day_sin']=np.sin(2*np.pi*df['timestamp'].dt.dayofweek/7); df['day_cos']=np.cos(2*np.pi*df['timestamp'].dt.dayofweek/7)
+    
+    if 'vol_ratio_alpha' not in df.columns: df['vol_ratio_alpha']=df['volume_ratio']*df['volatility_14']
+    if 'market_structure_bull' not in df.columns: df['market_structure_bull']=((df['close']>df['sma_200'])&(df['sma_50']>df['sma_200'])).astype(int)
+    
+    if 'bb_squeeze' not in df.columns:
+        bb_mid=df['close'].rolling(20).mean(); bb_std=df['close'].rolling(20).std()
+        bb_wd=(bb_mid+2*bb_std - (bb_mid-2*bb_std))/(bb_mid+1e-9)
+        df['bb_squeeze']=(bb_wd<bb_wd.rolling(20).quantile(0.2)).astype(int)
+        
+    if 'vwap_30d' not in df.columns: df['vwap_30d']=(df['close']*df['volume']).rolling(30).sum()/(df['volume'].rolling(30).sum()+1e-9)
+    if 'above_poc' not in df.columns: df['above_poc']=(df['close']>df['vwap_30d']).astype(int)
+    
+    if 'micro_volume' not in df.columns: df['micro_volume']=df['volume']/(df['volume'].rolling(5).mean()+1e-9)
+    if 'price_accel' not in df.columns: df['price_accel']=df['close'].pct_change(1)/(df['close'].pct_change(4).replace(0,np.nan)+1e-9)
+    if 'order_flow_proxy' not in df.columns: df['order_flow_proxy']=(df['close']-df['low'])/(df['high']-df['low']+1e-9)
+    
+    if 'macd' not in df.columns:
+        df=calculate_macd(df); df=df.drop(columns=['macd_cross_up','macd_cross_down'], errors='ignore')
+    if 'swing_low' not in df.columns:
+        df=calculate_liquidity_sweep(df)
+        
+    if 'usd_vol_24h' not in df.columns: df['usd_vol_24h'] = (df['volume'] * df['close']).rolling(24).sum()
+    if 'dist_to_ema50_atr' not in df.columns: df['dist_to_ema50_atr'] = (df['close'] - df['ema_50']) / (df['atr_14'] + 1e-9)
+    if 'vol_acceleration' not in df.columns: df['vol_acceleration'] = df['volume'] / (df['volume'].shift(1) + 1e-9)
+    if 'resistance_50' not in df.columns: df['resistance_50'] = df['high'].rolling(50).max().shift(1)
+    if 'dist_to_res' not in df.columns: df['dist_to_res'] = (df['resistance_50'] - df['close']) / (df['close'] + 1e-9)
 
-    # --- PORTED FROM sync_worker.py (PHASE 11 & BTC CONTEXT) ---
-    df['dist_to_ema50_atr'] = (df['close'] - df['ema_50']) / (df['atr_14'] + 1e-9)
-    df['vol_acceleration'] = df['volume'] / (df['volume'].shift(1) + 1e-9)
-    df['resistance_50'] = df['high'].rolling(50).max().shift(1) # Shift 1 to avoid lookahead
-    df['dist_to_res'] = (df['resistance_50'] - df['close']) / (df['close'] + 1e-9)
+    # Daily MTF (Anti-Lookahead via merge_asof backward)
+    if 'ema_200_1d_dist' not in df.columns:
+        if df_1d is not None and not df_1d.empty:
+            df_1d = df_1d.copy()
+            if 'ema_200' not in df_1d.columns:
+                df_1d['ema_200'] = df_1d['close'].ewm(span=200).mean()
+            if 'rsi_14' not in df_1d.columns:
+                df_1d['rsi_14'] = calculate_rsi(df_1d['close'], 14)
+            
+            d1d_feat = df_1d[['timestamp', 'ema_200', 'rsi_14', 'close']].copy()
+            d1d_feat['ema_200_1d_dist'] = (d1d_feat['close'] - d1d_feat['ema_200']) / (d1d_feat['close'] + 1e-9)
+            d1d_feat['rsi_14_1d'] = d1d_feat['rsi_14']
+            d1d_feat = d1d_feat[['timestamp', 'ema_200_1d_dist', 'rsi_14_1d']].sort_values('timestamp')
+            
+            df = pd.merge_asof(
+                df.sort_values('timestamp'),
+                d1d_feat,
+                on='timestamp',
+                direction='backward'
+            )
+            for c in ['ema_200_1d_dist', 'rsi_14_1d']:
+                df[c] = df[c].ffill().fillna(0.5 if 'rsi' in c else 0)
+        else:
+            if 'ema_200_1d_dist' not in df.columns: df['ema_200_1d_dist'] = np.nan
+            if 'rsi_14_1d' not in df.columns: df['rsi_14_1d'] = np.nan
 
-    # Daily MTF (Anti-Lookahead)
-    if df_1d is not None and not df_1d.empty:
-        d1d_ema = df_1d['ema_200'].iloc[-1] if 'ema_200' in df_1d.columns else df_1d['close'].ewm(span=200).mean().iloc[-1]
-        df['ema_200_1d_dist'] = (df['close'] - d1d_ema) / (d1d_ema + 1e-9)
-        df['rsi_14_1d'] = calculate_rsi(df_1d['close'], 14).iloc[-1]
-    else:
-        df['ema_200_1d_dist'] = np.nan; df['rsi_14_1d'] = np.nan
-
-    # BTC Context
+    # BTC Context (merge_asof backward for both backtest & live)
     if btc_df is not None and not btc_df.empty:
-        btc_map = btc_df.set_index('timestamp')
-        df['btc_close'] = df['timestamp'].map(btc_map['close']).ffill()
-        df['btc_ema_200'] = df['timestamp'].map(btc_map['ema_200']).ffill()
-        df['btc_adx'] = df['timestamp'].map(btc_map['adx']).ffill()
-        df['btc_returns_hist'] = df['timestamp'].map(btc_map['log_returns']).fillna(0)
+        btc_df = btc_df.copy()
+        # Standardize BTC features
+        if 'ema_200' not in btc_df.columns: btc_df['ema_200'] = btc_df['close'].ewm(span=200).mean()
+        if 'ema_20' not in btc_df.columns: btc_df['ema_20'] = btc_df['close'].ewm(span=20).mean()
+        if 'ema_50' not in btc_df.columns: btc_df['ema_50'] = btc_df['close'].ewm(span=50).mean()
+        if 'sma_200' not in btc_df.columns: btc_df['sma_200'] = btc_df['close'].rolling(200).mean()
+        if 'adx' not in btc_df.columns:
+             btc_df['adx'] = calculate_rsi(btc_df['close'], 14) 
         
-        df['btc_is_bull_regime'] = (df['btc_close'] > df['btc_ema_200']).astype(int)
-        df['btc_trend_strength'] = (df['btc_adx'] > 25).astype(int)
-        df['rs_vs_btc'] = df['log_returns'] - df['btc_returns_hist']
-        df['rs_vs_btc_sma7'] = df['rs_vs_btc'].rolling(7).mean()
-        df['btc_corr'] = df['log_returns'].rolling(14).corr(df['btc_returns_hist']).fillna(0)
+        btc_cols = ['close', 'ema_200', 'ema_20', 'ema_50', 'sma_200', 'adx', 'log_returns']
+        btc_data = btc_df[['timestamp'] + [c for c in btc_cols if c in btc_df.columns]].copy()
+        btc_data.columns = ['timestamp'] + [f'btc_{c}' for c in btc_cols if c in btc_df.columns]
         
-        # Cleanup temp btc columns
-        df.drop(columns=['btc_close', 'btc_ema_200', 'btc_adx', 'btc_returns_hist'], inplace=True, errors='ignore')
-    else:
-        for c in ['btc_is_bull_regime', 'btc_trend_strength', 'btc_corr', 'rs_vs_btc', 'rs_vs_btc_sma7']:
-            df[c] = np.nan
+        df = pd.merge_asof(
+            df.sort_values('timestamp'),
+            btc_data.sort_values('timestamp'),
+            on='timestamp',
+            direction='backward'
+        )
 
-    return df.dropna(subset=['macd','swing_low','vol_sma_20','vwap_30d','usd_vol_24h'])
+        # Derived BTC features - Standardized to use SMA for Bull Regime as in model training
+        if 'btc_close' in df.columns:
+            # Prefer SMA if available, fallback to EMA
+            if 'btc_sma_200' in df.columns:
+                df['btc_is_bull_regime'] = (df['btc_close'] > df['btc_sma_200']).astype(int)
+            elif 'btc_ema_200' in df.columns:
+                df['btc_is_bull_regime'] = (df['btc_close'] > df['btc_ema_200']).astype(int)
+            else:
+                df['btc_is_bull_regime'] = 0
+                
+            if 'btc_adx' in df.columns:
+                df['btc_trend_strength'] = (df['btc_adx'] > 25).astype(int)
+            
+            if 'btc_returns' in df.columns:
+                df['rs_vs_btc'] = df['log_returns'] - df['btc_returns']
+                df['rs_vs_btc_sma7'] = df['rs_vs_btc'].rolling(7).mean()
+                df['btc_corr'] = df['log_returns'].rolling(14).corr(df['btc_returns']).fillna(0)
+    else:
+        # Fill missing BTC columns with NaN ONLY if they aren't already there
+        btc_target_cols = ['btc_is_bull_regime', 'btc_trend_strength', 'btc_corr', 'rs_vs_btc', 'rs_vs_btc_sma7']
+        for c in btc_target_cols:
+            if c not in df.columns:
+                df[c] = np.nan
+    return df
+
 def generate_momentum_labels(df, horizon=12, min_pump=0.10):
     df = df.copy()
     
@@ -188,7 +265,7 @@ def reduce_mem_usage(df):
             pass
     return df
 
-print("✓ Pipeline loaded.")
+print("[OK] Pipeline loaded.")
 
 def scan_historical_confluence(df, horizon=12):
     """

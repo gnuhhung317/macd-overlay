@@ -24,8 +24,6 @@ def main():
     parser.add_argument('--start', type=str, required=True, help='Global Start date (YYYY-MM-DD)')
     parser.add_argument('--end', type=str, required=True, help='Global End date (YYYY-MM-DD)')
     
-    # Global overrides
-    parser.add_argument('--leverage', type=float, help='Override leverage')
     parser.add_argument('--threshold', type=float, help='Override threshold')
     
     args = parser.parse_args()
@@ -43,7 +41,6 @@ def main():
     
     # Apply overrides
     for port in portfolios:
-        if args.leverage is not None: port['leverage'] = args.leverage
         if args.threshold is not None: port['threshold'] = args.threshold
 
     start_dt = datetime.strptime(args.start, "%Y-%m-%d")
@@ -146,7 +143,7 @@ def main():
     print(f"   Total Trades:    {len(all_combined_trades)}")
     
     if all_combined_trades:
-        win_rate = len([t for t in all_combined_trades if t.pnl > 0]) / len(all_combined_trades)
+        win_rate = len([t for t in all_combined_trades if t.pnl_usd > 0]) / len(all_combined_trades)
         print(f"   Win Rate:        {win_rate:.1%}")
     
     print("\n   [Monthly Snapshot]")

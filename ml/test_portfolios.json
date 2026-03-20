@@ -1,8 +1,7 @@
 [
     {
-        "name": "Strategy 8H",
+        "name": "Sniper Alpha",
         "capital": 100,
-        "timeframe": "8h",
         "leverage": 7,
         "margin_mode": "ISOLATED",
         "risk": 0.01,
@@ -12,9 +11,8 @@
         "use_scanner": true
     },
     {
-        "name": "Strategy 12H",
+        "name": "Sniper Beta",
         "capital": 100,
-        "timeframe": "12h",
         "leverage": 10,
         "margin_mode": "ISOLATED",
         "risk": 0.01,
@@ -24,9 +22,8 @@
         "use_scanner": true
     },
     {
-        "name": "Strategy 1D",
+        "name": "Sniper Gamma",
         "capital": 100,
-        "timeframe": "1d",
         "leverage": 10,
         "margin_mode": "ISOLATED",
         "risk": 0.01,

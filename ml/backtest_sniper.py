@@ -11,6 +11,9 @@ from typing import List, Dict, Tuple, Optional, Set
 from enum import Enum
 from bisect import bisect_left, bisect_right
 
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from sniper_bot.feature import calculate_features
 warnings.filterwarnings('ignore')
 
 # ============================================================
@@ -82,30 +85,6 @@ def load_assets():
     threshold = meta.get('threshold', 0.6)
     return clf, features, threshold
 
-def calculate_features_backtest(df):
-    df = df.copy()
-    if 'ema_20' not in df.columns:
-        df['ema_20'] = df['close'].ewm(span=20).mean()
-    if 'ema_50' not in df.columns:
-        df['ema_50'] = df['close'].ewm(span=50).mean()
-    if 'vol_ratio' not in df.columns:
-        vol_sma = df['volume'].rolling(20).mean().shift(1)
-        df['vol_ratio'] = df['volume'] / (vol_sma + 1e-9)
-    if 'atr_14' not in df.columns:
-        high_low = df['high'] - df['low']
-        high_close = np.abs(df['high'] - df['close'].shift())
-        low_close = np.abs(df['low'] - df['close'].shift())
-        tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-        df['atr_14'] = tr.rolling(14).mean()
-    if 'atr_pct' not in df.columns:
-        df['atr_pct'] = (df['atr_14'] / df['close']) * 100
-    if 'upper_wick_ratio' not in df.columns:
-        df['upper_wick_ratio'] = (df['high'] - df[['open', 'close']].max(axis=1)) / (df['high'] - df['low'] + 1e-9)
-    if 'dist_to_ema50_atr' not in df.columns:
-        df['dist_to_ema50_atr'] = (df['close'] - df['ema_50']) / (df['atr_14'] + 1e-9)
-    if 'vol_acceleration' not in df.columns:
-        df['vol_acceleration'] = df['volume'] / (df['volume'].shift(1) + 1e-9)
-    return df
 
 # ============================================================
 # STATE MACHINE LOGIC
@@ -217,7 +196,8 @@ def backtest_symbol(file_path, features, clf, threshold, config: BacktestConfig)
                 crop_end = end_idx[-1] + padding_bars if len(end_idx) > 0 else len(df)
                 df = df.iloc[crop_start:crop_end].reset_index(drop=True)
 
-        df = calculate_features_backtest(df)
+        # Use centralized feature calculation for perfect parity
+        df = calculate_features(df)
         
         scan_indices = df.index
         if config.start_date:

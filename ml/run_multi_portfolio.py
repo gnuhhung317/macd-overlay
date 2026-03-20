@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Multi-Portfolio Backtester
+Multi-Portfolio Backtester (Sniper Version)
 Runs multiple isolated configurations and aggregates their equity curves.
 """
 import json
@@ -10,62 +10,91 @@ import numpy as np
 from pathlib import Path
 from datetime import datetime
 import copy
+import sys
+import joblib
 
-from config import get_timeframe_config
-from backtest_3stage import ThreeStageBacktester, BacktestConfig, DATA_DIR, PROCESSED_DIR, BacktestResult
+# Add root to sys.path
+sys.path.append(str(Path(__file__).parent.parent))
 
-def run_portfolio(port_config: dict, start_date=None, end_date=None) -> BacktestResult:
-    """Runs a single portfolio configuration."""
-    tf_val = port_config.get('timeframe', '4h')
+from ml.backtest_sniper import (
+    BacktestConfig, Trade, TradeState, 
+    run_portfolio_simulation, load_assets, backtest_symbol,
+    SYMBOLS_DIR
+)
+
+class BacktestResult:
+    def __init__(self, trades, equity_curve, timestamps, config):
+        self.trades = trades
+        self.equity_curve = equity_curve
+        self.timestamps = timestamps
+        self.config = config
+        
+        # Calculate max drawdown for report
+        if len(equity_curve) > 0:
+            equity_vals = np.array(equity_curve)
+            max_equity_vals = np.maximum.accumulate(equity_vals)
+            drawdowns = (max_equity_vals - equity_vals) / max_equity_vals
+            self.max_drawdown = np.max(drawdowns) if len(drawdowns) > 0 else 0.0
+        else:
+            self.max_drawdown = 0.0
+
+def run_portfolio(port_config: dict, assets: tuple, start_date=None, end_date=None) -> BacktestResult:
+    """Runs a single portfolio configuration using Sniper logic."""
+    clf, features, threshold = assets
     
-    tf_config = get_timeframe_config(tf_val)
+    # Override threshold if provided in config
+    port_threshold = port_config.get('threshold', threshold)
+    
     config = BacktestConfig(
-        initial_capital=port_config.get('capital', 100),
-        risk_per_trade=port_config.get('risk', 0.01),
+        initial_capital=port_config.get('capital', 100.0),
+        risk_per_trade=port_config.get('risk', 0.05),
         leverage=port_config.get('leverage', 1.0),
-        margin_mode=port_config.get('margin_mode', 'ISOLATED'),
-        timeframe=tf_val,
-        max_bars=8,
-        max_open_trades=port_config.get('max_positions', 13),
-        entry_threshold=port_config.get('threshold', 0.6),
-        min_refined_score=port_config.get('minscore', 0.0),
-        use_scanner_filter=port_config.get('use_scanner', True),
-        start_date=start_date,
+        max_open_trades=port_config.get('max_positions', 5),
+        start_date=start_date if start_date else '2025-01-01',
         end_date=end_date,
-        slippage=0.01
+        max_bars_hold=port_config.get('max_bars_hold', 24)
     )
     
-    # Enable circuit breaker if configured
-    if 'use_circuit_breaker' in port_config:
-        config.use_circuit_breaker = port_config['use_circuit_breaker']
+    # Load and process symbols for this portfolio
+    # (In a real scenario, we might want to pre-load or cache these)
+    all_potential_signals = []
+    full_price_db = {}
     
-    # Load dataset
-    data_path = PROCESSED_DIR / f'features_{tf_val}_full.parquet'
-    if not data_path.exists():
-        print(f"Error: Data file {data_path} not found for strategy {port_config.get('name', 'Unknown')}.")
-        return None
-        
-    df = pd.read_parquet(data_path)
-    df = df.sort_values('timestamp')
+    # Filter symbols if specified in port_config
+    target_symbols = port_config.get('symbols', None)
     
-    if start_date:
-        df = df[df['timestamp'] >= pd.to_datetime(start_date)]
-    if end_date:
-        df = df[df['timestamp'] <= pd.to_datetime(end_date)]
+    all_files = list(SYMBOLS_DIR.glob("*.parquet"))
+    if target_symbols:
+        all_files = [f for f in all_files if any(s in f.name for s in target_symbols)]
+
+    print(f"⏳ Running strategy: {port_config.get('name', 'Unnamed')} (Capital: ${config.initial_capital:,.2f})")
+    
+    for i, file_path in enumerate(all_files):
+        sigs, ohlcv = backtest_symbol(file_path, features, clf, port_threshold, config)
+        if sigs:
+            all_potential_signals.extend(sigs)
+            symbol_name = Path(file_path).stem.replace('_USDT','').replace('USDT','')
+            full_price_db[symbol_name] = ohlcv
+            
+    if not all_potential_signals:
+        print(f"⚠️ No signals found for strategy '{port_config.get('name', 'Unnamed')}'")
+        return BacktestResult([], [], [], config)
         
-    if df.empty:
-        print(f"Error: No data in specified date range for strategy {port_config.get('name', 'Unknown')}.")
-        return None
-        
-    print(f"⏳ Running strategy: {port_config.get('name', 'Unnamed')} (TF: {tf_val}, Capital: ${config.initial_capital:,.2f})")
-    backtester = ThreeStageBacktester(config)
-    result = backtester.run_backtest(df, verbose=False)
-    result.config = config  # Injected config to make it available during aggregation
+    # Run state-machine simulation
+    trades, full_equity_curve, _ = run_portfolio_simulation(all_potential_signals, full_price_db, config)
+    
+    # Extract timestamps and equity values from [(ts, val), ...]
+    # Sniper returns a list of (timestamp, value) tuples
+    timestamps = [x[0] for x in full_equity_curve] if full_equity_curve else []
+    equity_values = [x[1] for x in full_equity_curve] if full_equity_curve else []
+    
+    result = BacktestResult(trades, equity_values, timestamps, config)
     
     if len(result.equity_curve) > 0:
         print(f"✅ Completed '{port_config.get('name', 'Unnamed')}': {len(result.trades)} trades, Final Equity: ${result.equity_curve[-1]:,.2f}")
     else:
         print(f"✅ Completed '{port_config.get('name', 'Unnamed')}': 0 trades, Final Equity: ${config.initial_capital:,.2f}")
+        
     return result
 
 def run_multi_portfolio_aggregation(results, initial_total_capital):
@@ -105,25 +134,26 @@ def run_multi_portfolio_aggregation(results, initial_total_capital):
     df_equity['Total'] = df_equity.sum(axis=1)
     
     # Metrics
-    peak = df_equity['Total'].iloc[0]
+    equity_vals = df_equity['Total'].values
+    peak = equity_vals[0]
     max_dd = 0
-    for eq in df_equity['Total']:
+    for eq in equity_vals:
         if eq > peak:
             peak = eq
-        dd = (peak - eq) / peak
+        dd = (peak - eq) / peak if peak > 0 else 0
         max_dd = max(max_dd, dd)
         
-    final_equity = df_equity['Total'].iloc[-1]
-    total_return = (final_equity - initial_total_capital) / initial_total_capital
+    final_equity = equity_vals[-1]
+    total_return = (final_equity - initial_total_capital) / initial_total_capital if initial_total_capital > 0 else 0
     
-    all_trades.sort(key=lambda t: t.entry_time)
-    winning_trades = [t for t in all_trades if t.pnl > 0]
+    all_trades.sort(key=lambda t: t.entry_time if t.entry_time else t.signal_time)
+    winning_trades = [t for t in all_trades if t.pnl_usd > 0]
     win_rate = len(winning_trades) / len(all_trades) if all_trades else 0
     
-    gross_profit = sum(t.pnl for t in winning_trades) if winning_trades else 0
-    losing_trades = [t for t in all_trades if t.pnl <= 0]
-    gross_loss = abs(sum(t.pnl for t in losing_trades)) if losing_trades else 1
-    profit_factor = gross_profit / gross_loss if gross_loss > 0 else float('inf')
+    gross_profit = sum(t.pnl_usd for t in winning_trades) if winning_trades else 0
+    losing_trades = [t for t in all_trades if t.pnl_usd <= 0]
+    gross_loss = abs(sum(t.pnl_usd for t in losing_trades)) if losing_trades else 0
+    profit_factor = gross_profit / gross_loss if gross_loss > 0 else (99.0 if gross_profit > 0 else 0.0)
     
     return {
         'df_equity': df_equity,
@@ -137,8 +167,8 @@ def run_multi_portfolio_aggregation(results, initial_total_capital):
     }
 
 def main():
-    parser = argparse.ArgumentParser(description="Run Multi-Portfolio Backtest")
-    parser.add_argument('--config', type=str,default="ml/test_portfolios.json", help='Path to JSON configuration file')
+    parser = argparse.ArgumentParser(description="Run Multi-Portfolio Sniper Backtest")
+    parser.add_argument('--config', type=str, default="ml/test_portfolios.json", help='Path to JSON configuration file')
     parser.add_argument('--start', type=str, help='Start date (YYYY-MM-DD)')
     parser.add_argument('--end', type=str, help='End date (YYYY-MM-DD)')
     parser.add_argument('--output', type=str, help='Optional output CSV for combined portfolio equity')
@@ -155,17 +185,22 @@ def main():
         print("Error: Config file must contain a JSON array of configuration objects.")
         return
         
-    print(f"🚀 Starting Multi-Portfolio Backtest with {len(portfolios)} strategies...")
+    print(f"🚀 Starting Multi-Portfolio Sniper Backtest with {len(portfolios)} strategies...")
     print("=" * 80)
     
+    assets = load_assets()
+    if assets[0] is None:
+        print("❌ Failed to load Sniper models.")
+        return
+        
     results = {}
     total_capital = 0.0
     
     for i, port in enumerate(portfolios):
         name = port.get('name', f"Strategy_{i+1}")
-        total_capital += port.get('capital', 100)
+        total_capital += port.get('capital', 100.0)
         
-        res = run_portfolio(port, args.start, args.end)
+        res = run_portfolio(port, assets, args.start, args.end)
         if res:
             results[name] = res
                 
@@ -182,7 +217,7 @@ def main():
         return
 
     print("=" * 80)
-    print("🏆 MULTI-PORTFOLIO BACKTEST RESULTS")
+    print("🏆 MULTI-PORTFOLIO SNIPER BACKTEST RESULTS")
     print("=" * 80)
     print(f"   Initial Total Capital: ${total_capital:,.2f}")
     print(f"   Final Total Equity:    ${agg['final_equity']:,.2f}")
@@ -197,12 +232,13 @@ def main():
     for name, res in results.items():
         cap = res.config.initial_capital
         eq_final = res.equity_curve[-1] if len(res.equity_curve) > 0 else cap
-        ret = (eq_final - cap) / cap
-        min_score = res.config.min_refined_score
-        print(f"   - {name:<20} | capital: ${cap:<7.2f} | score: {min_score:>4.1f} | trades: {len(res.trades):<4} | return: {ret:>8.2%} | maxDD: {res.max_drawdown:>6.2%} | final eq: ${eq_final:,.2f}")
+        ret = (eq_final - cap) / cap if cap > 0 else 0
+        trds = len(res.trades)
+        mdd = res.max_drawdown
+        print(f"   - {name:<20} | capital: ${cap:<7.2f} | trades: {trds:<4} | return: {ret:>8.2%} | maxDD: {mdd:>6.2%} | final eq: ${eq_final:,.2f}")
         
     if args.output:
-        df_equity.to_csv(args.output, index_label='timestamp')
+        agg['df_equity'].to_csv(args.output, index_label='timestamp')
         print(f"\n💾 Saved portfolio equity curve to {args.output}")
 
 if __name__ == '__main__':

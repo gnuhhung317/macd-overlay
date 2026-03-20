@@ -10,6 +10,7 @@ import sys
 # Ensure root is in path
 sys.path.append(str(Path(__file__).parent.parent))
 from data_processor import BinanceDataProcessor
+from sniper_bot.feature import calculate_features
 
 class SniperScanner:
     def __init__(self, config=None, data_processor=None):
@@ -47,172 +48,6 @@ class SniperScanner:
             print(f"✅ [SniperScanner] Model loaded. Features: {len(self.features)}, Threshold: {self.threshold:.2f}")
         except Exception as e:
             print(f"❌ [SniperScanner] Error loading model: {e}")
-
-    def calculate_features_sniper(self, df_1h: pd.DataFrame, df_1d: pd.DataFrame = None, btc_df: pd.DataFrame = None) -> pd.DataFrame:
-        """Calculate missing features for backtesting logic if not present."""
-        df = df_1h.copy()
-        
-        # 1. Price Basics & Simple Returns
-        df['log_returns'] = np.log(df['close'] / df['close'].shift(1))
-        
-        # 2. Indicators (EMA, SMA)
-        for p in [20, 21, 50, 200]:
-            df[f'ema_{p}'] = df['close'].ewm(span=p).mean()
-        df['sma_30'] = df['close'].rolling(30).mean()
-        df['sma_50'] = df['close'].rolling(50).mean()
-        
-        # 3. ATR
-        high_low = df['high'] - df['low']
-        high_close = np.abs(df['high'] - df['close'].shift())
-        low_close = np.abs(df['low'] - df['close'].shift())
-        tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-        df['atr_14'] = tr.rolling(14).mean()
-        if 'atr_pct' not in df.columns:
-            df['atr_pct'] = (df['atr_14'] / df['close']) * 100
-        
-        # 4. Volatility
-        df['log_returns'] = np.log(df['close'] / df['close'].shift(1))
-        df['volatility_14'] = df['log_returns'].rolling(14).std()
-        
-        # Volatility Compression (Match original feature.py: StdDev ratio)
-        df['vol_sma_14'] = df['volatility_14'].rolling(14).mean()
-        df['vol_compression'] = df['volatility_14'] / (df['vol_sma_14'] + 1e-9)
-        
-        # 5. Volume
-        # Match data_pipeline.py: volume / volume_sma_14
-        df['volume_sma_14'] = df['volume'].rolling(14).mean()
-        df['volume_std_14'] = df['volume'].rolling(14).std()
-        df['volume_ratio'] = df['volume'] / (df['volume_sma_14'] + 1e-9)
-        df['volume_sma_20'] = df['volume'].rolling(20).mean()
-        df['volume_std_20'] = df['volume'].rolling(20).std()
-        df['volume_zscore'] = (df['volume'] - df['volume_sma_20']) / (df['volume_std_20'] + 1e-9)
-        df['volume_trend'] = df['volume'].rolling(7).mean() / (df['volume'].rolling(21).mean() + 1e-9)
-        
-        # 6. RSI & Stoch
-        delta = df['close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / (loss + 1e-9)
-        df['rsi_14'] = 100 - (100 / (1 + rs))
-        df['rsi_14'] = df['rsi_14'].fillna(50)
-        # Match original feature.py: diff(3)
-        df['rsi_slope'] = df['rsi_14'].diff(3)
-        
-        l14 = df['low'].rolling(14).min(); h14 = df['high'].rolling(14).max()
-        df['stoch_k'] = 100 * (df['close'] - l14) / (h14 - l14).replace(0, np.nan)
-        df['stoch_d'] = df['stoch_k'].rolling(3).mean()
-        
-        # 7. Momentum & Distance
-        df['roc_7'] = df['close'].pct_change(7)
-        df['roc_14'] = df['close'].pct_change(14)
-        df['momentum_30'] = df['close'].pct_change(30)
-        df['price_vs_sma_30'] = df['close'] / (df['sma_30'] + 1e-9)
-        
-        df['dist_to_high_30d'] = (df['close'] - df['high'].rolling(30).max()) / (df['close'] + 1e-9)
-        df['dist_to_low_30d'] = (df['close'] - df['low'].rolling(30).min()) / (df['close'] + 1e-9)
-        for e in [21, 50, 200]:
-            # Match original feature.py: (P - EMA) / P
-            df[f'dist_to_ema_{e}_pct'] = (df['close'] - df[f'ema_{e}']) / (df['close'] + 1e-9)
-            
-        # 8. MACD
-        ema_fast = df['close'].ewm(span=12, adjust=False).mean()
-        ema_slow = df['close'].ewm(span=26, adjust=False).mean()
-        df['macd'] = ema_fast - ema_slow
-        df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
-        df['macd_slope'] = df['macd'].diff()
-        df['macd_acceleration'] = df['macd_slope'].diff()
-        
-        # 9. Sniper specialized features
-        df['upper_wick_ratio'] = (df['high'] - df[['open', 'close']].max(axis=1)) / (df['high'] - df['low'] + 1e-9)
-        df['dist_to_ema50_atr'] = (df['close'] - df['ema_50']) / (df['atr_14'] + 1e-9)
-        df['vol_acceleration'] = df['volume'] / (df['volume'].shift(1) + 1e-9)
-        df['vol_ratio_alpha'] = df['volume_ratio'] * df['volatility_14']
-        
-        # 10. ADX
-        pdm = df['high'].diff(); mdm = -df['low'].diff()
-        pdm = pdm.where((pdm > mdm) & (pdm > 0), 0)
-        mdm = mdm.where((mdm > pdm) & (mdm > 0), 0)
-        atr_s = tr.rolling(14).mean()
-        pdi = 100 * (pdm.rolling(14).mean() / atr_s.replace(0, np.nan))
-        mdi = 100 * (mdm.rolling(14).mean() / atr_s.replace(0, np.nan))
-        df['adx'] = (100 * abs(pdi - mdi) / (pdi + mdi).replace(0, np.nan)).rolling(14).mean()
-        
-        # 11. Time features
-        df['hour_sin'] = np.sin(2 * np.pi * df['timestamp'].dt.hour / 24)
-        df['hour_cos'] = np.cos(2 * np.pi * df['timestamp'].dt.hour / 24)
-        df['day_sin'] = np.sin(2 * np.pi * df['timestamp'].dt.dayofweek / 7)
-        df['day_cos'] = np.cos(2 * np.pi * df['timestamp'].dt.dayofweek / 7)
-        
-        # 12. Structure & Flow
-        bb_mid = df['close'].rolling(20).mean(); bb_std = df['close'].rolling(20).std()
-        bb_wd = (bb_mid + 2 * bb_std - (bb_mid - 2 * bb_std)) / (bb_mid + 1e-9)
-        df['bb_squeeze'] = (bb_wd < bb_wd.rolling(20).quantile(0.2)).astype(int)
-        df['vwap_30d'] = (df['close'] * df['volume']).rolling(30).sum() / (df['volume'].rolling(30).sum() + 1e-9)
-        df['above_poc'] = (df['close'] > df['vwap_30d']).astype(int)
-        df['micro_volume'] = df['volume'] / (df['volume'].rolling(5).mean() + 1e-9)
-        df['price_accel'] = df['close'].pct_change(1) / (df['close'].pct_change(4).replace(0, np.nan) + 1e-9)
-        df['order_flow_proxy'] = (df['close'] - df['low']) / (df['high'] - df['low'] + 1e-9)
-        
-        # 13. Regime
-        df['trend_state'] = np.where(df['close'] > df['sma_50'], 1, np.where(df['close'] < df['sma_50'], -1, 0))
-        df['is_trending'] = (df['adx'] > 25).astype(int)
-        # Match original feature.py logic
-        df['is_volatile'] = (df['vol_compression'] > 1.5).astype(int)
-        
-        # 14. BTC Context Integration
-        if btc_df is not None and not btc_df.empty:
-            # We must MERGE btc_df with df on timestamp to properly calculate rolling correlation and relative strength
-            # Create a temporary btc subset
-            btc_sub = btc_df[['timestamp', 'close', 'sma_200', 'adx', 'log_returns']].copy()
-            btc_sub.rename(columns={'close': 'btc_close', 'sma_200': 'btc_sma_200', 'adx': 'btc_adx', 'log_returns': 'btc_log_returns'}, inplace=True)
-            
-            # Merge
-            df = df.merge(btc_sub, on='timestamp', how='left')
-            
-            # Forward fill simply in case of missing 1h BTC candles
-            df['btc_close'] = df['btc_close'].ffill()
-            df['btc_sma_200'] = df['btc_sma_200'].ffill()
-            df['btc_adx'] = df['btc_adx'].ffill()
-            df['btc_log_returns'] = df['btc_log_returns'].ffill().fillna(0)
-            
-            # Now calculate accurate rolling correlations on the merged series
-            df['btc_is_bull_regime'] = (df['btc_close'] > df['btc_sma_200']).astype(int)
-            df['btc_trend_strength'] = (df['btc_adx'] > 25).astype(int)
-            df['btc_returns'] = df['btc_log_returns']
-            df['rs_vs_btc'] = df['log_returns'] - df['btc_returns']
-            df['rs_vs_btc_sma7'] = df['rs_vs_btc'].rolling(7).mean()
-            df['btc_corr'] = df['log_returns'].rolling(14).corr(df['btc_returns']).fillna(0)
-            
-            # Drop temporary merge columns
-            df.drop(columns=['btc_close', 'btc_sma_200', 'btc_adx', 'btc_log_returns'], inplace=True)
-        else:
-            df['btc_is_bull_regime'] = 0
-            df['btc_trend_strength'] = 0
-            df['btc_returns'] = 0
-            df['rs_vs_btc'] = 0
-            df['rs_vs_btc_sma7'] = 0
-            df['btc_corr'] = 0
-            
-        # 15. MTF (1D) Integration (Match train_sniper.py shift(1) logic)
-        if df_1d is not None and not df_1d.empty:
-            # Shift(1) to get the last fully closed Day context
-            ema_200_1d_series = df_1d['close'].ewm(span=200).mean().shift(1)
-            ema_200_1d = ema_200_1d_series.iloc[-1]
-            df['ema_200_1d_dist'] = (df['close'] - ema_200_1d) / df['close']
-            
-            # Use the same SMA-based RSI calculation as sync_worker/train_sniper
-            delta = df_1d['close'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-            rs = gain / (loss + 1e-9)
-            rsi_14_1d_series = (100 - (100 / (1 + rs))).shift(1)
-            
-            df['rsi_14_1d'] = rsi_14_1d_series.iloc[-1]
-        else:
-            df['ema_200_1d_dist'] = 0
-            df['rsi_14_1d'] = 50
-            
-        return df
 
     def scan(self, symbols: List[str], timeframe: str, lookback_days: int = 4) -> List[Dict[str, Any]]:
         """
@@ -294,7 +129,10 @@ class SniperScanner:
                 # Use only completed candles for robust signal generation
                 df_calc = df.iloc[:-1].copy()
                 
-                df_calc = self.calculate_features_sniper(df_calc, df_1d, btc_df)
+                # Use centralized feature calculation for perfect parity with backtest/training
+                df_calc = calculate_features(df_calc, df_1d=df_1d, btc_df=btc_df)
+                
+                if df_calc.empty: continue
                 
                 # Focus only on the VERY LAST completed candle
                 last_calc_idx = df_calc.index[-1]
