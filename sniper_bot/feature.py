@@ -172,6 +172,14 @@ def calculate_features(df, df_1d=None, btc_df=None, **kwargs):
         btc_data = btc_df[['timestamp'] + [c for c in btc_cols if c in btc_df.columns]].copy()
         btc_data.columns = ['timestamp'] + [f'btc_{c}' for c in btc_cols if c in btc_df.columns]
         
+        # Drop any stale btc_* columns from df to prevent merge collision
+        stale_btc = [c for c in df.columns if c.startswith('btc_')]
+        if stale_btc:
+            df = df.drop(columns=stale_btc, errors='ignore')
+        # Also drop derived columns that will be recomputed
+        for c in ['rs_vs_btc', 'rs_vs_btc_sma7', 'btc_corr', 'btc_is_bull_regime', 'btc_trend_strength']:
+            if c in df.columns: df = df.drop(columns=[c])
+        
         df = pd.merge_asof(
             df.sort_values('timestamp'),
             btc_data.sort_values('timestamp'),
@@ -192,7 +200,11 @@ def calculate_features(df, df_1d=None, btc_df=None, **kwargs):
             if 'btc_adx' in df.columns:
                 df['btc_trend_strength'] = (df['btc_adx'] > 25).astype(int)
             
-            if 'btc_returns' in df.columns:
+            if 'btc_log_returns' in df.columns:
+                df['rs_vs_btc'] = df['log_returns'] - df['btc_log_returns']
+                df['rs_vs_btc_sma7'] = df['rs_vs_btc'].rolling(7).mean()
+                df['btc_corr'] = df['log_returns'].rolling(14).corr(df['btc_log_returns']).fillna(0)
+            elif 'btc_returns' in df.columns:
                 df['rs_vs_btc'] = df['log_returns'] - df['btc_returns']
                 df['rs_vs_btc_sma7'] = df['rs_vs_btc'].rolling(7).mean()
                 df['btc_corr'] = df['log_returns'].rolling(14).corr(df['btc_returns']).fillna(0)
