@@ -2,15 +2,14 @@ import pandas as pd
 import numpy as np
 import time
 import joblib
-from typing import List, Dict, Any
-from datetime import datetime, timedelta
-from pathlib import Path
-import sys
+from typing import Dict, List, Optional, Any
+import os
 
-# Ensure root is in path
-sys.path.append(str(Path(__file__).parent.parent))
+import logging
+logger = logging.getLogger(__name__)
+from pathlib import Path
 from data_processor import BinanceDataProcessor
-from sniper_bot.feature import calculate_features
+from sniper_bot.feature import calculate_features, apply_feature_shift
 
 class SniperScanner:
     def __init__(self, config=None, data_processor=None):
@@ -58,9 +57,8 @@ class SniperScanner:
             return []
 
         signals = []
-        # Fetch ~200 candles to ensure EMA200 and long-term MAs are stable
-        tf_hours = 1 if timeframe == '1h' else 4
-        buffer_days = int((200 * tf_hours) / 24) + 1
+        # Fetch ~7000 candles to ensure stable MTF/Daily indicators (like EMA 200 daily)
+        buffer_days = 300 
         fetch_start = f"{lookback_days + buffer_days} days ago UTC"
         
         # 1. Fetch BTC Macro Context once
@@ -95,7 +93,8 @@ class SniperScanner:
                     rem_time = avg_time * (total_symbols - (i + 1))
                     print(f"⏳ [Scanner] Progress: {percent:.0f}% ({i+1}/{total_symbols}) | Elapsed: {elapsed:.1f}s | Est. Rem: {rem_time:.1f}s")
 
-                time.sleep(0.05) # Reduced Rate Limit Protection (slightly faster)
+                # (Rate limit sleep removed for performance)
+                pass
                 
                 # Fetch 1H base data
                 df = self.processor.get_historical_data(symbol, timeframe, fetch_start, 'now UTC')
@@ -132,6 +131,11 @@ class SniperScanner:
                 # Use centralized feature calculation for perfect parity with backtest/training
                 df_calc = calculate_features(df_calc, df_1d=df_1d, btc_df=btc_df)
                 
+                if df_calc.empty: continue
+                
+                # Apply lag shift so the model sees features from the previous candle, 
+                # identically to how it was trained (to predict returns of the *following* candles)
+                df_calc = apply_feature_shift(df_calc)
                 if df_calc.empty: continue
                 
                 # Focus only on the VERY LAST completed candle

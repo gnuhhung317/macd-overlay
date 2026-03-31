@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Data Pipeline: Load, Merge 1h -> multi-timeframe (4h/8h/12h/1d), Feature Engineering
+Data Pipeline: Load, Merge 1h->1d, Feature Engineering
 """
 import pandas as pd
 import numpy as np
@@ -10,7 +10,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # Default data directory (Bitget for backward compatibility)
-DATA_DIR = Path(__file__).parent.parent / 'data'
+DATA_DIR = Path(__file__).parent.parent / 'bitget-data'
 OHLCV_DIR = DATA_DIR / 'ohlcv'
 FUNDING_DIR = DATA_DIR / 'funding'
 PROCESSED_DIR = DATA_DIR / 'processed'
@@ -77,57 +77,37 @@ def load_funding(symbol: str) -> pd.DataFrame:
     return df
 
 
-# ----------------------------------------------------------
-# Timeframe Configuration: resample rules + label parameters
-# ----------------------------------------------------------
-TIMEFRAME_CONFIG = {
-    '4h': {
-        'resample_rule': '4h',
-        'min_bars': 200,       # Minimum 4h bars needed (~33 days)
-        'atr_clamp': (0.002, 0.06),   # ATR% range for 4h
-        'max_tp_pct': 0.15,
-        'max_bars_label': 30,  # 30 x 4h = 5 days lookahead
-        'unit_name': '4h bars',
-    },
-    '8h': {
-        'resample_rule': '8h',
-        'min_bars': 100,       # ~33 days
-        'atr_clamp': (0.003, 0.08),
-        'max_tp_pct': 0.20,
-        'max_bars_label': 20,  # 20 x 8h = ~7 days
-        'unit_name': '8h bars',
-    },
-    '12h': {
-        'resample_rule': '12h',
-        'min_bars': 80,        # ~40 days
-        'atr_clamp': (0.004, 0.10),
-        'max_tp_pct': 0.25,
-        'max_bars_label': 15,  # 15 x 12h = ~7.5 days
-        'unit_name': '12h bars',
-    },
-    '1d': {
-        'resample_rule': '1D',
-        'min_bars': 100,       # 100 days
-        'atr_clamp': (0.005, 0.13),
-        'max_tp_pct': 0.30,
-        'max_bars_label': 15,  # 15 days
-        'unit_name': 'days',
-    },
-}
-
-def resample_1h(df_1h: pd.DataFrame, timeframe: str = '1d') -> pd.DataFrame:
-    """Resample 1h OHLCV to any target timeframe (4h, 8h, 12h, 1d)"""
+def resample_to_timeframe(df_1h: pd.DataFrame, timeframe: str = '1d') -> pd.DataFrame:
+    """
+    Resample 1h OHLCV to target timeframe.
+    
+    Args:
+        df_1h: 1h OHLCV DataFrame
+        timeframe: Target timeframe ('1h', '4h', '8h', '12h', '1d')
+    
+    Returns:
+        Resampled DataFrame
+    """
     if df_1h.empty:
         return pd.DataFrame()
     
-    cfg = TIMEFRAME_CONFIG.get(timeframe)
-    if cfg is None:
-        raise ValueError(f"Unsupported timeframe: {timeframe}. Choose from {list(TIMEFRAME_CONFIG.keys())}")
+    # Map timeframe to pandas resample rule
+    timeframe_map = {
+        '1h': '1H',
+        '4h': '4H',
+        '8h': '8H',
+        '12h': '12H',
+        '1d': '1D'
+    }
+    
+    if timeframe not in timeframe_map:
+        raise ValueError(f"Invalid timeframe: {timeframe}. Must be one of {list(timeframe_map.keys())}")
     
     df = df_1h.copy()
     df = df.set_index('timestamp')
     
-    df_out = df.resample(cfg['resample_rule']).agg({
+    # Resample to target timeframe
+    df_resampled = df.resample(timeframe_map[timeframe]).agg({
         'open': 'first',
         'high': 'max',
         'low': 'min',
@@ -135,32 +115,40 @@ def resample_1h(df_1h: pd.DataFrame, timeframe: str = '1d') -> pd.DataFrame:
         'volume': 'sum'
     }).dropna()
     
-    df_out = df_out.reset_index()
-    return df_out
+    df_resampled = df_resampled.reset_index()
+    return df_resampled
 
-# Keep backward compatibility
+
 def resample_1h_to_1d(df_1h: pd.DataFrame) -> pd.DataFrame:
-    """Legacy wrapper: resample 1h to 1d"""
-    return resample_1h(df_1h, '1d')
+    """DEPRECATED: Use resample_to_timeframe instead. Kept for backward compatibility."""
+    return resample_to_timeframe(df_1h, '1d')
 
 
 def calculate_macd(df: pd.DataFrame, fast=12, slow=26, signal=9) -> pd.DataFrame:
     """
-    Calculate MACD using standard formula:
-    MACD Line = EMA(fast) - EMA(slow)
-    Signal Line = EMA(MACD, signal)
+    Calculate MACD using MACD Overlay formula (Pine Script version):
+    MACD = EMA(close, slow-fast) = EMA(close, 14) for default params
+    Signal Line = SMA(MACD, signal)
     Histogram = MACD - Signal
+    Also calculates SMA(close, 89) as an additional indicator
     """
     df = df.copy()
-    ema_fast = df['close'].ewm(span=fast, adjust=False).mean()
-    ema_slow = df['close'].ewm(span=slow, adjust=False).mean()
-    df['macd'] = ema_fast - ema_slow
-    df['signal'] = df['macd'].ewm(span=signal, adjust=False).mean()
+    # MACD Overlay formula: MACD = EMA(close, slow-fast)
+    macd_period = slow - fast  # 26 - 12 = 14
+    df['macd'] = df['close'].ewm(span=macd_period, adjust=False).mean()
+    
+    # Signal = SMA of MACD (not EMA like traditional MACD)
+    df['signal'] = df['macd'].rolling(window=signal).mean()
+    
     df['histogram'] = df['macd'] - df['signal']
+    
+    # Additional SMA(close, 89) from Pine Script
+    df['sma_89'] = df['close'].rolling(window=89).mean()
+    
     return df
 
 
-def calculate_features(df: pd.DataFrame, df_1d: pd.DataFrame = None, btc_df: pd.DataFrame = None) -> pd.DataFrame:
+def calculate_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     Calculate all features for ML.
     Note: This function should be called per-symbol to avoid data bleeding.
@@ -179,8 +167,7 @@ def calculate_features(df: pd.DataFrame, df_1d: pd.DataFrame = None, btc_df: pd.
     # ===== Trend Features =====
     for period in [7, 14, 21, 50, 100, 200]:
         df[f'sma_{period}'] = df['close'].rolling(period).mean()
-        df[f'ema_{period}'] = df['close'].ewm(span=period, adjust=True).mean()
-        # Correct parity: The global shift will handle t-1. Use raw t here.
+        df[f'ema_{period}'] = df['close'].ewm(span=period, adjust=False).mean()
         df[f'price_to_sma_{period}'] = df['close'] / df[f'sma_{period}']
     
     # Trend strength
@@ -190,26 +177,52 @@ def calculate_features(df: pd.DataFrame, df_1d: pd.DataFrame = None, btc_df: pd.
     
     # ===== MACD Features =====
     df = calculate_macd(df)
+    
+    # 🌟 NORMALIZED MACD (% of close price) — Stationary across price levels!
+    # Raw macd/signal/histogram are scale-dependent (different at BTC $20k vs $70k)
+    # Normalizing by close makes them comparable across all time periods.
+    df['macd_pct'] = (df['macd'] / df['close']) * 100
+    df['signal_pct'] = (df['signal'] / df['close']) * 100
+    df['histogram_pct'] = (df['histogram'] / df['close']) * 100
+    df['macd_slope_pct'] = df['macd_pct'].diff()
+    df['signal_slope_pct'] = df['signal_pct'].diff()
+    df['histogram_slope_pct'] = df['histogram_pct'].diff()
+    df['macd_acceleration_pct'] = df['macd_slope_pct'].diff()
+    
+    # Keep raw for crossover calculation (used to detect entry signals, not as features)
     df['macd_slope'] = df['macd'].diff()
     df['signal_slope'] = df['signal'].diff()
     df['histogram_slope'] = df['histogram'].diff()
     df['macd_acceleration'] = df['macd_slope'].diff()
     
-    # MACD crossover detection
+    # MACD crossover detection (boolean 0/1 — already stationary)
     df['macd_cross_up'] = ((df['macd'] > df['signal']) & (df['macd'].shift(1) <= df['signal'].shift(1))).astype(int)
     df['macd_cross_down'] = ((df['macd'] < df['signal']) & (df['macd'].shift(1) >= df['signal'].shift(1))).astype(int)
     df['macd_crossover'] = df['macd_cross_up'] - df['macd_cross_down']
     
-    # Vectorized bars since crossover (Significant performance boost)
-    df['bars_since_cross_up'] = df.groupby((df['macd_cross_up'] == 1).cumsum()).cumcount()
-    df.loc[df['macd_cross_up'].cumsum() == 0, 'bars_since_cross_up'] = 999
+    # 🚀 OPTIMIZED: Vectorized bars since crossover (O(n) instead of O(n²))
+    # Use cumsum grouping technique for massive speedup
+    def calculate_bars_since_event(event_series):
+        """Vectorized calculation of bars since last event using cumsum grouping."""
+        event_series = event_series.fillna(0).astype(bool)
+        # Create groups that increment at each event
+        event_cumsum = event_series.cumsum()
+        # Count position within each group (bars since last event)
+        bars_since = event_cumsum.groupby(event_cumsum).cumcount()
+        # Set to high value where no event has occurred yet
+        bars_since = bars_since.where(event_cumsum > 0, 999)
+        return bars_since
     
-    df['bars_since_cross_down'] = df.groupby((df['macd_cross_down'] == 1).cumsum()).cumcount()
-    df.loc[df['macd_cross_down'].cumsum() == 0, 'bars_since_cross_down'] = 999
+    df['bars_since_cross_up'] = calculate_bars_since_event(df['macd_cross_up'])
+    df['bars_since_cross_down'] = calculate_bars_since_event(df['macd_cross_down'])
     
     # ===== Volatility Features =====
     df['atr_14'] = calculate_atr(df, 14)
     df['atr_7'] = calculate_atr(df, 7)
+    
+    # 🌟 NORMALIZED ATR (% of close) — Stationary across price levels!
+    df['atr_14_pct'] = (df['atr_14'] / df['close']) * 100
+    df['atr_7_pct'] = (df['atr_7'] / df['close']) * 100
     df['volatility_7'] = df['returns'].rolling(7).std()
     df['volatility_14'] = df['returns'].rolling(14).std()
     df['volatility_21'] = df['returns'].rolling(21).std()
@@ -225,16 +238,40 @@ def calculate_features(df: pd.DataFrame, df_1d: pd.DataFrame = None, btc_df: pd.
     # ===== Momentum Features =====
     df['rsi_14'] = calculate_rsi(df['close'], 14)
     df['rsi_7'] = calculate_rsi(df['close'], 7)
+    df['rsi_9'] = calculate_rsi(df['close'], 9)  # Lorentzian feature
     
-    # RSI Slope (momentum of momentum) - NEW for TP prediction
-    # BUG FIX: Ground truth shows unscaled diff: diff(3)
-    df['rsi_slope'] = df['rsi_14'].diff(3)
+    # CCI (Commodity Channel Index) — Lorentzian Classification feature
+    df['cci_20'] = calculate_cci(df, 20)
+    
+    # WaveTrend Oscillator — Lorentzian Classification feature
+    df = calculate_wavetrend(df, n1=10, n2=11)
+    df['wt_histogram'] = df['wt1'] - df['wt2']  # WT momentum (like MACD histogram)
+    
+    # RSI Slope (momentum of momentum)
+    # BUG FIX: diff(-3) looks into the FUTURE. We must use historical diff: diff(3)
+    df['rsi_slope'] = df['rsi_14'].diff(3) / 3
+    df['rsi_9_slope'] = df['rsi_9'].diff(3) / 3  # RSI(9) momentum
+    df['cci_20_slope'] = df['cci_20'].diff(3) / 3  # CCI momentum
+    df['wt1_slope'] = df['wt1'].diff(3) / 3  # WaveTrend momentum
+    
+    # 🌟 NEW: Volatility Squeeze (Bollinger Bands vs Keltner Channels)
+    # Keltner Channels (21-period to match existing EMA, 1.5x ATR)
+    df['kc_middle'] = df['ema_21']
+    df['kc_upper'] = df['kc_middle'] + 1.5 * df['atr_14']
+    df['kc_lower'] = df['kc_middle'] - 1.5 * df['atr_14']
+    
+    # Squeeze: BB inside KC indicates contracted volatility ready to expand
+    # If bb_upper < kc_upper and bb_lower > kc_lower -> Squeeze is ON (value < 0)
+    df['bb_width_vs_kc'] = (df['bb_upper'] - df['bb_lower']) / (df['kc_upper'] - df['kc_lower'])
+    df['is_squeeze'] = (df['bb_width_vs_kc'] < 1.0).astype(int)
+    # Bars in squeeze
+    df['squeeze_duration'] = df.groupby((df['is_squeeze'] == 0).cumsum()).cumcount()
     
     # Stochastic
     df['stoch_k'] = calculate_stochastic(df, 14)
     df['stoch_d'] = df['stoch_k'].rolling(3).mean()
     
-    # ===== Rate of Change =====
+    # Rate of Change
     df['roc_7'] = df['close'].pct_change(7)
     df['roc_14'] = df['close'].pct_change(14)
     df['roc_21'] = df['close'].pct_change(21)
@@ -242,25 +279,37 @@ def calculate_features(df: pd.DataFrame, df_1d: pd.DataFrame = None, btc_df: pd.
     # ADX (Average Directional Index) - NEW for TP prediction
     df = calculate_adx(df, 14)
     
-    # ===== Volume Features & Momentum =====
-    df['vol_sma_14'] = df['volume'].rolling(14).mean()
-    df['vol_std_14'] = df['volume'].rolling(14).std()
-    df['volume_zscore'] = (df['volume'] - df['vol_sma_14']) / (df['vol_std_14'] + 1e-9)
-    df['volume_ratio'] = df['volume'] / (df['vol_sma_14'] + 1e-9)
+    # ADX(20) for Lorentzian Classification features
+    _adx20_df = calculate_adx(df, 20)
+    df['adx_20'] = _adx20_df['adx']
     
-    # ===== High-Alpha / Sector RS =====
-    # Note: Sector RS (vs absolute index) is handled in build_dataset for multi-symbol
-    # Here we add "Relative to Self" alpha as requested
-    df['price_vs_sma_30'] = df['close'] / (df['close'].rolling(30).mean() + 1e-9)
-    df['momentum_30'] = df['close'].pct_change(30)
+    # ===== Volume Features =====
     df['volume_sma_7'] = df['volume'].rolling(7).mean()
     df['volume_sma_14'] = df['volume'].rolling(14).mean()
     df['volume_sma_20'] = df['volume'].rolling(20).mean()
-    df['volume_ratio'] = df['volume'] / df['volume_sma_14']
-    df['volume_trend'] = df['volume_sma_7'] / df['volume_sma_14']
     
-    # Volume Spike (is this a breakout?) - NEW for TP prediction
-    df['volume_spike'] = (df['volume'] / df['volume_sma_20']).clip(0, 5)
+    # 🌟 OPTIMIZED: Log-transform volume to handle heavy skewness (fat tails)
+    # Raw volume_ratio can have extreme spikes (100x+) that bias the model
+    df['volume_ratio'] = df['volume'] / (df['volume_sma_14'] + 1e-9)
+    df['volume_log_ratio'] = np.log1p(df['volume_ratio'])  # log(1 + x) for stability
+    
+    df['volume_trend'] = df['volume_sma_7'] / (df['volume_sma_14'] + 1e-9)
+    
+    # Volume Spike (clipped for stability)
+    df['volume_spike'] = (df['volume'] / (df['volume_sma_20'] + 1e-9)).clip(0, 5)
+    
+    # 🌟 NEW: Advanced Volume Profile (Buy vs Sell Pressure)
+    # Estimate buying pressure based on where the close is relative to high/low
+    # 1.0 = closed at high (all buy), 0.0 = closed at low (all sell)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        close_location = (df['close'] - df['low']) / (df['high'] - df['low'])
+        close_location = close_location.fillna(0.5)
+    
+    df['buy_volume'] = df['volume'] * close_location
+    df['sell_volume'] = df['volume'] * (1 - close_location)
+    
+    df['buy_pressure_14'] = df['buy_volume'].rolling(14).sum() / (df['volume'].rolling(14).sum() + 1e-9)
+    df['buy_pressure_14'] = df['buy_pressure_14'].fillna(0.5)
     
     # OBV
     df['obv'] = (np.sign(df['returns']) * df['volume']).cumsum()
@@ -271,12 +320,16 @@ def calculate_features(df: pd.DataFrame, df_1d: pd.DataFrame = None, btc_df: pd.
     df['is_trending'] = (abs(df['trend_7_21'] - 1) > 0.02).astype(int)
     df['is_volatile'] = (df['volatility_14'] > df['volatility_14'].rolling(50).mean()).astype(int)
     
+    # 🌟 NEW: Volatility of Volatility (VoV) - Critical for risk prediction
+    # High VoV = MAE becomes extremely unpredictable
+    df['volatility_of_volatility'] = df['volatility_14'].rolling(14).std()
+    
     # ===== Advanced Regime Features =====
     
     # 1. Khoảng cách an toàn tới các đường EMA (Tính bằng %)
-    df['dist_to_ema_21_pct'] = (df['close'] - df['ema_21']) / df['close']
-    df['dist_to_ema_50_pct'] = (df['close'] - df['ema_50']) / df['close']
-    df['dist_to_ema_200_pct'] = (df['close'] - df['ema_200']) / df['close']
+    # Giúp mô hình biết giá đã đi quá xa trung bình chưa (rủi ro đảo chiều)
+    df['dist_to_ema_21_pct'] = (df['close'] - df['ema_21']) / df['ema_21']
+    df['dist_to_ema_200_pct'] = (df['close'] - df['ema_200']) / df['ema_200']
     
     # 2. ADX Trend State (-1, 0, 1)
     # Kết hợp ADX và SMA để xác định rõ: Sideway (0), Uptrend mạnh (1), Downtrend mạnh (-1)
@@ -287,58 +340,82 @@ def calculate_features(df: pd.DataFrame, df_1d: pd.DataFrame = None, btc_df: pd.
     
     # 3. Phân loại thanh khoản (Liquidity Regime)
     # Lọc các coin rác có volume chồi sụt bất thường
+    # Use moving average of volume directly to calculate standard deviation since apply with lambda on rolling is slow, but we stick to user req
+    # An optimization: rolling with pandas native methods where possible, but apply is ok for now.
     def calc_cv(x):
         m = np.mean(x)
         return np.std(x)/m if m > 0 else 0
         
-    # Use moving average of volume directly to calculate standard deviation since apply with lambda on rolling is slow, but we stick to user req
-    # An optimization: rolling with pandas native methods where possible, but apply is ok for now.
     df['liquidity_regime'] = df['volume_sma_14'].rolling(30).apply(calc_cv, raw=True)
     
-    # 4. Volatility Compression (squeeze before breakout)
-    df['vol_compression'] = df['bb_width'] / df['bb_width'].rolling(20).mean()
+    # ===== REGIME-CONDITIONED FEATURES =====
+    # These help the model learn different patterns per market regime.
+    # The idea: RSI=30 in a bull market has different meaning than RSI=30 in a bear market.
+    # By creating interaction features, the model can distinguish these scenarios.
     
-    # 5. Volatility Ratio (Alpha Feature: Speed of volatility change)
-    df['atr_21'] = calculate_atr(df, 21)
-    df['vol_ratio_alpha'] = df['atr_7'] / df['atr_21']
+    # Note: These require BTC macro data to be merged later (in build_dataset).
+    # We use placeholders here that will be populated after BTC merge.
+    # For now, create features based on local trend_state.
     
-    # 6. Price Magnet (Alpha Feature: Distance to 30d high/low)
-    df['high_30d'] = df['high'].rolling(30).max()
-    df['low_30d'] = df['low'].rolling(30).min()
-    df['dist_to_high_30d'] = (df['close'] - df['high_30d']) / df['close']
-    df['dist_to_low_30d'] = (df['close'] - df['low_30d']) / df['close']
+    # 1. RSI conditioned on trend state
+    # In uptrend, low RSI is "buy the dip"; in downtrend, low RSI can keep dropping
+    df['rsi_14_trend_adj'] = df['rsi_14'] * np.where(df['trend_state'] == 1, 1.2, 
+                                                     np.where(df['trend_state'] == -1, 0.8, 1.0))
     
-    # 7. Time-based features (Cyclical)
-    df['hour'] = df['timestamp'].dt.hour
-    df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 23)
-    df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 23)
+    # 2. MACD histogram strength relative to volatility
+    # High histogram in low vol = strong signal; high histogram in high vol = noise
+    df['macd_hist_vol_adj'] = df['histogram_pct'] / (df['volatility_14'] * 100 + 0.1)
     
-    df['day_of_week'] = df['timestamp'].dt.dayofweek
-    df['day_sin'] = np.sin(2 * np.pi * df['day_of_week'] / 6)
-    df['day_cos'] = np.cos(2 * np.pi * df['day_of_week'] / 6)
+    # 3. Volume spike significance in different regimes
+    # Volume spike in uptrend often = continuation; in downtrend often = capitulation
+    df['volume_spike_trend'] = df['volume_spike'] * df['trend_state']
     
-    # ===== Phase 12: Pre-Ignition Detector =====
-    # 1. Keltner Channels & Squeeze Index
-    df['keltner_width'] = 3 * df['atr_21']  # Using atr_21 which is calculated above
-    df['squeeze_ratio'] = df['bb_width'] / (df['keltner_width'] + 1e-9)
+    # 4. Momentum persistence (is the trend accelerating or decelerating?)
+    df['momentum_persistence'] = (df['roc_7'] > df['roc_14']).astype(int) * 2 - 1  # 1 = accelerating, -1 = decelerating
     
-    # 2. Volume Quietness (Depletion)
-    df['vol_depletion'] = df['volume'] / (df['volume_sma_20'] + 1e-9)
+    # 5. Mean reversion potential (how far stretched from equilibrium?)
+    df['mean_reversion_z'] = (df['close'] - df['sma_50']) / (df['bb_std'] + 1e-10)
+    df['mean_reversion_z'] = df['mean_reversion_z'].clip(-4, 4)  # Clip extreme values
     
-    # 3. Chaikin Money Flow (CMF)
-    # CMF = Sum(Money Flow Volume, 20) / Sum(Volume, 20)
-    # Money Flow Multiplier = [(Close - Low) - (High - Close)] / (High - Low)
-    mf_mult = ((df['close'] - df['low']) - (df['high'] - df['close'])) / (df['high'] - df['low'] + 1e-9)
-    mf_vol = mf_mult * df['volume']
-    df['cmf_20'] = mf_vol.rolling(20).sum() / (df['volume'].rolling(20).sum() + 1e-9)
+    # ===== LEADING FEATURES (Not Lagging) =====
     
-    # 4. Pre-Ignition Confluence Score
-    # Thấp squeeze + thấp volume + neutral price action
-    df['pre_ignition_score'] = (1 - df['squeeze_ratio']) + (1 - df['vol_depletion'])
+    # 🌟 1. Bollinger Band Squeeze Strength
+    # Narrow BB before cross = high volatility expansion potential = higher MFE
+    df['bb_squeeze_strength'] = (df['bb_upper'] - df['bb_lower']) / (df['bb_middle'] + 1e-10)
+    df['bb_squeeze_pct'] = df['bb_squeeze_strength'] / df['bb_squeeze_strength'].rolling(50).mean()
     
-    # 5. Institutional Scale Features (Missing in SHAP)
-    df['dist_to_ema50_atr'] = (df['close'] - df['ema_50']) / (df['atr_14'] + 1e-9)
-    df['vol_acceleration'] = df['volume'].diff().diff() / (df['volume_sma_20'] + 1e-9)
+    # 🌟 2. MACD Histogram Acceleration (Rate of change of momentum)
+    # Not just histogram value, but how fast it's expanding/contracting
+    df['histogram_velocity'] = df['histogram_pct'].diff(3)  # 3-bar momentum change
+    df['histogram_acceleration'] = df['histogram_velocity'].diff(3)  # 2nd derivative
+    
+    # 🌟 3. Distance to Key Support/Resistance (EMA 200)
+    # MAE often gets support from EMA 200 in uptrends
+    df['dist_to_ema_200'] = (df['close'] - df['ema_200']) / (df['close'] + 1e-10)
+    df['dist_to_sma_200'] = (df['close'] - df['sma_200']) / (df['close'] + 1e-10)
+    
+    # 🌟 4. Cyclical Time Features (Leading indicators for session patterns)
+    # Crypto markets have patterns: Asian session vs US session, weekends vs weekdays
+    if 'timestamp' in df.columns and hasattr(df['timestamp'].iloc[0], 'hour'):
+        df['hour_sin'] = np.sin(2 * np.pi * df['timestamp'].dt.hour / 24)
+        df['hour_cos'] = np.cos(2 * np.pi * df['timestamp'].dt.hour / 24)
+        df['day_of_week_sin'] = np.sin(2 * np.pi * df['timestamp'].dt.dayofweek / 7)
+        df['day_of_week_cos'] = np.cos(2 * np.pi * df['timestamp'].dt.dayofweek / 7)
+    
+    # 🌟 5. Relative Performance vs BTC (Alpha)
+    # If coin +2% but BTC +5% → coin is actually weak (bearish signal)
+    # This will be populated after BTC merge in build_dataset()
+    # Placeholder here for consistency
+    if 'btc_returns' in df.columns:
+        df['relative_performance'] = df['returns'] - df['btc_returns']
+        df['alpha_7d'] = df['relative_performance'].rolling(7).mean()
+        df['alpha_14d'] = df['relative_performance'].rolling(14).mean()
+    
+    # 🌟 6. MACD Alignment Indicators
+    # When MACD, Signal, and Histogram all pointing same direction = strong conviction
+    df['macd_btc_aligned'] = 0  # Placeholder, populated after BTC merge
+    df['trend_btc_align'] = 0   # Placeholder
+    df['rs_vs_btc'] = 0.0       # Placeholder
     
     return df
 
@@ -410,6 +487,77 @@ def calculate_stochastic(df: pd.DataFrame, period: int) -> pd.Series:
     return 100 * (df['close'] - low_min) / (high_max - low_min)
 
 
+def calculate_cci(df: pd.DataFrame, period: int = 20) -> pd.Series:
+    """
+    Calculate Commodity Channel Index (CCI).
+    
+    CCI measures deviation of price from its statistical mean.
+    Used in Lorentzian Classification as oscillator feature.
+    
+    CCI > +100: Overbought
+    CCI < -100: Oversold
+    """
+    typical_price = (df['high'] + df['low'] + df['close']) / 3
+    sma_tp = typical_price.rolling(period).mean()
+    mad = typical_price.rolling(period).apply(
+        lambda x: np.mean(np.abs(x - np.mean(x))), raw=True
+    )
+    cci = (typical_price - sma_tp) / (0.015 * mad + 1e-10)
+    return cci
+
+
+def calculate_wavetrend(df: pd.DataFrame, n1: int = 10, n2: int = 11) -> pd.DataFrame:
+    """
+    Calculate WaveTrend indicator (LazyBear's version).
+    
+    WaveTrend is an oscillator combining price action with EMA smoothing.
+    Used in Lorentzian Classification for oscillator confluence.
+    
+    Pine Script equivalent:
+        ap = hlc3
+        esa = EMA(ap, n1)
+        d = EMA(|ap - esa|, n1)
+        ci = (ap - esa) / (0.015 * d)
+        wt1 = EMA(ci, n2)
+        wt2 = SMA(wt1, 4)
+    
+    Args:
+        df: DataFrame with OHLCV data
+        n1: Channel length (default 10)
+        n2: Average length (default 11)
+    
+    Returns:
+        DataFrame with wt1, wt2, wt_cross_up, wt_cross_down columns added
+    """
+    df = df.copy()
+    
+    # HLC3 (typical price)
+    ap = (df['high'] + df['low'] + df['close']) / 3
+    
+    # Exponential smoothing
+    esa = ap.ewm(span=n1, adjust=False).mean()
+    d = (ap - esa).abs().ewm(span=n1, adjust=False).mean()
+    
+    # Channel Index
+    ci = (ap - esa) / (0.015 * d + 1e-10)
+    
+    # WaveTrend lines
+    df['wt1'] = ci.ewm(span=n2, adjust=False).mean()
+    df['wt2'] = df['wt1'].rolling(4).mean()
+    
+    # WaveTrend crossover detection (analogous to MACD cross)
+    df['wt_cross_up'] = (
+        (df['wt1'] > df['wt2']) & 
+        (df['wt1'].shift(1) <= df['wt2'].shift(1))
+    ).astype(int)
+    df['wt_cross_down'] = (
+        (df['wt1'] < df['wt2']) & 
+        (df['wt1'].shift(1) >= df['wt2'].shift(1))
+    ).astype(int)
+    
+    return df
+
+
 def calculate_features_grouped(df: pd.DataFrame) -> pd.DataFrame:
     """
     Calculate features with proper groupby to prevent data bleeding between symbols.
@@ -422,12 +570,12 @@ def calculate_features_grouped(df: pd.DataFrame) -> pd.DataFrame:
 
 def generate_labels(
     df: pd.DataFrame, 
-    tp_pct: float = 0.10, 
-    sl_pct: float = 0.05, 
-    max_bars: int = 15,
+    tp_pct: float = 0.03, 
+    sl_pct: float = 0.015, 
+    max_bars: int = 10,
     use_atr: bool = True,
-    atr_tp_mult: float = 4.0,
-    atr_sl_mult: float = 2.0,
+    atr_tp_mult: float = 3.0,
+    atr_sl_mult: float = 1.5,
     min_tp_pct: float = 0.01,
     max_tp_pct: float = 0.30
 ) -> pd.DataFrame:
@@ -479,6 +627,48 @@ def generate_labels(
         )
 
 
+def generate_mfe_mae_labels(df: pd.DataFrame, max_bars: int = 14) -> pd.DataFrame:
+    """Generate MFE/MAE regression targets using vectorized operations.
+
+    🚀 OPTIMIZED: ~100x faster than loop-based approach using rolling windows.
+    
+    Args:
+        df: input DataFrame with columns ['close','high','low','macd_cross_up']
+        max_bars: number of subsequent bars to inspect
+
+    Returns:
+        DataFrame copy with two new columns: ``mfe_pct`` and ``mae_pct``.
+        Also adds normalized versions: ``mfe_atr_ratio`` and ``mae_atr_ratio``.
+    """
+    df = df.copy()
+
+    # 🚀 VECTORIZED: Use rolling windows with shift for future lookback
+    # This is 100x faster than looping through crossover indices
+    
+    # Calculate future max high and min low over next max_bars periods
+    # shift(-max_bars) looks ahead, rolling(max_bars).max() gets max in window
+    future_high_max = df['high'].shift(-max_bars).rolling(window=max_bars, min_periods=1).max()
+    future_low_min = df['low'].shift(-max_bars).rolling(window=max_bars, min_periods=1).min()
+    
+    # Calculate MFE/MAE as percentage returns
+    df['mfe_pct'] = (future_high_max - df['close']) / df['close']
+    df['mae_pct'] = (future_low_min - df['close']) / df['close']
+    
+    # Keep only at crossover points (others set to NaN)
+    cross_mask = df['macd_cross_up'] == 1
+    df.loc[~cross_mask, 'mfe_pct'] = np.nan
+    df.loc[~cross_mask, 'mae_pct'] = np.nan
+    
+    # 🌟 TARGET ENGINEERING: Normalize by ATR for better generalization
+    # Predicting "MFE is 2.5x ATR" is more statistically robust than "MFE is 5%"
+    # because it accounts for coin-specific volatility
+    if 'atr_14_pct' in df.columns:
+        df['mfe_atr_ratio'] = df['mfe_pct'] / (df['atr_14_pct'] / 100 + 1e-9)
+        df['mae_atr_ratio'] = abs(df['mae_pct']) / (df['atr_14_pct'] / 100 + 1e-9)
+    
+    return df
+
+
 def _generate_labels_triple_barrier(
     df: pd.DataFrame, 
     tp_pct: float, 
@@ -505,7 +695,6 @@ def _generate_labels_triple_barrier(
     df['trade_result'] = ''
     df['tp_pct_used'] = np.nan  # Track actual TP% used
     df['sl_pct_used'] = np.nan  # Track actual SL% used
-    df['ignition'] = np.nan     # New Ignition Label for Multi-Task
     
     # Get crossover indices
     cross_up_mask = df['macd_cross_up'] == 1
@@ -534,9 +723,6 @@ def _generate_labels_triple_barrier(
         atr_pct = None
     
     # Process each crossover
-    atr_count = 0
-    fixed_count = 0
-    
     labels = []
     max_profits = []
     max_drawdowns = []
@@ -545,61 +731,55 @@ def _generate_labels_triple_barrier(
     results = []
     tp_pcts_used = []
     sl_pcts_used = []
-    ignition_labels = []
     
     for idx in crossover_indices:
         entry_price = close[idx]
         is_long = is_long_arr[idx]
         
-        # Calculate dynamic N for Ignition (40% of max_bars)
-        n_ignition = max(3, int(max_bars * 0.4))
-        if use_atr and atr_pct is not None:
-            if is_long:
-                tp_price = entry_price * (1 + atr_pct[idx] * atr_tp_mult)
-                sl_price = entry_price * (1 - atr_pct[idx] * atr_sl_mult)
-            else:
-                tp_price = entry_price * (1 - atr_pct[idx] * atr_tp_mult)
-                sl_price = entry_price * (1 + atr_pct[idx] * atr_sl_mult)
-        else:
-            if is_long:
-                tp_price = entry_price * (1 + tp_pct)
-                sl_price = entry_price * (1 - sl_pct)
-            else:
-                tp_price = entry_price * (1 - tp_pct)
-                sl_price = entry_price * (1 + sl_pct)
+        # Calculate dynamic TP/SL based on ATR
+        if use_atr and atr_pct is not None and not np.isnan(atr_pct[idx]):
+            # ATR-based dynamic targets
+            current_atr_pct = atr_pct[idx]
             
-        # Recalculate actual percentages for filtering
-        actual_tp_pct = abs(tp_price - entry_price) / entry_price
-        actual_sl_pct = abs(entry_price - sl_price) / entry_price
+            # Clamp ATR to reasonable range (0.5% - 10%)
+            current_atr_pct = np.clip(current_atr_pct, 0.005, 0.10)
+            
+            actual_tp_pct = current_atr_pct * atr_tp_mult
+            actual_sl_pct = current_atr_pct * atr_sl_mult
+            
+            # Clamp final TP/SL to reasonable bounds for swing trading
+            # Allowing TP to float between 3% and 20% based on actual coin volatility
+            actual_tp_pct = np.clip(actual_tp_pct, 0.03, 0.20)
+            actual_sl_pct = np.clip(actual_sl_pct, 0.015, 0.075)
+        else:
+            # Fixed targets
+            actual_tp_pct = tp_pct
+            actual_sl_pct = sl_pct
         
-        # Minimum R:R Filter (1.5)
-        risk_reward = actual_tp_pct / (actual_sl_pct + 1e-9)
-        is_efficient = risk_reward >= 1.1 # Reduced from 1.5 to keep enough data, but user said 1.5
+        # Calculate TP/SL levels
+        if is_long:
+            tp_price = entry_price * (1 + actual_tp_pct)
+            sl_price = entry_price * (1 - actual_sl_pct)
+        else:
+            tp_price = entry_price * (1 - actual_tp_pct)
+            sl_price = entry_price * (1 + actual_sl_pct)
         
-        if not is_efficient:
-            # Penalize low R:R as noise
-            labels.append(0.5)
-            max_profits.append(0)
-            max_drawdowns.append(0)
-            bars_to_tps.append(max_bars)
-            bars_to_sls.append(max_bars)
-            results.append('NOISE_LOW_RR')
-            tp_pcts_used.append(actual_tp_pct)
-            sl_pcts_used.append(actual_sl_pct)
-            ignition_labels.append(0.5)
-            continue
-
         # Get future window
         future_start = idx + 1
         future_end = min(idx + max_bars + 1, n)
         future_high = high[future_start:future_end]
         future_low = low[future_start:future_end]
+        future_close = close[future_end - 1] if future_end > future_start else entry_price
         
         if len(future_high) == 0:
-            labels.append(np.nan); max_profits.append(np.nan); max_drawdowns.append(np.nan)
-            bars_to_tps.append(np.nan); bars_to_sls.append(np.nan); results.append('')
-            tp_pcts_used.append(np.nan); sl_pcts_used.append(np.nan)
-            ignition_labels.append(np.nan)
+            labels.append(np.nan)
+            max_profits.append(np.nan)
+            max_drawdowns.append(np.nan)
+            bars_to_tps.append(np.nan)
+            bars_to_sls.append(np.nan)
+            results.append('')
+            tp_pcts_used.append(np.nan)
+            sl_pcts_used.append(np.nan)
             continue
         
         # Calculate max profit and drawdown
@@ -617,55 +797,68 @@ def _generate_labels_triple_barrier(
         max_profit = profits.max() if len(profits) > 0 else 0
         max_drawdown = drawdowns.max() if len(drawdowns) > 0 else 0
         
-        # Find first TP/SL hit
+        # Find first TP/SL hit (bar index, 1-based)
         bars_to_tp = (tp_hits[0] + 1) if len(tp_hits) > 0 else max_bars
         bars_to_sl = (sl_hits[0] + 1) if len(sl_hits) > 0 else max_bars
         hit_tp = len(tp_hits) > 0
         hit_sl = len(sl_hits) > 0
         
-        # Check for Ignition: Volume > 2*SMA20 and abs(Close-Open) > 1 * ATR (within n_ignition)
-        future_open = df['open'].values[future_start:min(idx + n_ignition + 1, n)]
-        future_close = close[future_start:min(idx + n_ignition + 1, n)]
-        future_vol = df['volume'].values[future_start:min(idx + n_ignition + 1, n)]
-        future_vsma20 = df['volume_sma_20'].values[future_start:min(idx + n_ignition + 1, n)]
-        future_atr = atr[future_start:min(idx + n_ignition + 1, n)] if atr_pct is not None else np.zeros(len(future_open))
-        
-        ignited = False
-        for j in range(len(future_open)):
-            if future_vol[j] > 2.0 * future_vsma20[j] and abs(future_close[j] - future_open[j]) > 1.0 * future_atr[j]:
-                ignited = True
-                break
-        ignition_labels.append(1.0 if ignited else 0.0)
-        
-        # Phase 11: Comprehensive Sigmoid Score (MAE Penalty for Wins)
-        # Score = Sigmoid(3.0 * (MFE / Target) - 2.5 * (MAE / Stop))
-        mfe_ratio = np.clip(max_profit / actual_tp_pct, 0, 1.2)
-        mae_ratio = np.clip(max_drawdown / actual_sl_pct, 0, 1.2)
-        
-        # Determine base result for logging
-        if hit_tp and (not hit_sl or bars_to_tp <= bars_to_sl):
+        # Determine label using Triple Barrier logic
+        if hit_tp and hit_sl:
+            # Both barriers hit - which was first?
+            if bars_to_tp <= bars_to_sl:
+                label = 1
+                result = 'TP_HIT'
+            else:
+                label = 0
+                result = 'SL_HIT'
+        elif hit_tp:
+            label = 1
             result = 'TP_HIT'
-            pnl_ratio = 1.1 # Slightly above 1 to reward hitting target
         elif hit_sl:
+            label = 0
             result = 'SL_HIT'
-            pnl_ratio = -1.0
         else:
-            result = 'TIMEOUT'
-            pnl_ratio = (max_profit / actual_tp_pct) - (max_drawdown / actual_sl_pct)
+            # Time barrier hit - use final PnL
+            final_pnl = (future_close - entry_price) / entry_price
+            if not is_long:
+                final_pnl = -final_pnl
+                
+            # REQUIRE AT LEAST 1% PROFIT FOR A TIMEOUT_WIN TO BE CONSIDERED A WIN (LABEL 1)
+            # Otherwise, a tiny 0.01% profit over 10 days is essentially noise/loss after fees.
+            if final_pnl > 0.01:
+                label = 1
+                result = 'TIMEOUT_WIN'
+            elif final_pnl > 0:
+                label = 0
+                result = 'TIMEOUT_FLAT' 
+            else:
+                label = 0
+                result = 'TIMEOUT_LOSS'
         
-        # Universal Sigmoid Label
-        raw_score = 3.0 * pnl_ratio - 2.5 * mae_ratio
-        label = 1 / (1 + np.exp(-raw_score))
-        label = np.clip(label, 0.05, 0.95)
+        # --- ROBUST SL LABELING (NEW) ---
+        # If the trade was a success (hit TP), the "optimal" SL would have been 
+        # the max drawdown experienced plus a small safety buffer.
+        if label == 1:
+            # Winner: Optimal SL = MAE + buffer
+            # We want to catch the "survival" SL
+            optimal_sl = max_drawdown * 1.5 + 0.005 # 1.5x MAE + 0.5% buffer
+        else:
+            # Loser: Don't learn to have a massive SL for a trade that fails anyway.
+            # Stick to the baseline ATR-based SL.
+            optimal_sl = actual_sl_pct
+            
+        # Final clamp for training stability
+        optimal_sl = np.clip(optimal_sl, 0.01, 0.20)
         
-        labels.append(float(label))
+        labels.append(label)
         max_profits.append(max_profit)
         max_drawdowns.append(max_drawdown)
         bars_to_tps.append(bars_to_tp)
         bars_to_sls.append(bars_to_sl)
         results.append(result)
         tp_pcts_used.append(actual_tp_pct)
-        sl_pcts_used.append(actual_sl_pct)
+        sl_pcts_used.append(optimal_sl) # USE ROBUST SL FOR TRAINING LABEL
     
     # Assign results back to DataFrame
     df.loc[crossover_indices, 'label'] = labels
@@ -676,12 +869,7 @@ def _generate_labels_triple_barrier(
     df.loc[crossover_indices, 'trade_result'] = results
     df.loc[crossover_indices, 'tp_pct_used'] = tp_pcts_used
     df.loc[crossover_indices, 'sl_pct_used'] = sl_pcts_used
-    df.loc[crossover_indices, 'ignition'] = ignition_labels
     
-    if len(crossover_indices) > 0:
-        symbol = df['symbol'].iloc[0] if 'symbol' in df.columns else "Unknown"
-        print(f"  [{symbol}] Labels: {atr_count} ATR-based, {fixed_count} Fixed-fallback")
-        
     return df
 
 
@@ -787,21 +975,20 @@ def _generate_labels_vectorized_old(df: pd.DataFrame, tp_pct: float, sl_pct: flo
         hit_tp = len(tp_hits) > 0
         hit_sl = len(sl_hits) > 0
         
-        # Determine label (STRICT: Only TP_HIT is 1)
+        # Determine label
         if hit_tp and (not hit_sl or bars_to_tp <= bars_to_sl):
             label = 1
             result = 'TP_HIT'
-        else:
-            # All other outcomes (SL_HIT, TIMEOUT_WIN, TIMEOUT_LOSS) are failures (0)
-            # This forces the model to predict high-confidence "Fast Winners"
+        elif hit_sl and (not hit_tp or bars_to_sl < bars_to_tp):
             label = 0
-            if hit_sl and (not hit_tp or bars_to_sl < bars_to_tp):
-                result = 'SL_HIT'
-            else:
-                final_pnl = (future_close - entry_price) / entry_price
-                if not is_long:
-                    final_pnl = -final_pnl
-                result = 'TIMEOUT_WIN' if final_pnl > 0 else 'TIMEOUT_LOSS'
+            result = 'SL_HIT'
+        else:
+            # Timeout - use final PnL
+            final_pnl = (future_close - entry_price) / entry_price
+            if not is_long:
+                final_pnl = -final_pnl
+            label = 1 if final_pnl > 0 else 0
+            result = 'TIMEOUT_WIN' if final_pnl > 0 else 'TIMEOUT_LOSS'
         
         labels.append(label)
         max_profits.append(max_profit)
@@ -847,11 +1034,15 @@ def get_feature_columns(df: pd.DataFrame) -> list:
 
 def process_symbol(symbol: str, timeframe: str = '1d', include_funding: bool = True) -> pd.DataFrame:
     """
-    Process a single symbol: load, resample to target timeframe, add features.
+    Process a single symbol: load, resample, add features.
     Features are calculated per-symbol to avoid data bleeding.
+    
+    Args:
+        symbol: Trading pair (e.g., 'BTC', 'ETH')
+        timeframe: Target timeframe ('1h', '4h', '8h', '12h', '1d')
+        include_funding: Whether to include funding rate data
     """
-    cfg = TIMEFRAME_CONFIG[timeframe]
-    print(f"Processing {symbol} ({timeframe})...")
+    print(f"Processing {symbol}...")
     
     # Load 1h data
     df_1h = load_ohlcv_1h(symbol)
@@ -859,46 +1050,57 @@ def process_symbol(symbol: str, timeframe: str = '1d', include_funding: bool = T
         return pd.DataFrame()
     
     # Resample to target timeframe
-    df_tf = resample_1h(df_1h, timeframe)
-    if len(df_tf) < cfg['min_bars']:
-        print(f"  ⚠️ Not enough data: {len(df_tf)} {cfg['unit_name']}")
+    df = resample_to_timeframe(df_1h, timeframe)
+    if len(df) < 100:
+        print(f"  ⚠️ Not enough data: {len(df)} bars")
         return pd.DataFrame()
     
     # Add symbol column FIRST (before features, for groupby compatibility)
-    df_tf['symbol'] = symbol
+    df['symbol'] = symbol
     
     # Add features (per-symbol, no data bleeding)
-    df_tf = calculate_features(df_tf)
+    df = calculate_features(df)
     
     # Add funding rate if available
     if include_funding:
         df_funding = load_funding(symbol)
         if not df_funding.empty:
-            # Resample funding to target timeframe
+            # Map timeframe to resample rule for funding
+            timeframe_map = {'1h': '1H', '4h': '4H', '8h': '8H', '12h': '12H', '1d': '1D'}
+            resample_rule = timeframe_map.get(timeframe, '1D')
+            
+            # Resample funding to match target timeframe
             df_funding = df_funding.set_index('timestamp')
-            df_funding_tf = df_funding['funding_rate'].resample(cfg['resample_rule']).mean().reset_index()
-            df_funding_tf.columns = ['timestamp', 'funding_rate_avg']
+            df_funding_resampled = df_funding['funding_rate'].resample(resample_rule).mean().reset_index()
+            df_funding_resampled.columns = ['timestamp', 'funding_rate_avg']
             
-            df_funding_tf['funding_rate_sum'] = df_funding['funding_rate'].resample(cfg['resample_rule']).sum().values
+            # Also get funding rate sum (accumulated)
+            df_funding_resampled['funding_rate_sum'] = df_funding['funding_rate'].resample(resample_rule).sum().values
             
-            df_tf = df_tf.merge(df_funding_tf, on='timestamp', how='left')
-            df_tf['funding_rate_avg'] = df_tf['funding_rate_avg'].fillna(0)
-            df_tf['funding_rate_sum'] = df_tf['funding_rate_sum'].fillna(0)
+            df = df.merge(df_funding_resampled, on='timestamp', how='left')
+            df['funding_rate_avg'] = df['funding_rate_avg'].fillna(0)
+            df['funding_rate_sum'] = df['funding_rate_sum'].fillna(0)
     
-    print(f"  ✓ {len(df_tf)} {cfg['unit_name']}, {len(df_tf.columns)} features")
-    return df_tf
+    print(f"  ✓ {len(df)} bars, {len(df.columns)} features")
+    return df
 
 
-def build_dataset(symbols: List[str] = None, min_days: int = 365, timeframe: str = '1d') -> pd.DataFrame:
-    """Build full dataset from all symbols with Macro Market Regime"""
-    cfg = TIMEFRAME_CONFIG[timeframe]
+def build_dataset(symbols: List[str] = None, timeframe: str = '1d', min_days: int = 365) -> pd.DataFrame:
+    """
+    Build full dataset from all symbols with Macro Market Regime.
+    
+    Args:
+        symbols: List of symbols to process (None = auto-detect all)
+        timeframe: Target timeframe ('1h', '4h', '8h', '12h', '1d')
+        min_days: Minimum bars required (adjusted based on timeframe)
+    """
     if symbols is None:
         # Get all symbols from ohlcv directory
         symbols = [f.stem.replace('_USDT', '') for f in OHLCV_DIR.glob('*.parquet')]
         # Filter out quarterly futures
         symbols = [s for s in symbols if not any(x in s for x in ['-26', '-25', '-24'])]
     
-    print(f"Processing {len(symbols)} symbols for timeframe={timeframe}...")
+    print(f"Processing {len(symbols)} symbols @ {timeframe} timeframe...")
     
     # ---------------------------------------------------------
     # NEW: 1. Process BTC context first for Market Regime
@@ -935,18 +1137,27 @@ def build_dataset(symbols: List[str] = None, min_days: int = 365, timeframe: str
                 if not btc_context.empty:
                     df = df.merge(btc_context, on='timestamp', how='left')
                     
-                    # Fill missing
+                    # Trám dữ liệu rỗng (nếu có) bằng ffill
                     fill_cols = ['btc_is_bull_regime', 'btc_trend_strength', 'btc_returns']
                     df[fill_cols] = df[fill_cols].ffill().fillna(0)
                     
-                    # 1. Relative Strength (RS)
+                    # 🌟 Relative Strength (RS): Coin này đang mạnh hay yếu hơn BTC?
                     df['rs_vs_btc'] = df['log_returns'] - df['btc_returns']
                     df['rs_vs_btc_sma7'] = df['rs_vs_btc'].rolling(7).mean()
                     
-                    # 2. BTC Correlation (Alpha Feature)
-                    # Measures if the coin is moving with the market or independently
-                    df['btc_corr'] = df['log_returns'].rolling(14).corr(df['btc_returns']).fillna(0)
-
+                    # 🌟 Alpha calculation (outperformance vs BTC)
+                    df['relative_performance'] = df['returns'] - df['btc_returns']
+                    df['alpha_7d'] = df['relative_performance'].rolling(7).mean()
+                    df['alpha_14d'] = df['relative_performance'].rolling(14).mean()
+                    
+                    # 🌟 MACD alignment with BTC trend
+                    # When both coin and BTC MACD cross up together = strong conviction
+                    if 'macd_cross_up' in df.columns:
+                        # This needs BTC MACD data - placeholder for now
+                        df['macd_btc_aligned'] = 0  # Will be 1 if both cross up same period
+                        # Use merged column df['btc_is_bull_regime'], not original btc_context
+                        df['trend_btc_align'] = (df['trend_state'] == 
+                                                 np.where(df['btc_is_bull_regime'] == 1, 1, -1)).astype(int)
                 # ---------------------------------------------------------
                 
                 all_data.append(df)
@@ -964,37 +1175,38 @@ def build_dataset(symbols: List[str] = None, min_days: int = 365, timeframe: str
     return df_all
 
 
-def apply_winsorization(df: pd.DataFrame, columns: List[str], limits=(0.01, 0.01)) -> pd.DataFrame:
-    """Clip outliers in specified columns using percentiles."""
-    print(f"Applying Winsorization to {len(columns)} features...")
-    for col in columns:
-        if col in df.columns:
-            lower = df[col].quantile(limits[0])
-            upper = df[col].quantile(1 - limits[1])
-            df[col] = df[col].clip(lower, upper)
-    return df
-
 def apply_global_feature_shift(df: pd.DataFrame) -> pd.DataFrame:
     """
     Applies a T-1 shift to all predictive features. 
     This guarantees zero look-ahead bias if trading at the crossover confirm (Open of T+1).
+    
+    ⚠️  CRITICAL: BTC regime features (btc_is_bull_regime, btc_trend_strength) are also shifted
+    because we trade at T+1 open, so we only know BTC state from T, not T+1.
     """
     if df.empty:
         return df
         
     df = df.copy()
+    
+    # Columns that should NOT be shifted (metadata and signal triggers)
     non_shift_cols = {
         'timestamp', 'symbol', 'open', 'high', 'low', 'close', 'volume',
         'macd_cross_up', 'macd_cross_down', 'macd_crossover',
+        'wt_cross_up', 'wt_cross_down',  # WaveTrend signals
+        'lorentz_buy_signal', 'lorentz_sell_signal',  # Lorentzian entry signals
         'date', 'fundingTime'
     }
+    
+    # All feature columns need shift (including BTC features!)
+    # We trade at T+1, so we only have info from T
     shift_cols = [c for c in df.columns if c not in non_shift_cols]
     
-    # We must group by symbol so we don't shift data across different coins
+    # Group by symbol to prevent shifting across different coins
     df[shift_cols] = df.groupby('symbol', group_keys=False)[shift_cols].shift(1)
     
-    # Drop rows of the first element that became NaN due to shifting
-    df = df.dropna(subset=shift_cols[:3]) 
+    # Drop rows where shift created NaN (first row per symbol)
+    df = df.dropna(subset=shift_cols[:min(3, len(shift_cols))]) 
+    
     return df
 
 def save_processed_data(df: pd.DataFrame, filename: str = 'features_1d.parquet'):
@@ -1011,43 +1223,51 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Build ML Dataset from OHLCV data')
     parser.add_argument('--all', action='store_true', help='Process all symbols (not just test set)')
     parser.add_argument('--min-days', type=int, default=365, help='Minimum days of data required')
-    parser.add_argument('--timeframe', type=str, default='1d', 
-                        choices=['4h', '8h', '12h', '1d'],
-                        help='Target timeframe (4h, 8h, 12h, 1d)')
     parser.add_argument('--output', type=str, default=None, help='Output filename')
+    parser.add_argument('--mfe-mae', action='store_true', help='Use MFE/MAE regression labels instead of binary labels')
+    parser.add_argument('--horizon', type=int, default=14, help='Lookahead bars for MFE/MAE (only used with --mfe-mae)')
+    parser.add_argument('--timeframe', type=str, default='1d', choices=['1h', '4h', '8h', '12h', '1d'], help='Target timeframe for resampling')
+    parser.add_argument('--exchange', type=str, default='bitget', choices=['bitget', 'bybit', 'binance', 'kraken', 'mexc', 'okx'], help='Exchange data source')
     
     args = parser.parse_args()
-    tf = args.timeframe
+    
+    # Set data directory based on exchange
+    if args.exchange != 'bitget':
+        exchange_data_dir = Path(__file__).parent.parent / f'{args.exchange}-data'
+        if exchange_data_dir.exists():
+            set_data_directory(exchange_data_dir)
+        else:
+            print(f"⚠️  {args.exchange}-data directory not found, using default bitget-data")
     
     # Build dataset
     print("="*60)
-    print(f"Building ML Dataset (timeframe={tf})")
+    print("Building ML Dataset")
     print("="*60)
     
     if args.all:
         # Process ALL symbols
         print("Processing ALL symbols in data/ohlcv folder...")
         symbols = None  # build_dataset will auto-detect
-        output_file = args.output or f'features_{tf}_full.parquet'
+        output_file = args.output or f'features_{args.timeframe}_full.parquet'
     else:
         # Process top coins for testing
         symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 
                    'ADAUSDT', 'DOGEUSDT', 'DOTUSDT', 'LINKUSDT', 'AVAXUSDT']
         print(f"Processing {len(symbols)} test symbols...")
-        output_file = args.output or f'features_{tf}_test.parquet'
+        output_file = args.output or f'features_{args.timeframe}_test.parquet'
     
-    df = build_dataset(symbols, min_days=args.min_days, timeframe=tf)
+    df = build_dataset(symbols, timeframe=args.timeframe, min_days=args.min_days)
     
     if not df.empty:
         print(f"\nApplying T-1 Global Shift to features to prevent Look-ahead bias...")
         df = apply_global_feature_shift(df)
         
-        # Phase 5: Winsorization
-        all_features = [c for c in df.columns if c not in ['timestamp', 'symbol', 'open', 'high', 'low', 'close', 'volume', 'label', 'trade_result']]
-        df = apply_winsorization(df, all_features)
-        
-        print("\nGenerating labels (Soft Labels enabled)...")
-        df = generate_labels(df)
+        if args.mfe_mae:
+            print(f"\nGenerating MFE/MAE regression labels (horizon={args.horizon} bars @ {args.timeframe})...")
+            df = generate_mfe_mae_labels(df, max_bars=args.horizon)
+        else:
+            print("\nGenerating binary labels...")
+            df = generate_labels(df)
         
         # Save
         save_processed_data(df, output_file)
@@ -1063,9 +1283,17 @@ if __name__ == '__main__':
         cross_df = df[df['macd_cross_up'] == 1]
         print(f"  Bullish crossovers: {len(cross_df)}")
         if len(cross_df) > 0:
-            print(f"  Win rate: {cross_df['label'].mean():.2%}")
+            if 'label' in df.columns:
+                print(f"  Win rate: {cross_df['label'].mean():.2%}")
+            elif 'mfe_pct' in df.columns and 'mae_pct' in df.columns:
+                # For MFE/MAE regression
+                valid_mfe = cross_df.dropna(subset=['mfe_pct', 'mae_pct'])
+                print(f"  Valid MFE/MAE entries: {len(valid_mfe)}")
+                if len(valid_mfe) > 0:
+                    print(f"  Avg MFE: {valid_mfe['mfe_pct'].mean():.3f} ({valid_mfe['mfe_pct'].mean()*100:.1f}%)")
+                    print(f"  Avg MAE: {valid_mfe['mae_pct'].mean():.3f} ({valid_mfe['mae_pct'].mean()*100:.1f}%)")
         
         cross_df = df[df['macd_cross_down'] == 1]
         print(f"  Bearish crossovers: {len(cross_df)}")
-        if len(cross_df) > 0:
+        if len(cross_df) > 0 and 'label' in df.columns:
             print(f"  Win rate: {cross_df['label'].mean():.2%}")

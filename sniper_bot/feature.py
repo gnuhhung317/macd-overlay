@@ -145,6 +145,11 @@ def calculate_features(df, df_1d=None, btc_df=None, **kwargs):
             d1d_feat['rsi_14_1d'] = d1d_feat['rsi_14']
             d1d_feat = d1d_feat[['timestamp', 'ema_200_1d_dist', 'rsi_14_1d']].sort_values('timestamp')
             
+            # CRITICAL: Shift Daily features by 1 bar (1 day) to eliminate look-ahead bias.
+            # This ensures that for all hours within Day D, we use features defined at the end of Day D-1.
+            d1d_feat[['ema_200_1d_dist', 'rsi_14_1d']] = d1d_feat[['ema_200_1d_dist', 'rsi_14_1d']].shift(1)
+            d1d_feat = d1d_feat.dropna(subset=['ema_200_1d_dist'])
+            
             df = pd.merge_asof(
                 df.sort_values('timestamp'),
                 d1d_feat,
@@ -166,7 +171,18 @@ def calculate_features(df, df_1d=None, btc_df=None, **kwargs):
         if 'ema_50' not in btc_df.columns: btc_df['ema_50'] = btc_df['close'].ewm(span=50).mean()
         if 'sma_200' not in btc_df.columns: btc_df['sma_200'] = btc_df['close'].rolling(200).mean()
         if 'adx' not in btc_df.columns:
-             btc_df['adx'] = calculate_rsi(btc_df['close'], 14) 
+            btc_df['adx'] = calculate_rsi(btc_df['close'], 14)
+            #  # Match ADX calculation logic from bitget_sync_and_rebuild.py for parity
+            #  tr_btc = pd.concat([btc_df['high'] - btc_df['low'], 
+            #                      abs(btc_df['high'] - btc_df['close'].shift(1)), 
+            #                      abs(btc_df['low'] - btc_df['close'].shift(1))], axis=1).max(axis=1)
+            #  pdm_btc = btc_df['high'].diff(); mdm_btc = -btc_df['low'].diff()
+            #  pdm_btc = pdm_btc.where((pdm_btc > mdm_btc) & (pdm_btc > 0), 0)
+            #  mdm_btc = mdm_btc.where((mdm_btc > pdm_btc) & (mdm_btc > 0), 0)
+            #  atr_s_btc = tr_btc.rolling(14).mean()
+            #  pdi_btc = 100 * (pdm_btc.rolling(14).mean() / atr_s_btc.replace(0, np.nan))
+            #  mdi_btc = 100 * (mdm_btc.rolling(14).mean() / atr_s_btc.replace(0, np.nan))
+            #  btc_df['adx'] = (100 * abs(pdi_btc - mdi_btc) / (pdi_btc + mdi_btc).replace(0, np.nan)).rolling(14).mean()
         
         btc_cols = ['close', 'ema_200', 'ema_20', 'ema_50', 'sma_200', 'adx', 'log_returns']
         btc_data = btc_df[['timestamp'] + [c for c in btc_cols if c in btc_df.columns]].copy()

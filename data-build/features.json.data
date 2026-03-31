@@ -1,0 +1,930 @@
+[
+    {
+        "name": "volatility_expansion_intensity",
+        "formula": "ZScore(Vol_Ratio_Alpha, 20) * Volume_ZScore",
+        "python_code": "((df['vol_ratio_alpha'] - df['vol_ratio_alpha'].rolling(20).mean()) / (df['vol_ratio_alpha'].rolling(20).std() + 1e-9)) * df['volume_zscore']",
+        "intuition": "Identifies aggressive volatility breakouts by measuring the momentum of short-term vs. long-term volatility (Vol_Ratio_Alpha) normalized as a Z-score and scaled by volume intensity. High values indicate a 'volatility shock' where market participants are aggressively re-pricing an asset.",
+        "id": "eca7f915-91fe-4ced-8362-633d08e61bc7",
+        "createdAt": 1774515388613
+    },
+    {
+        "name": "mean_reversion_tension_score",
+        "formula": "Dist_to_EMA_50_Pct * Volume_Ratio * (Upper_Shadow_Pct - Lower_Shadow_Pct)",
+        "python_code": "df['dist_to_ema_50_pct'] * df['volume_ratio'] * (df['upper_shadow_pct'] - df['lower_shadow_pct'])",
+        "intuition": "Captures the tension between price displacement from the mean (EMA 50) and counter-directional shadow pressure. A high positive value suggests an overextended rally met with selling pressure (long upper shadows), while a high positive value during a downtrend (negative dist * negative shadow diff) suggests an overextended sell-off met with absorption (long lower shadows).",
+        "id": "ab1d443e-1837-47ba-9a79-1aac708b0053",
+        "createdAt": 1774515388613
+    },
+    {
+        "name": "efficiency_thrust_index",
+        "formula": "(RollingSum(Returns, 10) / RollingSum(ATR(14), 10)) * Volume_Ratio",
+        "python_code": "(df['returns'].rolling(10).sum() / (df['atr_14'].rolling(10).sum() + 1e-9)) * df['volume_ratio']",
+        "intuition": "Measures the directional efficiency of price movement relative to the total volatility over a 10-bar window, amplified by relative volume. A high absolute value suggests a high-conviction trend with low 'churn', while a low value suggests price is struggling to make headway despite volatility.",
+        "id": "90a83592-6559-4853-b574-2fd6b55c14c7",
+        "createdAt": 1774515388613
+    },
+    {
+        "name": "volatility_momentum_tension_flux",
+        "formula": "((Close - EMA(21)) / (ATR(14) + 1e-9)) * (ATR(7) / ATR(21)) * (Volume / Volume_SMA(14))",
+        "python_code": "df['volatility_momentum_tension_flux'] = ((df['close'] - df['ema_21']) / (df['atr_14'] + 1e-9)) * (df['atr_7'] / df['atr_21']) * (df['volume'] / df['volume_sma_14'])",
+        "intuition": "This feature captures the interaction between price extension from the mean (standardized by volatility), the acceleration of short-term volatility relative to the long-term trend (volatility flux), and volume conviction. It identifies explosive trend accelerations when positive and overextended exhaustion points when the value reaches historical extremes.",
+        "id": "36b30b39-5215-4708-b3e0-17e3bd8bb126",
+        "createdAt": 1774515281220
+    },
+    {
+        "name": "volume_weighted_fractal_efficiency",
+        "formula": "((Close - Close[10]).abs() / (RollingMax(High, 10) - RollingMin(Low, 10) + 1e-9)) * (Volume / RollingMean(Volume, 20))",
+        "python_code": "df['volume_weighted_fractal_efficiency'] = ((df['close'] - df['close'].shift(10)).abs() / (df['high'].rolling(10).max() - df['low'].rolling(10).min() + 1e-9)) * (df['volume'] / df['volume'].rolling(20).mean())",
+        "intuition": "This feature measures the efficiency of price movement relative to the total range explored over a 10-period window, weighted by conviction (relative volume). A high value indicates a clean, non-random directional move backed by high volume, while a low value suggests choppy consolidation or a low-conviction fakeout.",
+        "id": "42d457cb-b4d0-42fd-bffa-be5920946571",
+        "createdAt": 1774515281220
+    },
+    {
+        "name": "bb_width_zscore_20",
+        "formula": "(bb_width - mean(bb_width, 20)) / std(bb_width, 20)",
+        "python_code": "(df['bb_width'] - df['bb_width'].rolling(20).mean()) / df['bb_width'].rolling(20).std()",
+        "intuition": "Standardizes the Bollinger Band width to identify extreme volatility expansion or contraction relative to history.",
+        "id": "f391f66b-6952-4bd8-b087-03fbc6895ce9",
+        "createdAt": 1774515185861
+    },
+    {
+        "name": "body_position",
+        "formula": "(close - low) / (high - low + 1e-9)",
+        "python_code": "(df['close'] - df['low']) / (df['high'] - df['low'] + 1e-9)",
+        "intuition": "Indicates where the close sits within the day's range; values near 1 indicate strong bulls, near 0 indicate strong bears.",
+        "id": "f70c9a22-30d9-49fd-9ebd-df8b81330035",
+        "createdAt": 1774515185860
+    },
+    {
+        "name": "shadow_funding_asymmetry_index",
+        "formula": "ZScore_120( ((UpperShadowPct - LowerShadowPct) / (BodySizePct + 0.001)) * Sign(FundingRate) * (Abs(FundingRate)^1.2) * (Volume / SMA(Volume, 20)) )",
+        "python_code": "(((df['upper_shadow_pct'] - df['lower_shadow_pct']) / (df['body_size_pct'] + 0.001)) * np.sign(df['fundingRate']) * (np.abs(df['fundingRate'])**1.2) * (df['volume'] / (df['volume'].rolling(20).mean() + 1e-9))).pipe(lambda x: (x - x.rolling(120).mean()) / (x.rolling(120).std() + 1e-9))",
+        "intuition": "Measures the alignment between candle 'wicks' (liquidity grabs) and funding-driven positioning. If funding is positive (longs paying) and price is leaving long upper shadows (rejections) on high volume, this index spikes, signaling that long-side liquidity is being absorbed by sellers (exhaustion). It effectively identifies 'trap' setups where the side paying the funding is failing to move the price in their direction.",
+        "id": "8e1d5d17-9b92-4068-b404-c33de173d525",
+        "createdAt": 1774514919591
+    },
+    {
+        "name": "funding_velocity_volatility_spread_zscore",
+        "formula": "ZScore_168( (Delta(FundingRate, 1) / RollingStd(FundingRate, 24)) * (ATR(14) / Close) * (Volume / SMA(Volume, 24)) )",
+        "python_code": "((df['fundingRate'].diff() / (df['fundingRate'].rolling(24).std() + 1e-9)) * (df['atr_pct_14']) * (df['volume'] / (df['volume'].rolling(24).mean() + 1e-9))).pipe(lambda x: (x - x.rolling(168).mean()) / (x.rolling(168).std() + 1e-9))",
+        "intuition": "Captures the interaction between the acceleration of funding costs and market volatility. A high Z-score indicates that funding is shifting rapidly exactly when the market is both volatile and active, suggesting a reflexive regime where leveraged participants are being forced to adjust positions rapidly, leading to high-momentum breakouts or sharp reversals.",
+        "id": "f24ba2bf-1a8b-411d-955e-43ff1e102c26",
+        "createdAt": 1774514919591
+    },
+    {
+        "name": "adverse_funding_volume_cascade_z_score",
+        "formula": "ZScore_w(EMA_k(Volume_t * (abs(Funding_t) / MAD_w(Funding)) * max(0, -sign(Funding_t) * Return_t)))",
+        "python_code": "returns = df['close'].pct_change(); mad_funding = df['funding'].rolling(48).apply(lambda x: np.median(np.abs(x - np.median(x)))); metric = (df['volume'] * (np.abs(df['funding']) / (mad_funding + 1e-9)) * np.maximum(0, -np.sign(df['funding']) * returns)).ewm(span=24).mean(); (metric - metric.rolling(48).mean()) / metric.rolling(48).std()",
+        "intuition": "Detects microstructural moments where price moves against heavily leveraged positions on high relative volume.",
+        "id": "dbf0a910-50e9-4534-847a-2f36f0296e29",
+        "createdAt": 1774514879733
+    },
+    {
+        "name": "cross_modal_funding_squeeze_momentum",
+        "formula": "ZScore(RollingMean(Volume * Sign(FundingRate) * ((Close - Low) - (High - Close)) / (High - Low + 1e-8), 24) * exp(abs(FundingRate) / (RollingStdDev(FundingRate, 168) + 1e-8)), 168)",
+        "python_code": "clv_vol = (df['volume'] * np.sign(df['funding']) * ((df['close'] - df['low']) - (df['high'] - df['close'])) / (df['high'] - df['low'] + 1e-8)).rolling(24).mean(); metric = clv_vol * np.exp(np.abs(df['funding']) / (df['funding'].rolling(168).std() + 1e-8)); (metric - metric.rolling(168).mean()) / metric.rolling(168).std()",
+        "intuition": "Combines intra-bar buying pressure with funding bias to flag regimes of extreme trapped leverage.",
+        "id": "ed59a5b5-6745-41c4-91ea-1866a0da1f1c",
+        "createdAt": 1774514879733
+    },
+    {
+        "name": "trapped_liquidity_funding_oscillator",
+        "formula": "Z_Score((Close[t] - Open[t]) * Volume[t] * Sign(FundingRate[t-1]) * (abs(FundingRate[t-1]) ^ 1.5), window=144)",
+        "python_code": "metric = (df['close'] - df['open']) * df['volume'] * np.sign(df['funding'].shift(1)) * (np.abs(df['funding'].shift(1))**1.5); (metric - metric.rolling(144).mean()) / metric.rolling(144).std()",
+        "intuition": "Pinpoints regimes where the dominant leveraged side is forced to cover by observing volume imbalances opposing extreme funding.",
+        "id": "2b2ff829-1d62-4f86-b299-7f26441fc695",
+        "createdAt": 1774514879733
+    },
+    {
+        "name": "funding_convexity_volume_multiplier_z_score",
+        "formula": "ZScore_w( (Funding_t - SMA_w(Funding))^3 * log(Volume_t / SMA_w(Volume)) / RealizedVolatility_w )",
+        "python_code": "metric = (df['funding'] - df['funding'].rolling(48).mean())**3 * np.log(df['volume'] / df['volume'].rolling(48).mean()) / df['close'].rolling(48).std(); (metric - metric.rolling(48).mean()) / metric.rolling(48).std()",
+        "intuition": "Captures non-linear extremes in market positioning while isolating deeply crowded trades relative to recent realized volatility.",
+        "id": "7b53ca80-2096-446d-8984-da7036a0fdd8",
+        "createdAt": 1774514879733
+    },
+    {
+        "name": "synthetic_liquidation_delta_z_score",
+        "formula": "ZScore_W(((Close-Open)/(High-Low+1e-8))*ln(Volume+1)*sgn(FundingRate)*exp(abs(FundingRate)))",
+        "python_code": "metric = ((df['close'] - df['open']) / (df['high'] - df['low'] + 1e-8)) * np.log(df['volume'] + 1) * np.sign(df['funding']) * np.exp(np.abs(df['funding'])); (metric - metric.rolling(48).mean()) / metric.rolling(48).std()",
+        "intuition": "Identifies asymmetric leverage vulnerable to unwinding by weighting directional bar extensions by volume and funding magnitude.",
+        "id": "96f455fe-bccb-4536-8161-ba64ddd4d11e",
+        "createdAt": 1774514879733
+    },
+    {
+        "name": "funding_duration_volatility_decay_z_score",
+        "formula": "ZScore(RollingSum(FundingRate * Volume * (High-Low)/Close, 48) * exp(-RollingStdDev(Close, 48)))",
+        "python_code": "metric = (df['funding'] * df['volume'] * (df['high'] - df['low']) / df['close']).rolling(48).sum() * np.exp(-df['close'].rolling(48).std()); (metric - metric.rolling(48).mean()) / metric.rolling(48).std()",
+        "intuition": "Measures cumulative capital drain on leveraged positions weighted by volume, applying exponential decay for high volatility periods.",
+        "id": "a75046e4-5fe6-4200-a7ee-3ffd3d0545ae",
+        "createdAt": 1774514879733
+    },
+    {
+        "name": "non_linear_funding_volume_capitulation_z_score",
+        "formula": "Let C_t = sum_{i=0 to 7} (sign(FR_{t-i}) * (FR_{t-i}^2) * (V/SMA(V,20))_{t-i} * TR_{t-i}). Output = (C_t - SMA(C, 100)) / StdDev(C, 100)",
+        "python_code": "v_rel = df['volume'] / df['volume'].rolling(20).mean(); tr = np.maximum(df['high'] - df['low'], np.maximum(np.abs(df['high'] - df['close'].shift(1)), np.abs(df['low'] - df['close'].shift(1)))); raw = (np.sign(df['funding']) * (df['funding']**2) * v_rel * tr).rolling(8).sum(); (raw - raw.rolling(100).mean()) / raw.rolling(100).std()",
+        "intuition": "Uses squared funding rates to identify acute liquidation cascades where massive positional unwinding occurs.",
+        "id": "94af95e8-a430-48aa-a8ee-0f4d61c1ac80",
+        "createdAt": 1774514879733
+    },
+    {
+        "name": "funding_rate_kinetic_energy_z_score",
+        "formula": "(Volume_t * (FundingRate_t - FundingRate_{t-1})^2 - Mean(Volume * Delta_Funding^2, N)) / StdDev(Volume * Delta_Funding^2, N)",
+        "python_code": "metric = df['volume'] * (df['funding'].diff()**2); (metric - metric.rolling(24).mean()) / metric.rolling(24).std()",
+        "intuition": "Uses physics analogy where volume is mass and funding rate change is velocity to measure the kinetic energy of positioning buildup.",
+        "id": "5fc1ba8d-86df-42e6-aa01-b32974eb8a21",
+        "createdAt": 1774514879733
+    },
+    {
+        "name": "funding_arbitrage_volatility_skew_z_score",
+        "formula": "ZScore_48h((FundingRate - EMA_48h(FundingRate)) * (Volume / EMA_48h(Volume)) * Skewness_48h(Close) * exp((High - Low) / Close))",
+        "python_code": "metric = (df['funding'] - df['funding'].ewm(span=48).mean()) * (df['volume'] / df['volume'].ewm(span=48).mean()) * df['close'].rolling(48).skew() * np.exp((df['high'] - df['low']) / df['close']); (metric - metric.rolling(48).mean()) / metric.rolling(48).std()",
+        "intuition": "Identifies when funding arbitrageurs are exhausted by combining funding anomalies with price skew and volatility spikes.",
+        "id": "3cb508b5-2509-4d0f-bd0b-daa019633833",
+        "createdAt": 1774514879733
+    },
+    {
+        "name": "directional_funding_distress_cubic_z_score",
+        "formula": "ZScore_50(EMA_21(Volume * ((Close - Close_lag1) * FundingRate)^3) / (ATR_21 * EMA_21(Volume)))",
+        "python_code": "metric = (df['volume'] * ((df['close'].diff() * df['funding'])**3)).ewm(span=21).mean() / (df['atr_21'] * df['volume'].ewm(span=21).mean()); (metric - metric.rolling(50).mean()) / metric.rolling(50).std()",
+        "intuition": "Cubic transformation of the product of price returns and funding isolates non-linear positioning extremes against volume-weighted volatility.",
+        "id": "85680458-0fe6-44bc-9c98-f1780506c41a",
+        "createdAt": 1774514879733
+    },
+    {
+        "name": "funding_induced_liquidation_gamma",
+        "formula": "((max(0, High - max(Open, Close)) - max(0, min(Open, Close) - Low)) / ATR(14)) * ZScore(Sum(FundingRate, 24), 168) * log(1 + (Volume / SMA(Volume, 24)))",
+        "python_code": "((df['high'] - df[['open', 'close']].max(axis=1)).clip(lower=0) - (df[['open', 'close']].min(axis=1) - df['low']).clip(lower=0)) / df['atr_14'] * ((df['funding'].rolling(24).sum() - df['funding'].rolling(24).sum().rolling(168).mean()) / df['funding'].rolling(24).sum().rolling(168).std()) * np.log(1 + (df['volume'] / df['volume'].rolling(24).mean()))",
+        "intuition": "Quantifies directional liquidation wicks normalized by volatility and amplified by funding and volume shocks to identify exhausted trapped liquidity.",
+        "id": "c5fbd8ae-2eb8-4633-8d7d-3edac8040b7e",
+        "createdAt": 1774514879733
+    },
+    {
+        "name": "tail_regime_stress_score",
+        "formula": "skewness_20d * yang_zhang_vol_zscore * (hurst_deviation + 0.5)",
+        "python_code": "df['skewness_20d'] * df['yang_zhang_vol_zscore'] * (df['hurst_deviation'] + 0.5)",
+        "intuition": "This feature captures the interaction between tail risk (skewness), volatility regime (Yang-Zhang), and trend persistence (Hurst). A large negative value indicates a high-volatility, left-tail event (crash) occurring within a persistent trending regime, signaling a 'structural break' or liquidations. A value near zero suggests that any skewness is occurring in a low-volatility or mean-reverting environment, likely representing noise.",
+        "id": "6fdd1269-27f8-4528-8d47-8635acb4eec2",
+        "createdAt": 1774514691980
+    },
+    {
+        "name": "structural_vfi_efficiency",
+        "formula": "vfi_20 * (2.0 - fdi_20)",
+        "python_code": "df['vfi_20'] * (2.0 - df['fdi_20'])",
+        "intuition": "This feature filters money flow intensity (VFI) by the structural quality of the price action (FDI). Money flow is more predictive of trend continuation when the fractal dimension is low (near 1.0), indicating a linear, efficient path. High VFI accompanied by high FDI (near 2.0) indicates 'noisy' capital flow that is more likely to be absorbed in a range rather than driving a breakout.",
+        "id": "c7ea78e5-9dc8-4912-8734-faac66a730ad",
+        "createdAt": 1774514691980
+    },
+    {
+        "name": "fve_20",
+        "formula": "sum(vol * volatility_factor) / sum(vol)",
+        "python_code": "hl_avg = (df['high'] + df['low']) / 2.0; tp = (df['high'] + df['low'] + df['close']) / 3.0; fve_mf = np.where(tp > hl_avg, df['volume'], -df['volume']); df['fve_20'] = fve_mf.rolling(20).sum() / df['volume'].rolling(20).sum()",
+        "intuition": "Finite Volume Elements measures the internal pressure of a candle by checking if the close/typical price is above the candle midpoint, indicating accumulation.",
+        "id": "a98fa832-2921-4a7f-9b20-79fd08bebdcc",
+        "createdAt": 1774514637842
+    },
+    {
+        "name": "vfi_20",
+        "formula": "rolling_sum(mf, 20) / sma(volume, 20)",
+        "python_code": "typ = (df['high'] + df['low'] + df['close']) / 3.0; mf = np.where(typ > typ.shift(1), df['volume'], np.where(typ < typ.shift(1), -df['volume'], 0)); df['vfi_20'] = mf.rolling(20).sum() / df['volume'].rolling(20).mean()",
+        "intuition": "The Volume Flow Indicator measures money flow by comparing typical prices; it acts as a lead indicator for price trend direction based on volume conviction.",
+        "id": "a7f988a5-7a51-40d8-8ccb-74a1fe4d6e67",
+        "createdAt": 1774514637842
+    },
+    {
+        "name": "fdi_20",
+        "formula": "1.0 + (log(L) + log(2)) / log(2 * (n-1)) where L is path length",
+        "python_code": "diffs = (df['close'] - df['close'].shift(1)).abs(); path_l = diffs.rolling(20).sum(); range_l = df['close'].rolling(20).max() - df['close'].rolling(20).min(); df['fdi_20'] = 1.0 + (np.log(path_l / (range_l + 1e-9) + 1e-9)) / np.log(20)",
+        "intuition": "Fractal Dimension Index identifies whether the price is in a trending state (low FDI) or a congested/choppy state (high FDI).",
+        "id": "de7e2fa8-9648-4d69-8ef6-f45cc72e0a86",
+        "createdAt": 1774514637842
+    },
+    {
+        "name": "hurst_deviation",
+        "formula": "(log(RS_range) / log(n)) - 0.5",
+        "python_code": "log_ret = np.log(df['close'] / df['close'].shift(1)); rs = (log_ret.rolling(20).max() - log_ret.rolling(20).min()) / log_ret.rolling(20).std(); df['hurst_deviation'] = (np.log(rs + 1e-9) / np.log(20)) - 0.5",
+        "intuition": "Measures the tendency of a time series to trend (H > 0.5) or mean-revert (H < 0.5). Deviation from 0.5 captures the strength of the trend persistence.",
+        "id": "d5e572c5-056d-422c-9f5d-cffa9a7d1b51",
+        "createdAt": 1774514637842
+    },
+    {
+        "name": "skewness_20d",
+        "formula": "rolling_skew(returns, 20)",
+        "python_code": "df['skewness_20d'] = df['close'].pct_change().rolling(20).skew()",
+        "intuition": "Identifies asymmetry in the return distribution; negative skewness suggests a higher probability of large downward outliers (tail risk).",
+        "id": "317c87b0-25ca-4c3e-b070-7c08b0ae6d0a",
+        "createdAt": 1774514637842
+    },
+    {
+        "name": "yang_zhang_vol_zscore",
+        "formula": "zscore(sqrt(sigma_open^2 + k*sigma_close^2 + (1-k)*sigma_rs^2))",
+        "python_code": "log_ho = np.log(df['high'] / df['open']); log_lo = np.log(df['low'] / df['open']); log_co = np.log(df['close'] / df['open']); log_oc_prev = np.log(df['open'] / df['close'].shift(1)); s_o = log_oc_prev.rolling(20).var(); s_c = log_co.rolling(20).var(); s_rs = (log_ho * (log_ho - log_co) + log_lo * (log_lo - log_co)).rolling(20).mean(); k = 0.34 / (1.34 + (21) / 19); vol = np.sqrt(s_o + k * s_c + (1 - k) * s_rs); df['yang_zhang_vol_zscore'] = (vol - vol.rolling(20).mean()) / vol.rolling(20).std()",
+        "intuition": "A sophisticated volatility estimator that accounts for both overnight jumps and intraday range, normalized to identify current volatility regimes.",
+        "id": "381e1b97-4453-4ac6-afa5-f744a1e4605a",
+        "createdAt": 1774514637842
+    },
+    {
+        "name": "amihud_zscore",
+        "formula": "zscore(mean(abs(return) / (volume * price), 20))",
+        "python_code": "illiquidity = df['close'].pct_change().abs() / (df['volume'] * df['close'] + 1e-9); df['amihud_zscore'] = (illiquidity - illiquidity.rolling(20).mean()) / (illiquidity.rolling(20).std() + 1e-9)",
+        "intuition": "Measures price impact per unit of dollar volume; high values indicate high illiquidity where small trades cause large price moves.",
+        "id": "190fff8a-a2a0-4df5-ac73-47cd8802835a",
+        "createdAt": 1774514637842
+    },
+    {
+        "name": "corwin_schultz_pct",
+        "formula": "2 * (exp(alpha) - 1) / (1 + exp(alpha)) where alpha uses 2-day high-low spreads",
+        "python_code": "beta = (np.log(df['high'] / df['low'])**2).rolling(2).sum(); gamma = np.log(df['high'].rolling(2).max() / df['low'].rolling(2).min())**2; alpha = (np.sqrt(2 * beta) - np.sqrt(beta)) / (3 - 2 * np.sqrt(2)) - np.sqrt(gamma / (3 - 2 * np.sqrt(2))); df['corwin_schultz_pct'] = 2 * (np.exp(alpha) - 1) / (1 + np.exp(alpha))",
+        "intuition": "Estimates the bid-ask spread from high and low prices over adjacent periods, providing a measure of liquidity and transaction costs without tick data.",
+        "id": "e67729b9-c663-459c-9c99-cf412083d518",
+        "createdAt": 1774514637842
+    },
+    {
+        "name": "vpin_normalized",
+        "formula": "rolling_sum(abs(v_buy - v_sell), 20) / rolling_sum(volume, 20)",
+        "python_code": "v_buy = df['volume'] * (df['close'] - df['low']) / (df['high'] - df['low'] + 1e-9); v_sell = df['volume'] * (df['high'] - df['close']) / (df['high'] - df['low'] + 1e-9); df['vpin_normalized'] = (v_buy - v_sell).abs().rolling(20).sum() / df['volume'].rolling(20).sum()",
+        "intuition": "A proxy for Volume-Synchronized Probability of Informed Trading; measures the imbalance between buy-pressure and sell-pressure volume to detect toxic order flow.",
+        "id": "05916e8f-a715-40b9-866c-6d041ab56ec3",
+        "createdAt": 1774514637842
+    },
+    {
+        "name": "returns_zscore_20d",
+        "formula": "(returns_1d - rolling_mean(returns_1d, 20)) / rolling_std(returns_1d, 20)",
+        "python_code": "returns = df['close'].pct_change(); df['returns_zscore_20d'] = (returns - returns.rolling(20).mean()) / returns.rolling(20).std()",
+        "intuition": "Standardizes recent returns to identify extreme price moves relative to recent historical distribution, highlighting momentum or mean-reversion candidates.",
+        "id": "47080cc6-9ad1-4c20-ae60-75925aeae4f6",
+        "createdAt": 1774514637842
+    },
+    {
+        "name": "weekend_volatility_exhaustion_ratio",
+        "formula": "(abs(dist_to_ema_21_pct) * is_weekend) / (vol_ratio_alpha + 1e-9)",
+        "python_code": "(df['dist_to_ema_21_pct'].abs() * df['is_weekend']) / (df['vol_ratio_alpha'] + 1e-9)",
+        "intuition": "Measures the tension of price being stretched far from its short-term mean (EMA 21) during weekends, specifically when short-term volatility (ATR 7) is shrinking relative to long-term volatility (ATR 21). High values suggest a 'liquidity vacuum' move that is statistically prone to mean-reversion when session traders return on Monday.",
+        "id": "37a2f30e-fb2a-400c-afb4-6cf986938ffe",
+        "createdAt": 1774514597380
+    },
+    {
+        "name": "session_momentum_efficiency_index",
+        "formula": "(roc_14 * volume_ratio) * (1.0 + 0.5 * is_american_session + 0.25 * is_european_session)",
+        "python_code": "(df['roc_14'] * df['volume_ratio']) * (1.0 + 0.5 * df['is_american_session'] + 0.25 * df['is_european_session'])",
+        "intuition": "This feature scales momentum (Rate of Change) by relative volume, specifically amplifying the signal strength when it occurs during high-liquidity sessions (US and Europe). It assumes price moves during these windows have higher institutional participation and are less likely to be noise compared to the Asian session.",
+        "id": "3c348f6e-d016-400a-bf1c-4d3c30419f78",
+        "createdAt": 1774514597380
+    },
+    {
+        "name": "is_weekend",
+        "formula": "1 if day_of_week >= 5 else 0",
+        "python_code": "df.index.dayofweek.isin([5, 6]).astype(int)",
+        "intuition": "Distinguishes between traditional finance operating days and weekends where liquidity is thinner and price moves can be more erratic.",
+        "id": "4790378c-3afc-48c5-98ce-47d09edfeb31",
+        "createdAt": 1774514553972
+    },
+    {
+        "name": "is_american_session",
+        "formula": "1 if 16 <= hour < 24 else 0",
+        "python_code": "(df.index.hour >= 16) & (df.index.hour < 24).astype(int)",
+        "intuition": "Identifies the New York session, which usually has the highest volatility and liquidations due to institutional activity.",
+        "id": "c5839af6-bebc-4a6f-9520-7e1c3cc5ba87",
+        "createdAt": 1774514553972
+    },
+    {
+        "name": "is_european_session",
+        "formula": "1 if 8 <= hour < 16 else 0",
+        "python_code": "(df.index.hour >= 8) & (df.index.hour < 16).astype(int)",
+        "intuition": "Captures the London session, typically marked by an increase in volume and the establishment of the day's primary trend.",
+        "id": "8cc1ca51-ecc9-44e1-837d-7a8d44b35753",
+        "createdAt": 1774514553972
+    },
+    {
+        "name": "is_asian_session",
+        "formula": "1 if 0 <= hour < 8 else 0",
+        "python_code": "(df.index.hour >= 0) & (df.index.hour < 8).astype(int)",
+        "intuition": "Identifies the Tokyo/Singapore session, which often exhibits lower volatility and distinct mean-reversion characteristics in crypto.",
+        "id": "c62b05e7-3724-4903-9037-910674807eb7",
+        "createdAt": 1774514553972
+    },
+    {
+        "name": "day_of_week_cos",
+        "formula": "cos(2 * pi * day_of_week / 7)",
+        "python_code": "np.cos(2 * np.pi * df.index.dayofweek / 7)",
+        "intuition": "Used alongside day_of_week_sin to map weekly patterns into a continuous circular space.",
+        "id": "6e80d698-6e6d-4fd8-8e01-b2083ec61a68",
+        "createdAt": 1774514553972
+    },
+    {
+        "name": "day_of_week_sin",
+        "formula": "sin(2 * pi * day_of_week / 7)",
+        "python_code": "np.sin(2 * np.pi * df.index.dayofweek / 7)",
+        "intuition": "Encodes the day of the week cyclically, capturing weekly seasonality such as Sunday sell-offs or Monday reversals.",
+        "id": "7713a444-25f7-4d05-8bc7-7b87450b316a",
+        "createdAt": 1774514553972
+    },
+    {
+        "name": "hour_cos",
+        "formula": "cos(2 * pi * hour / 24)",
+        "python_code": "np.cos(2 * np.pi * df.index.hour / 24)",
+        "intuition": "Complements the sine component to provide a unique (x, y) representation of time on a circular 24-hour clock.",
+        "id": "5bb04ff9-ca59-4cca-90e7-a02bee3496c5",
+        "createdAt": 1774514553972
+    },
+    {
+        "name": "hour_sin",
+        "formula": "sin(2 * pi * hour / 24)",
+        "python_code": "np.sin(2 * np.pi * df.index.hour / 24)",
+        "intuition": "Transforms the hour of the day into a cyclical coordinate to preserve the temporal proximity between 23:00 and 00:00.",
+        "id": "38fccb95-6013-4d6d-9287-b5eae02b1e15",
+        "createdAt": 1774514553972
+    },
+    {
+        "name": "relative_momentum_quality",
+        "formula": "(momentum_rank_pct - volatility_rank_pct) * (adx / 100.0)",
+        "python_code": "df['relative_momentum_quality'] = (df['momentum_rank_pct'] - df['volatility_rank_pct']) * (df['adx'] / 100.0)",
+        "intuition": "Captures the 'quality' of a trend by finding assets with high cross-sectional momentum that are not accompanied by high relative volatility. In crypto, 'clean' trends with low relative volatility are often more sustainable than high-volatility spikes. Multiplying by ADX ensures the feature prioritizes assets currently in a confirmed directional regime.",
+        "id": "61011e67-a53e-4854-9edb-3f9d71672a88",
+        "createdAt": 1774514521666
+    },
+    {
+        "name": "speculative_congestion_index",
+        "formula": "(oi_to_volume_ratio_zscore * funding_zscore) / (squeeze_ratio + 1e-9)",
+        "python_code": "df['speculative_congestion_index'] = (df['oi_to_volume_ratio_zscore'] * df['funding_zscore']) / (df['squeeze_ratio'] + 1e-9)",
+        "intuition": "Identifies 'crowded' trades where speculative positioning is high relative to actual trading volume (OI/Volume Z-Score) and carries a strong directional bias (Funding Z-Score). Dividing by the squeeze_ratio amplifies the score when volatility is compressed, signaling a potential explosive deleveraging event or squeeze.",
+        "id": "738f8df9-2b1e-40c6-80fb-f9a58a610f6c",
+        "createdAt": 1774514521666
+    },
+    {
+        "name": "ls_funding_alignment",
+        "formula": "ls_imbalance * funding_zscore",
+        "python_code": "df['ls_imbalance'] * df['funding_zscore']",
+        "intuition": "Measures the convergence between whale/retail imbalance and the cost of capital; high alignment suggests high conviction in the current direction.",
+        "id": "c03f9f14-0c8a-4c7b-9fb0-2261c0b86989",
+        "createdAt": 1774514464467
+    },
+    {
+        "name": "volume_funding_divergence",
+        "formula": "volume_zscore * sign(fundingRate)",
+        "python_code": "df['volume_zscore'] * np.sign(df['fundingRate'])",
+        "intuition": "Highlights high-volume activity occurring during extreme funding environments, signaling potential exhaustion or aggressive positioning.",
+        "id": "54606569-1bea-4744-965e-fddd4e944e75",
+        "createdAt": 1774514464467
+    },
+    {
+        "name": "risk_adjusted_momentum",
+        "formula": "momentum_14 / atr_pct_14",
+        "python_code": "df['close'].pct_change(14) / df['atr_pct_14']",
+        "intuition": "Scales the 14-day price change by the Average True Range, highlighting moves that exceed typical volatility-induced noise.",
+        "id": "990de350-4bed-42c5-80f4-ced90ca5ffbf",
+        "createdAt": 1774514464467
+    },
+    {
+        "name": "sharpe_14d",
+        "formula": "returns_14d / returns_std_14",
+        "python_code": "df['close'].pct_change(14) / df['returns_std_14']",
+        "intuition": "Measures risk-adjusted performance over a 2-week window, smoothing out noise better than the 7-day version.",
+        "id": "86261e6b-9c48-448e-919a-d6237a9cdb7e",
+        "createdAt": 1774514464467
+    },
+    {
+        "name": "sharpe_7d",
+        "formula": "returns_7d / returns_std_7",
+        "python_code": "df['close'].pct_change(7) / df['returns_std_7']",
+        "intuition": "A rolling short-term Sharpe-like ratio representing the risk-adjusted return of the asset over the last week.",
+        "id": "16fa6f89-ea70-45ed-86db-824f954cf1e9",
+        "createdAt": 1774514464467
+    },
+    {
+        "name": "momentum_volatility_ratio",
+        "formula": "returns_7d / returns_std_14",
+        "python_code": "df['close'].pct_change(7) / df['returns_std_14']",
+        "intuition": "Evaluates the efficiency of price moves by comparing the total weekly return to the asset's underlying volatility.",
+        "id": "7471f4a0-c852-48c1-b24e-e520e921a213",
+        "createdAt": 1774514464467
+    },
+    {
+        "name": "rsi_rank_pct",
+        "formula": "RankPct(rsi_14) across assets",
+        "python_code": "df.groupby('timestamp')['rsi_14'].rank(pct=True)",
+        "intuition": "Standardizes RSI levels across assets to find the most overbought or oversold tickers in the current market context.",
+        "id": "df54593d-215c-439a-a335-e22941590d8e",
+        "createdAt": 1774514464467
+    },
+    {
+        "name": "oi_growth_rank_pct",
+        "formula": "RankPct(oi_change_24h_pct) across assets",
+        "python_code": "df.groupby('timestamp')['oi_change_24h_pct'].rank(pct=True)",
+        "intuition": "Captures where new capital is flowing relative to other assets, often a precursor to significant price moves.",
+        "id": "e29751e3-1dd4-4c7d-9f83-3cf39f69cd00",
+        "createdAt": 1774514464467
+    },
+    {
+        "name": "volatility_rank_pct",
+        "formula": "RankPct(std(log_returns, 14)) across assets",
+        "python_code": "df.groupby('timestamp')['returns_std_14'].rank(pct=True)",
+        "intuition": "Measures the relative riskiness of an asset compared to the universe, helping identify high-volatility breakout candidates.",
+        "id": "f53eebe6-b440-47d1-9386-5580e3b3ec61",
+        "createdAt": 1774514464467
+    },
+    {
+        "name": "momentum_rank_pct",
+        "formula": "RankPct(returns_7d) across assets",
+        "python_code": "df.groupby('timestamp')['close'].pct_change(7).groupby('timestamp').rank(pct=True)",
+        "intuition": "Identifies assets with the strongest relative performance compared to the rest of the market over a weekly horizon.",
+        "id": "a358b3e8-2c78-4f25-99d3-d85f9e4168ae",
+        "createdAt": 1774514464467
+    },
+    {
+        "name": "leverage_pnl_tension_index",
+        "formula": "(fundingRate / rolling_std(fundingRate, 24)) * (dist_to_ema_21_pct / (atr_pct_14 + 1e-9))",
+        "python_code": "df['leverage_pnl_tension_index'] = (df['fundingRate'] / (df['fundingRate'].rolling(24).std() + 1e-12)) * (df['dist_to_ema_21_pct'] / (df['atr_pct_14'] + 1e-9))",
+        "intuition": "Quantifies the 'pain' felt by the dominant side of the market. If funding is high and positive (longs paying) while price is far below the EMA_21 (longs underwater), the index becomes strongly negative, signaling a high probability of long liquidations or a 'crowded exit' as longs are forced to pay fees on losing positions.",
+        "id": "5837a664-eff2-4810-8ad5-7604142618ff",
+        "createdAt": 1774514385538
+    },
+    {
+        "name": "normalized_funding_momentum_shock",
+        "formula": "(diff(fundingRate, 1) / rolling_std(fundingRate, 24)) / (atr_pct_14 + 1e-9)",
+        "python_code": "df['normalized_funding_momentum_shock'] = (df['fundingRate'].diff(1) / (df['fundingRate'].rolling(24).std() + 1e-12)) / (df['atr_pct_14'] + 1e-9)",
+        "intuition": "Measures the rate of change in trader sentiment (funding velocity) relative to current price volatility. A high funding shock in a low-volatility environment suggests aggressive over-leveraging or a sentiment 'blow-off' that isn't supported by price action, often preceding a sharp mean-reversion.",
+        "id": "ac73b0f4-d460-43fd-822a-8430b0fb0612",
+        "createdAt": 1774514385538
+    },
+    {
+        "name": "funding_change_zscore",
+        "formula": "(diff(fundingRate) - rolling_mean(diff(fundingRate), 7)) / rolling_std(diff(fundingRate), 7)",
+        "python_code": "funding_diff = df['funding_rate'].diff(); (funding_diff - funding_diff.rolling(7).mean()) / funding_diff.rolling(7).std()",
+        "intuition": "Measures the rate of change in sentiment. A high change z-score indicates a rapid shift in trader positioning that might lead price action.",
+        "id": "2492095d-9b10-4bd8-b74c-ef1596ec288e",
+        "createdAt": 1774514339674
+    },
+    {
+        "name": "funding_extreme_short",
+        "formula": "fundingRate < rolling_quantile(fundingRate, 30, 0.1)",
+        "python_code": "(df['funding_rate'] < df['funding_rate'].rolling(30).quantile(0.1)).astype(int)",
+        "intuition": "Signals a potentially overcrowded short side where shorts are paying significant premiums, often preceding a short squeeze or bounce.",
+        "id": "a20be74e-f31e-4297-97e3-0ead1c702cc9",
+        "createdAt": 1774514339674
+    },
+    {
+        "name": "funding_extreme_long",
+        "formula": "fundingRate > rolling_quantile(fundingRate, 30, 0.9)",
+        "python_code": "(df['funding_rate'] > df['funding_rate'].rolling(30).quantile(0.9)).astype(int)",
+        "intuition": "Signals a potentially overcrowded long side where the cost of holding positions is at a historical peak, often preceding a long squeeze.",
+        "id": "4a0d0df6-bc2a-4e03-8e90-32be8bc03039",
+        "createdAt": 1774514339674
+    },
+    {
+        "name": "funding_percentile",
+        "formula": "rolling_rank(fundingRate, 30) / 30",
+        "python_code": "df['funding_rate'].rolling(30).rank(pct=True)",
+        "intuition": "Provides a bounded measure (0-1) of how high the current funding rate is relative to the past month, helping to compare positioning across different market regimes.",
+        "id": "d94919ce-e490-44b7-ad39-7ab58b454d8e",
+        "createdAt": 1774514339674
+    },
+    {
+        "name": "funding_zscore",
+        "formula": "(fundingRate - rolling_mean(fundingRate, 14)) / rolling_std(fundingRate, 14)",
+        "python_code": "(df['funding_rate'] - df['funding_rate'].rolling(14).mean()) / df['funding_rate'].rolling(14).std()",
+        "intuition": "Normalizes the current funding rate relative to its 14-period history to identify statistically significant deviations in the cost of carry.",
+        "id": "afaedab2-e206-4855-b405-ff1594acf6ec",
+        "createdAt": 1774514339674
+    },
+    {
+        "name": "whale_mean_reversion_bias",
+        "formula": "ls_imbalance * (0.5 - bb_position) * (1 + volume_zscore)",
+        "python_code": "df['ls_imbalance'] * (0.5 - df['bb_position']) * (1 + df['volume_zscore'])",
+        "intuition": "Identifies potential reversal points by looking for divergences between 'top' (whale) traders and price location. A high positive value occurs when top traders are net-long (ls_imbalance > 0) while price is at the bottom of its Bollinger Band range (bb_position < 0.5), amplified by high volume, suggesting whales are 'buying the dip' or positioning for a squeeze.",
+        "id": "305db882-e285-4a45-ba97-e1b60f26aaa0",
+        "createdAt": 1774514310613
+    },
+    {
+        "name": "oi_volume_conviction_ratio",
+        "formula": "(oi_change_1h_pct * volume_ratio) / (atr_pct_14 + 1e-9)",
+        "python_code": "(df['oi_change_1h_pct'] * df['volume_ratio']) / (df['atr_pct_14'] + 1e-9)",
+        "intuition": "Measures the strength of capital commitment relative to trading activity and volatility. High values suggest that price movement is backed by both high relative volume and a significant influx of new positions (Open Interest), rather than just speculative churning or low-liquidity spikes.",
+        "id": "afbdee8e-350d-4253-9c37-c7094f285eb4",
+        "createdAt": 1774514310613
+    },
+    {
+        "name": "oi_funding_interaction",
+        "formula": "oi_change_24h_pct * ((funding - mean(funding, 24)) / std(funding, 24))",
+        "python_code": "df['oi'].pct_change(24) * ((df['funding'] - df['funding'].rolling(24).mean()) / df['funding'].rolling(24).std())",
+        "intuition": "Identifies aggressive position building in high-cost environments, which often marks short-term local peaks or bottoms due to leverage pressure.",
+        "id": "48fe53a9-9acd-46dd-b4ad-7dee85ee3adc",
+        "createdAt": 1774514276890
+    },
+    {
+        "name": "ls_ratio_change",
+        "formula": "top_ls_ratio.pct_change()",
+        "python_code": "df['top_ls_ratio'].pct_change()",
+        "intuition": "Detects rapid shifts in the positioning bias of the largest traders.",
+        "id": "e538b398-71f1-4c2b-9fad-24a40861ee30",
+        "createdAt": 1774514276890
+    },
+    {
+        "name": "ls_imbalance",
+        "formula": "top_ls_ratio - global_ls_ratio",
+        "python_code": "df['top_ls_ratio'] - df['global_ls_ratio']",
+        "intuition": "Measures the divergence between professional 'top' traders and the broader market; extreme gaps often signal potential reversals.",
+        "id": "e21b7c2a-e7f9-4d83-a11d-4ec93d7220e9",
+        "createdAt": 1774514276890
+    },
+    {
+        "name": "global_ls_ratio_normalized",
+        "formula": "global_ls_ratio - 1",
+        "python_code": "df['global_ls_ratio'] - 1",
+        "intuition": "Centers the global Long/Short ratio to highlight general market sentiment relative to the 1.0 neutral mark.",
+        "id": "f080761b-e188-49ff-ae0c-0b28af12277b",
+        "createdAt": 1774514276890
+    },
+    {
+        "name": "top_ls_ratio_normalized",
+        "formula": "top_ls_ratio - 1",
+        "python_code": "df['top_ls_ratio'] - 1",
+        "intuition": "Centers the top trader Long/Short ratio around zero; positive values indicate net long bias, negative values indicate net short.",
+        "id": "2b6d13d7-c761-4387-beef-ac22e12f8680",
+        "createdAt": 1774514276890
+    },
+    {
+        "name": "oi_to_volume_ratio_zscore",
+        "formula": "(ratio - mean(ratio, 24)) / std(ratio, 24)",
+        "python_code": "(df['oi'] / df['volume']).pipe(lambda x: (x - x.rolling(24).mean()) / x.rolling(24).std())",
+        "intuition": "Statistical normalization of the OI/Volume ratio to detect abnormal positioning regimes relative to historical volatility.",
+        "id": "fc700d59-ab72-4617-8350-f2c20d42fc6e",
+        "createdAt": 1774514276890
+    },
+    {
+        "name": "oi_to_volume_ratio",
+        "formula": "open_interest / volume",
+        "python_code": "df['oi'] / df['volume']",
+        "intuition": "Indicates the proportion of open positions relative to trade turnover; high values suggest high speculative holding.",
+        "id": "ca065daa-2f4e-4b8c-9708-afc1e0a60186",
+        "createdAt": 1774514276890
+    },
+    {
+        "name": "oi_acceleration",
+        "formula": "diff(diff(open_interest.pct_change(1)))",
+        "python_code": "df['oi'].pct_change().diff().diff()",
+        "intuition": "Detects the rate of change of OI velocity to highlight extreme speculative surges or rapid exhaustions.",
+        "id": "d009c39b-c7f2-4a56-bb36-02eecefc9c86",
+        "createdAt": 1774514276890
+    },
+    {
+        "name": "oi_velocity",
+        "formula": "diff(open_interest.pct_change(1))",
+        "python_code": "df['oi'].pct_change().diff()",
+        "intuition": "Identifies accelerating or decelerating open interest growth, which often precedes volatile price breakouts.",
+        "id": "fea9a9e5-012e-4e23-91bb-aa263bbbc005",
+        "createdAt": 1774514276890
+    },
+    {
+        "name": "oi_change_24h_pct",
+        "formula": "open_interest.pct_change(24)",
+        "python_code": "df['oi'].pct_change(24)",
+        "intuition": "Captures medium-term changes in market commitment and capital allocation over a full daily cycle.",
+        "id": "215eb638-337d-43bd-8739-02869a2259f5",
+        "createdAt": 1774514276890
+    },
+    {
+        "name": "oi_change_1h_pct",
+        "formula": "open_interest.pct_change(1)",
+        "python_code": "df['oi'].pct_change(1)",
+        "intuition": "Measures the short-term growth or decline in open interest, indicating capital inflow or outflow into new positions.",
+        "id": "b913c42a-4894-49e7-bdbc-b0e1cfb3adf8",
+        "createdAt": 1774514276890
+    },
+    {
+        "name": "volatility_weighted_shadow_imbalance",
+        "formula": "((lower_shadow_pct - upper_shadow_pct) / (body_size_pct + 0.001)) * vol_ratio_alpha",
+        "python_code": "((df['lower_shadow_pct'] - df['upper_shadow_pct']) / (df['body_size_pct'] + 0.001)) * df['vol_ratio_alpha']",
+        "intuition": "Quantifies the dominance of lower vs upper shadow rejection relative to the candle's body, then weights it by the current volatility expansion (ATR_7/ATR_21). Large positive values suggest high-conviction bullish rejections in expanding volatility regimes, while large negative values suggest bearish exhaustion.",
+        "id": "bcb51a70-2e7b-45c3-9b1e-8d481e0f6c52",
+        "createdAt": 1774514219418
+    },
+    {
+        "name": "bb_squeeze_20",
+        "formula": "BB_Width_Pct(20) < RollingQuantile(BB_Width_Pct(20), 20, 0.1)",
+        "python_code": "sma = df['close'].rolling(20).mean(); std = df['close'].rolling(20).std(); bb_w = (4*std) / sma; df['bb_squeeze_20'] = (bb_w < bb_w.rolling(20).quantile(0.1)).astype(int)",
+        "intuition": "A volatility flag that signals potential breakout or trend ignition when bands are exceptionally narrow.",
+        "id": "6cba7b4a-8331-44b8-8d11-9664b8478fe6",
+        "createdAt": 1774514169147
+    },
+    {
+        "name": "bb_distance_lower_pct_20",
+        "formula": "(Close - BB_Lower(20)) / BB_Lower(20)",
+        "python_code": "lower = df['close'].rolling(20).mean() - 2 * df['close'].rolling(20).std(); df['bb_distance_lower_pct_20'] = (df['close'] - lower) / lower",
+        "intuition": "Measures the percentage deviation of price from the lower support band.",
+        "id": "4c729ec5-d891-4a93-b30a-106ad2ba8e8f",
+        "createdAt": 1774514169147
+    },
+    {
+        "name": "bb_distance_upper_pct_20",
+        "formula": "(Close - BB_Upper(20)) / BB_Upper(20)",
+        "python_code": "upper = df['close'].rolling(20).mean() + 2 * df['close'].rolling(20).std(); df['bb_distance_upper_pct_20'] = (df['close'] - upper) / upper",
+        "intuition": "Measures the percentage deviation of price from the upper resistance band.",
+        "id": "208ad72a-f1f7-43a9-99e8-848a2fede8e6",
+        "createdAt": 1774514169147
+    },
+    {
+        "name": "bb_position_20",
+        "formula": "(Close - BB_Lower(20)) / (BB_Upper(20) - BB_Lower(20))",
+        "python_code": "sma = df['close'].rolling(20).mean(); std = df['close'].rolling(20).std(); df['bb_position_20'] = (df['close'] - (sma - 2*std)) / ((sma + 2*std) - (sma - 2*std))",
+        "intuition": "Provides a normalized value between 0 and 1 indicating where the current price is within the Bollinger Band range.",
+        "id": "3ae67cc2-cbf6-4278-b06e-ec39840c256b",
+        "createdAt": 1774514169147
+    },
+    {
+        "name": "bb_width_pct_20",
+        "formula": "(BB_Upper(20) - BB_Lower(20)) / BB_Mid(20)",
+        "python_code": "sma = df['close'].rolling(20).mean(); std = df['close'].rolling(20).std(); df['bb_width_pct_20'] = ((sma + 2*std) - (sma - 2*std)) / sma",
+        "intuition": "Quantifies the volatility squeeze or expansion relative to the price level.",
+        "id": "2aa7e2e8-da62-4965-8009-fe5471f859df",
+        "createdAt": 1774514169147
+    },
+    {
+        "name": "volatility_percentile_14_30",
+        "formula": "RollingRank(ATR(14) / Close, 30) / 30",
+        "python_code": "tr = np.maximum(df['high'] - df['low'], np.maximum(abs(df['high'] - df['close'].shift(1)), abs(df['low'] - df['close'].shift(1)))); atr_pct = tr.rolling(window=14).mean() / df['close']; df['volatility_percentile_14_30'] = atr_pct.rolling(30).apply(lambda x: pd.Series(x).rank(pct=True).iloc[-1])",
+        "intuition": "Determines where current volatility sits relative to its historical range over the last 30 periods.",
+        "id": "8288f4af-f934-4aa8-9bb6-75298806330a",
+        "createdAt": 1774514169147
+    },
+    {
+        "name": "volatility_regime_14_30",
+        "formula": "(ATR(14) / Close) > RollingMean(ATR(14) / Close, 30)",
+        "python_code": "tr = np.maximum(df['high'] - df['low'], np.maximum(abs(df['high'] - df['close'].shift(1)), abs(df['low'] - df['close'].shift(1)))); atr_pct = tr.rolling(window=14).mean() / df['close']; df['volatility_regime_14_30'] = (atr_pct > atr_pct.rolling(30).mean()).astype(int)",
+        "intuition": "A binary indicator identifying when current volatility is higher than its recent average, suggesting a high-volatility environment.",
+        "id": "5e229b46-79f7-4ad2-b24a-0b279e087aff",
+        "createdAt": 1774514169147
+    },
+    {
+        "name": "atr_pct_14",
+        "formula": "ATR(14) / Close",
+        "python_code": "tr = np.maximum(df['high'] - df['low'], np.maximum(abs(df['high'] - df['close'].shift(1)), abs(df['low'] - df['close'].shift(1)))); df['atr_pct_14'] = tr.rolling(window=14).mean() / df['close']",
+        "intuition": "Normalizes volatility by price level to allow for comparisons across different assets or time periods.",
+        "id": "0373f88f-5053-400f-a3a9-f3abced0460e",
+        "createdAt": 1774514169147
+    },
+    {
+        "name": "asymmetric_volatility_index",
+        "formula": "(RollingStd(Returns > 0, 20) - RollingStd(Returns < 0, 20)) / RollingStd(Returns, 20)",
+        "python_code": "(df['returns'].clip(lower=0).rolling(20).std() - df['returns'].clip(upper=0).abs().rolling(20).std()) / df['returns'].rolling(20).std()",
+        "intuition": "Unlike standard volatility measures, this index identifies the direction of market stress. A positive value indicates that price dispersion is higher on upward moves (aggressive buying), whereas a negative value indicates that volatility is concentrated on the downside (panic selling or high-volatility distribution), allowing the model to distinguish between healthy bull markets and volatile tops.",
+        "id": "29647ec6-93a1-4e3b-a24c-d1af140e1717",
+        "createdAt": 1774514113811
+    },
+    {
+        "name": "momentum_conviction_index",
+        "formula": "((RSI(14) - 50) / 50) * (Volume / SMA(Volume, 14)) * (1 - Squeeze_Ratio)",
+        "python_code": "((df['rsi_14'] - 50) / 50) * (df['volume'] / df['volume_sma_14']) * (1 - df['squeeze_ratio'])",
+        "intuition": "This feature scales normalized momentum by both volume conviction and the current volatility regime. It helps distinguish between low-volume noise and high-conviction trend breakouts by ensuring that momentum is only heavily weighted when volume is above average and the market is not in a low-volatility squeeze state.",
+        "id": "e1790075-f749-41b8-989f-e6cdc4117513",
+        "createdAt": 1774514113811
+    },
+    {
+        "name": "trix_pct",
+        "formula": "ROC(EMA(EMA(EMA(Close, 15), 15), 15), 1)",
+        "python_code": "ema1 = close.ewm(span=15, adjust=False).mean(); ema2 = ema1.ewm(span=15, adjust=False).mean(); ema3 = ema2.ewm(span=15, adjust=False).mean(); trix_pct = ema3.pct_change() * 100",
+        "intuition": "Captures the rate of change of a triple-smoothed exponential moving average, effectively filtering out cyclical noise to identify the underlying trend momentum.",
+        "id": "cfccabc0-9d01-4d4b-b9aa-e4803b99dda3",
+        "createdAt": 1774514055924
+    },
+    {
+        "name": "williams_r_normalized",
+        "formula": "(HighestHigh(14) - Close) / (HighestHigh(14) - LowestLow(14)) * -1",
+        "python_code": "hh = high.rolling(14).max(); ll = low.rolling(14).min(); williams_r_normalized = ((hh - close) / (hh - ll)) * -1",
+        "intuition": "Provides a 0 to -1 bounded scale representing where the current close sits relative to the recent high-low range, indicating potential reversal points.",
+        "id": "76c85b83-3354-4a91-bd75-b2893d541246",
+        "createdAt": 1774514055924
+    },
+    {
+        "name": "cci_normalized",
+        "formula": "((Typical Price - SMA(Typical Price, 20)) / (0.015 * Mean Absolute Deviation)) / 100",
+        "python_code": "tp = (high + low + close) / 3; sma_tp = tp.rolling(20).mean(); mad = tp.rolling(20).apply(lambda x: np.abs(x - x.mean()).mean()); cci = (tp - sma_tp) / (0.015 * mad); cci_normalized = cci / 100",
+        "intuition": "Normalizes the Commodity Channel Index by dividing by 100; while not strictly bounded, values beyond -1 and 1 signify statistical extremes in price relative to its recent average.",
+        "id": "7b07809d-4334-42fc-a279-ae0787a36e75",
+        "createdAt": 1774514055924
+    },
+    {
+        "name": "roc_14",
+        "formula": "(Close - Close[14]) / Close[14]",
+        "python_code": "roc_14 = close.pct_change(periods=14)",
+        "intuition": "A pure momentum indicator that captures the percentage change in price over a two-week period, highlighting the velocity of price movements.",
+        "id": "af609e97-a276-44fc-9e14-a36a3378a812",
+        "createdAt": 1774514055924
+    },
+    {
+        "name": "ppo",
+        "formula": "((EMA(Close, 12) - EMA(Close, 26)) / EMA(Close, 26)) * 100",
+        "python_code": "ema12 = close.ewm(span=12, adjust=False).mean(); ema26 = close.ewm(span=26, adjust=False).mean(); ppo = ((ema12 - ema26) / ema26) * 100",
+        "intuition": "The Percentage Price Oscillator is inherently normalized as it measures the percentage difference between two moving averages, making it superior to standard MACD for cross-asset analysis.",
+        "id": "8367129d-85ba-4116-b459-097b67b3265a",
+        "createdAt": 1774514055924
+    },
+    {
+        "name": "macd_histogram_pct",
+        "formula": "((EMA(Close, 12) - EMA(Close, 26)) - EMA(MACD, 9)) / Close",
+        "python_code": "macd = close.ewm(span=12, adjust=False).mean() - close.ewm(span=26, adjust=False).mean(); signal = macd.ewm(span=9, adjust=False).mean(); macd_histogram_pct = (macd - signal) / close",
+        "intuition": "Measures the distance between the MACD and its signal line as a percentage of price, providing a scale-invariant measure of momentum acceleration or deceleration.",
+        "id": "1eea64fd-bbbd-4602-b08e-34a6e3ccb711",
+        "createdAt": 1774514055924
+    },
+    {
+        "name": "macd_normalized",
+        "formula": "(EMA(Close, 12) - EMA(Close, 26)) / Close",
+        "python_code": "ema12 = close.ewm(span=12, adjust=False).mean(); ema26 = close.ewm(span=26, adjust=False).mean(); macd_normalized = (ema12 - ema26) / close",
+        "intuition": "Divides the MACD by the current price to remove price-level bias, allowing the feature to be comparable across different assets or long timeframes with significant price changes.",
+        "id": "5301f686-4985-4d77-8012-4c7a92b3738d",
+        "createdAt": 1774514055924
+    },
+    {
+        "name": "rsi_normalized",
+        "formula": "((100 - (100 / (1 + (RollingMean(Max(Close - Close[1], 0), 14) / RollingMean(Abs(Min(Close - Close[1], 0)), 14))))) - 50) / 50",
+        "python_code": "delta = close.diff(); gain = (delta.where(delta > 0, 0)).rolling(window=14).mean(); loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean(); rs = gain / loss; rsi = 100 - (100 / (1 + rs)); rsi_normalized = (rsi - 50) / 50",
+        "intuition": "Normalizes the RSI oscillator to a -1 to 1 range centered at zero, facilitating better neural network convergence and easier identification of extreme momentum relative to the midpoint.",
+        "id": "21525a72-b193-40b5-b9a9-f1c4e1032ecd",
+        "createdAt": 1774514055924
+    },
+    {
+        "name": "relative_absorption_ratio",
+        "formula": "(volume / volume_sma_14) / ((high - low) / atr_14)",
+        "python_code": "df['relative_absorption_ratio'] = (df['volume'] / (df['volume_sma_14'] + 1e-9)) / ((df['high'] - df['low'] + 1e-9) / (df['atr_14'] + 1e-9))",
+        "intuition": "Identifies localized liquidity absorption by comparing relative volume to relative price range. A high ratio suggests significant capital is fighting in a tight range (potential climax or institutional accumulation/distribution), whereas a low ratio indicates 'thin' liquidity where price moves easily on low volume.",
+        "id": "61e0e977-2711-4a3a-b812-7d40cf6576ce",
+        "createdAt": 1774513885896
+    },
+    {
+        "name": "volume_thrust_efficiency",
+        "formula": "(log_returns * volume_zscore) / volatility_14",
+        "python_code": "df['volume_thrust_efficiency'] = (df['log_returns'] * df['volume_zscore']) / (df['volatility_14'] + 1e-9)",
+        "intuition": "Measures the magnitude of price momentum relative to the volume effort and the current volatility regime. High values signify a 'clean' breakout where price moves strongly on high relative volume, while low values filter out noise where price moves within normal volatility bounds.",
+        "id": "e8e9155f-cbd2-4a30-8a7e-017ab530a18f",
+        "createdAt": 1774513885896
+    },
+    {
+        "name": "volume_price_correlation",
+        "formula": "RollingCorrelation(volume, Returns, 20)",
+        "python_code": "df['volume'].rolling(20).corr(df['close'].pct_change())",
+        "intuition": "Measures the linear relationship between volume and price changes over a 20-day window to assess if trends are backed by high conviction.",
+        "id": "89044d21-13fa-4cfc-85f0-7c924f759caf",
+        "createdAt": 1774513849542
+    },
+    {
+        "name": "obv_normalized",
+        "formula": "OBV / RollingStd(OBV, 30)",
+        "python_code": "((df['volume'] * np.sign(df['close'].diff()).fillna(0)).cumsum()) / (df['volume'] * np.sign(df['close'].diff()).fillna(0)).cumsum().rolling(30).std()",
+        "intuition": "Normalizes the On-Balance Volume by its 30-day volatility to make the cumulative flow comparable across different time periods and regimes.",
+        "id": "f6d89236-91ce-4462-8ec6-68caaf913050",
+        "createdAt": 1774513849542
+    },
+    {
+        "name": "volume_percentile_30d",
+        "formula": "RollingRank(volume, 30) / 30",
+        "python_code": "df['volume'].rolling(30).rank(pct=True)",
+        "intuition": "Quantifies current volume intensity relative to the past 30 periods, providing context on whether trading interest is at cyclical extremes.",
+        "id": "fe7740e3-56ab-43aa-9a0f-d664096d0aa3",
+        "createdAt": 1774513849542
+    },
+    {
+        "name": "volume_zscore",
+        "formula": "(volume - SMA(volume, 14)) / StdDev(volume, 14)",
+        "python_code": "(df['volume'] - df['volume'].rolling(14).mean()) / df['volume'].rolling(14).std()",
+        "intuition": "Measures how the current volume deviates from its moving average in terms of standard deviations to identify extreme activity.",
+        "id": "ae9f443d-0c96-41f7-83a8-69d4fdab92d6",
+        "createdAt": 1774513849542
+    },
+    {
+        "name": "normalized_trend_efficiency_index",
+        "formula": "((close - close.shift(14)) / sum(abs(close - close.shift(1)), 14)) * (adx / 25.0)",
+        "python_code": "df[\"normalized_trend_efficiency_index\"] = ((df[\"close\"] - df[\"close\"].shift(14)) / (df[\"close\"].diff().abs().rolling(14).sum() + 1e-9)) * (df[\"adx\"] / 25.0)",
+        "intuition": "This feature combines the Kaufman Efficiency Ratio with the ADX to measure how 'clean' or 'noisy' a trend is. By multiplying the price displacement efficiency by the normalized trend strength (ADX/25), it filters out choppy price action and highlights periods where price is moving decisively in one direction with high conviction.",
+        "id": "183f6f2c-df93-4490-8a86-be9ddaac805a",
+        "createdAt": 1774513778244
+    },
+    {
+        "name": "volume_absorption_index",
+        "formula": "(volume / volume_sma_14) * (1 - abs(intraday_momentum))",
+        "python_code": "df[\"volume_absorption_index\"] = (df[\"volume\"] / df[\"volume_sma_14\"]) * (1 - df[\"intraday_momentum\"].abs())",
+        "intuition": "This feature identifies 'absorption' by detecting high volume relative to the average that does not result in a significant body size relative to the candle's range. High values suggest that market participants are absorbing order flow at a specific level, which often precedes a trend reversal or indicates strong institutional support/resistance.",
+        "id": "2988ef52-ac51-4a56-b5e4-fd82434c267d",
+        "createdAt": 1774513778244
+    },
+    {
+        "name": "intraday_momentum",
+        "formula": "(close - open) / (high - low)",
+        "python_code": "(df[\"close\"] - df[\"open\"]) / (df[\"high\"] - df[\"low\"]).replace(0, np.nan)",
+        "intuition": "Measures the relative location of the close within the candle's range to assess intraday trend strength.",
+        "id": "62865fcc-5ee4-49d9-94ea-52b8c1cf9aa9",
+        "createdAt": 1774513720758
+    },
+    {
+        "name": "true_range_pct",
+        "formula": "max(high - low, abs(high - close.shift(1)), abs(low - close.shift(1))) / close.shift(1)",
+        "python_code": "pd.concat([df[\"high\"] - df[\"low\"], (df[\"high\"] - df[\"close\"].shift(1)).abs(), (df[\"low\"] - df[\"close\"].shift(1)).abs()], axis=1).max(axis=1) / df[\"close\"].shift(1)",
+        "intuition": "A normalized version of the True Range that accounts for gaps, providing a consistent measure of volatility across price scales.",
+        "id": "2d736d13-4556-4233-8e53-64a9e34179bf",
+        "createdAt": 1774513720758
+    },
+    {
+        "name": "gap_pct",
+        "formula": "(open - close.shift(1)) / close.shift(1)",
+        "python_code": "(df[\"open\"] - df[\"close\"].shift(1)) / df[\"close\"].shift(1)",
+        "intuition": "Captures overnight sentiment shifts and liquidity gaps between sessions.",
+        "id": "9c091c09-3f91-44ea-b543-7f191c58530c",
+        "createdAt": 1774513720758
+    },
+    {
+        "name": "lower_shadow_pct",
+        "formula": "(min(open, close) - low) / close",
+        "python_code": "(df[[\"open\", \"close\"]].min(axis=1) - df[\"low\"]) / df[\"close\"]",
+        "intuition": "Quantifies buying support or rejection at lower price levels relative to the current price.",
+        "id": "fdb3a29b-16c1-432d-893a-e9ddf329067f",
+        "createdAt": 1774513720758
+    },
+    {
+        "name": "upper_shadow_pct",
+        "formula": "(high - max(open, close)) / close",
+        "python_code": "(df[\"high\"] - df[[\"open\", \"close\"]].max(axis=1)) / df[\"close\"]",
+        "intuition": "Quantifies supply overhead or rejection at higher price levels relative to the current price.",
+        "id": "d57b7507-5ec7-4568-930d-66f35727ae7b",
+        "createdAt": 1774513720758
+    },
+    {
+        "name": "body_size_pct",
+        "formula": "abs(close - open) / close",
+        "python_code": "(df[\"close\"] - df[\"open\"]).abs() / df[\"close\"]",
+        "intuition": "Measures the strength of the move from open to close, filtering out intraday noise and focusing on the net conviction.",
+        "id": "cf96fce4-6658-4f79-8759-2217fe784d14",
+        "createdAt": 1774513720758
+    },
+    {
+        "name": "returns_std_21",
+        "formula": "std(log(close / close.shift(1)), 21)",
+        "python_code": "np.log(df[\"close\"] / df[\"close\"].shift(1)).rolling(21).std()",
+        "intuition": "Monthly realized volatility to normalize price movements against long-term noise levels.",
+        "id": "b448cf32-8b41-4c32-b5d8-177d1b67606d",
+        "createdAt": 1774513720758
+    },
+    {
+        "name": "returns_std_14",
+        "formula": "std(log(close / close.shift(1)), 14)",
+        "python_code": "np.log(df[\"close\"] / df[\"close\"].shift(1)).rolling(14).std()",
+        "intuition": "Medium-term realized volatility measure capturing shifts in market risk over two trading weeks.",
+        "id": "6671910d-9317-4ed3-8eb7-00654681a07a",
+        "createdAt": 1774513720758
+    },
+    {
+        "name": "returns_std_7",
+        "formula": "std(log(close / close.shift(1)), 7)",
+        "python_code": "np.log(df[\"close\"] / df[\"close\"].shift(1)).rolling(7).std()",
+        "intuition": "Short-term realized volatility measure to identify high-variance price regimes.",
+        "id": "cdbfacbc-2e68-439e-a48b-d682a34f2395",
+        "createdAt": 1774513720758
+    },
+    {
+        "id": "76eab9c1-9afc-4cdb-9ad7-0f100de70799",
+        "name": "cmf_20",
+        "formula": "sum(mf_vol, 20) / sum(volume, 20)",
+        "python_code": "mf_mult = ((df['close'] - df['low']) - (df['high'] - df['close'])) / (df['high'] - df['low'] + 1e-9)\nmf_vol = mf_mult * df['volume']\ndf['cmf_20'] = mf_vol.rolling(20).sum() / (df['volume'].rolling(20).sum() + 1e-9)",
+        "intuition": "Chaikin Money Flow measures the amount of Money Flow Volume over a specific period. It helps identify accumulation or distribution.",
+        "createdAt": 1774513700216
+    },
+    {
+        "id": "1f4897e2-26d9-4240-b7b7-b788720df5db",
+        "name": "vol_ratio_alpha",
+        "formula": "atr_7 / atr_21",
+        "python_code": "df['vol_ratio_alpha'] = df['atr_7'] / df['atr_21']",
+        "intuition": "Ratio of short-term to long-term volatility. Values > 1 indicate expanding volatility, while < 1 suggest contraction or stabilization.",
+        "createdAt": 1774513700216
+    },
+    {
+        "id": "d0d756eb-bde1-443e-b788-a47b6a15d391",
+        "name": "trend_state",
+        "formula": "if adx < 20 then 0 else sign(close - sma_50)",
+        "python_code": "df['trend_state'] = np.where(df['adx'] < 20, 0, np.where(df['close'] > df['sma_50'], 1, -1))",
+        "intuition": "A categorical regime filter that distinguishes between ranging (0), bullish (1), and bearish (-1) environments using ADX and SMA.",
+        "createdAt": 1774513700216
+    },
+    {
+        "id": "d0700b64-72cd-42d5-b52a-ebdac8f6af86",
+        "name": "vol_acceleration",
+        "formula": "diff(diff(volume)) / volume_sma_20",
+        "python_code": "df['vol_acceleration'] = df['volume'].diff().diff() / (df['volume_sma_20'] + 1e-9)",
+        "intuition": "The second derivative of volume normalized by its moving average. Detects rapid changes in participation speed, often preceding price pivots.",
+        "createdAt": 1774513700216
+    },
+    {
+        "id": "96a7e728-ecd0-4fb7-b419-35b5efafff69",
+        "name": "pre_ignition_score",
+        "formula": "(1 - squeeze_ratio) + (1 - vol_depletion)",
+        "python_code": "df['pre_ignition_score'] = (1 - df['squeeze_ratio']) + (1 - df['vol_depletion'])",
+        "intuition": "Combines volatility squeeze (BB vs Keltner) and volume depletion to identify periods of extreme 'quietness' before a major breakout.",
+        "createdAt": 1774513700216
+    },
+    {
+        "id": "499a7b64-24af-444c-8f93-2dd40440edc9",
+        "name": "dist_to_ema50_atr",
+        "formula": "(close - ema_50) / atr_14",
+        "python_code": "df['dist_to_ema50_atr'] = (df['close'] - df['ema_50']) / (df['atr_14'] + 1e-9)",
+        "intuition": "Measures price distance from the 50-period EMA normalized by volatility (ATR). Helps identify overextended trends in institutional timeframes.",
+        "createdAt": 1774513700216
+    }
+]

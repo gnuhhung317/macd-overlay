@@ -31,17 +31,19 @@ class BacktestConfig:
     fee_rate: float = 0.001
     slippage: float = 0.01
     max_open_trades: int = 5
-    max_bars_hold: int = 24
+    max_bars_hold: int = 48
     start_date: str = '2025-01-01'
     end_date: str = None
     leverage: float = 1.0
-    long_atr_offset: float = -0.18 #-0.18 -0.9755
-    short_atr_offset: float =0.09 #0.09 0.4527
+    exchange: str = 'binance'
+    long_atr_offset: float = 0.0
+    short_atr_offset: float = 0.0
     limit_wait_bars: int = 2
-    tp_mult_long: float = 3.13
-    sl_mult_long: float = 2.51
-    tp_mult_short: float = 4
-    sl_mult_short: float = 2.2
+    tp_mult_long: float = 3.0
+    sl_mult_long: float = 1.5
+    tp_mult_short: float = 2.0
+    sl_mult_short: float = 1.5
+    threshold: Optional[float] = None
 
 @dataclass
 class Trade:
@@ -72,17 +74,17 @@ class Trade:
 # ============================================================
 BASE_DIR = Path(r"d:\Code\Projects\self-projects\macd-overlay - Copy")
 SYMBOLS_DIR = BASE_DIR / "data" / "processed" / "symbols_v3"
-MODEL_PATH = BASE_DIR / "ml" / "training" / "models" / "1h" / "ensemble_lgbm_tabular.joblib"
-META_PATH = BASE_DIR / "ml" / "training" / "models" / "1h" / "ensemble_meta.joblib"
+MODEL_PATH = BASE_DIR / "legacy" / "ml" / "models" / "honest" / "model_reversal.joblib"
+META_PATH = BASE_DIR / "legacy" / "ml" / "models" / "honest" / "ensemble_meta.joblib"
 
-def load_assets():
+def load_assets(override_threshold: Optional[float] = None):
     if not META_PATH.exists() or not MODEL_PATH.exists():
         print("❌ Missing model or meta file!")
-        return None, [], 0.6
+        return None, [], override_threshold if override_threshold is not None else 0.7
     meta = joblib.load(META_PATH)
     clf = joblib.load(MODEL_PATH)
     features = meta.get('features', []) if isinstance(meta, dict) else meta
-    threshold = meta.get('threshold', 0.6)
+    threshold = override_threshold if override_threshold is not None else meta.get('threshold', 0.7)
     return clf, features, threshold
 
 
@@ -204,12 +206,21 @@ def backtest_symbol(file_path, features, clf, threshold, config: BacktestConfig)
             scan_indices = df[(df['timestamp'] >= start_ts) & (df['timestamp'] <= end_ts)].index
         
         vol_sma = df['volume'].rolling(20).mean().shift(1)
-        c1 = (df['close'] > df['open']) & (df['close'] > df['ema_20'])
-        c2 = ((df['close'] - df['open']) / df['open']) > 0.015
-        c3 = (df['volume'] > vol_sma * 1.5) & (df['volume'] < vol_sma * 4.0)
-        c4 = (df['rsi_14'] >= 55) & (df['rsi_14'] <= 72)
         
-        ignition_mask = (c1 & c2 & c3 & c4).reindex(scan_indices, fill_value=False)
+        # New Reversal-focused Ignition Mask
+        # Matches trainer: green candle, body > 1%, volume > 1.2x SMA, and Reversal Regime
+        c1 = df['close'] > df['open']
+        c2 = ((df['close'] - df['open']) / df['open']) > 0.010
+        c3 = df['volume'] > (vol_sma * 1.2)
+        
+        # Reversal Regime: Price is significantly below Daily EMA 200
+        # If ema_200_1d_dist is missing, we allow it (or could calculate it)
+        if 'ema_200_1d_dist' in df.columns:
+            c4 = df['ema_200_1d_dist'] < -0.15
+            ignition_mask = (c1 & c2 & c3 & c4).reindex(scan_indices, fill_value=False)
+        else:
+            ignition_mask = (c1 & c2 & c3).reindex(scan_indices, fill_value=False)
+            
         final_scan_indices = scan_indices[ignition_mask]
         if len(final_scan_indices) == 0: return None, df
         
@@ -218,11 +229,13 @@ def backtest_symbol(file_path, features, clf, threshold, config: BacktestConfig)
         
         potential_signals = []
         for i, idx in enumerate(final_scan_indices):
-            pl, ps = probas[i, 1], probas[i, 2]
-            if pl > threshold or ps > threshold:
+            # The new binary model has 2 classes [0, 1]. probas[:, 1] is the probability of a LONG win.
+            pl = probas[i, 1]
+            ps = 0.0 # Reversal model is LONG-only
+            if pl > threshold:
                 potential_signals.append({
                     'timestamp': df.iloc[idx]['timestamp'], 'symbol': symbol,
-                    'type': 'LONG' if pl > ps else 'SHORT',
+                    'type': 'LONG',
                     'prob_long': pl, 'prob_short': ps,
                     'atr_val': df.iloc[idx]['atr_14'], 'close': df.iloc[idx]['close']
                 })
@@ -231,7 +244,7 @@ def backtest_symbol(file_path, features, clf, threshold, config: BacktestConfig)
         print(f"Error processing {file_path.name}: {e}"); return None, None
 
 def run_portfolio_simulation(all_signals, full_price_db, config: BacktestConfig):
-    if not all_signals: return None, []
+    if not all_signals: return [], [], 0
     print(f"Processing {len(all_signals)} potential signals against global timeline...")
     
     unique_ts = sorted(set().union(*(df['timestamp'] for df in full_price_db.values())))
@@ -318,10 +331,15 @@ def run_portfolio_simulation(all_signals, full_price_db, config: BacktestConfig)
     return closed_trades, equity_curve, 0
 
 def run_backtest_with_config(config: BacktestConfig):
-    clf, features, threshold = load_assets()
+    clf, features, threshold = load_assets(override_threshold=config.threshold)
     if clf is None: return None, None, None, None
     
-    all_files = list(SYMBOLS_DIR.glob("*.parquet"))
+    if config.exchange == 'bitget':
+        symbols_dir = BASE_DIR / "bitget-data" / "symbols_v3"
+    else:
+        symbols_dir = BASE_DIR / "data" / "processed" / "symbols_v3"
+        
+    all_files = list(symbols_dir.glob("*.parquet"))
     print(f"Scanning {len(all_files)} symbols...")
     potential_signals = []; full_price_db = {}
     for i, file_path in enumerate(all_files):
@@ -359,18 +377,22 @@ if __name__ == "__main__":
     parser.add_argument('--start', type=str, default='2025-01-01')
     parser.add_argument('--end', type=str, default='2026-03-01')
     parser.add_argument('--leverage', type=float, default=1.0)
+    parser.add_argument('--exchange', type=str, default='binance')
     parser.add_argument('--capital', type=float, default=100.0)
     parser.add_argument('--risk', type=float, default=0.05)
     parser.add_argument('--max-positions', type=int, default=5)
-    parser.add_argument('--max-bars-hold', type=int, default=24)
+    parser.add_argument('--max-bars-hold', type=int, default=48)
+    parser.add_argument('--threshold', type=float, default=None)
     args = parser.parse_args()
     config = BacktestConfig(
         start_date=args.start,
         end_date=args.end,
         leverage=args.leverage,
+        exchange=args.exchange,
         initial_capital=args.capital,
         risk_per_trade=args.risk,
         max_open_trades=args.max_positions,
-        max_bars_hold=args.max_bars_hold
+        max_bars_hold=args.max_bars_hold,
+        threshold=args.threshold
     )
     run_backtest_with_config(config)

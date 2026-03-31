@@ -324,6 +324,7 @@ def main():
     parser.add_argument('--start', type=str, default='2025-01-01', help='Start date (YYYY-MM-DD)')
     parser.add_argument('--end', type=str, default=None, help='End date (YYYY-MM-DD)')
     parser.add_argument('--leverage', type=float, default=1.0, help='Leverage multiplier')
+    parser.add_argument('--exchange', type=str, default='binance', help='Exchange data to use (binance or bitget)')
     parser.add_argument('--capital', type=float, default=100.0, help='Initial capital')
     parser.add_argument('--risk', type=float, default=0.1, help='Risk per trade (10%)')
     parser.add_argument('--max-pos', type=float, default=10, help='Max position size')
@@ -334,6 +335,7 @@ def main():
         start_date=args.start,
         end_date=args.end,
         leverage=args.leverage,
+        exchange=args.exchange,
         initial_capital=args.capital,
         risk_per_trade=args.risk,
         max_open_trades=args.max_pos

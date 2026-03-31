@@ -8,6 +8,7 @@ Usage:
     python ml/sync_and_rebuild.py --days 600         # Fetch last 600 days
     python ml/sync_and_rebuild.py --full             # Full re-download (~2000 days)
     python ml/sync_and_rebuild.py --symbols BTC ETH  # Specific symbols only
+    python ml/sync_and_rebuild.py --no-fetch         # Rebuild features from local Parquets only
 """
 import sys, os, time, gc, argparse
 import pandas as pd
@@ -97,16 +98,39 @@ def get_all_usdt_perpetuals():
     print(f"   Found {len(symbol_map)} USDT perpetuals.")
     return symbol_map
 
-def fetch_btc_context(days):
-    """Fetch and prepare BTC 1h data for context features."""
+def fetch_btc_context(days, no_fetch=False):
+    """Fetch or load BTC 1h data for context features."""
     print("📊 Loading BTC context...")
-    since_ms = int((time.time() - days * 86400) * 1000)
-    raw = fetch_ohlcv_paginated('BTC/USDT:USDT', '1h', since_ms)
-    if not raw:
-        print("⚠️ Failed to fetch BTC data!")
+    
+    ohlcv_file = BASE_DIR / "data" / "ohlcv" / "BTCUSDT.parquet"
+    if not ohlcv_file.exists():
+        ohlcv_file = BASE_DIR / "data" / "ohlcv" / "BTCUSDT_USDT.parquet"
+    
+    btc_df = None
+    if no_fetch or ohlcv_file.exists():
+        if ohlcv_file.exists():
+            btc_df = pd.read_parquet(ohlcv_file)
+            btc_df['timestamp'] = pd.to_datetime(btc_df['timestamp'])
+            # If not no_fetch, we might want to update it later, but for now just load
+            if no_fetch:
+                print(f"   ✅ BTC: Loaded {len(btc_df)} bars locally.")
+        
+    if btc_df is None and not no_fetch:
+        since_ms = int((time.time() - days * 86400) * 1000)
+        raw = fetch_ohlcv_paginated('BTC/USDT:USDT', '1h', since_ms)
+        if raw:
+            btc_df = raw_to_df(raw)
+            # Save local for next time
+            ohlcv_file.parent.mkdir(parents=True, exist_ok=True)
+            btc_df.to_parquet(ohlcv_file, index=False)
+            print(f"   ✅ BTC: Fetched {len(btc_df)} bars.")
+    
+    if btc_df is None:
+        print("⚠️ Failed to load BTC context!")
         return None
     
-    btc = raw_to_df(raw)
+    # Calculate features on whatever we have
+    btc = btc_df.copy()
     btc['log_returns'] = np.log(btc['close'] / (btc['close'].shift(1) + 1e-9))
     btc['sma_200'] = btc['close'].rolling(200).mean()
     
@@ -119,58 +143,72 @@ def fetch_btc_context(days):
     mdi = 100 * (mdm.rolling(14).mean() / atr_s.replace(0, np.nan))
     btc['adx'] = (100 * abs(pdi - mdi) / (pdi + mdi).replace(0, np.nan)).rolling(14).mean()
     
-    print(f"   ✅ BTC: {len(btc)} bars ({btc['timestamp'].min()} → {btc['timestamp'].max()})")
+    print(f"   ✅ BTC Context Ready: {len(btc)} bars ({btc['timestamp'].min()} → {btc['timestamp'].max()})")
     return btc
 
-def sync_symbol(api_sym, clean_name, days, btc_df, force_full=False):
+def sync_symbol(api_sym, clean_name, days, btc_df, force_full=False, no_fetch=False):
     """
     Fetch 1h OHLCV, compute features with BTC + daily context,
     and save enriched data to symbols_v3/.
     """
     parquet_path = SYMBOLS_DIR / f"{clean_name}.parquet"
+    ohlcv_file = BASE_DIR / "data" / "ohlcv" / f"{clean_name}.parquet"
+    if not ohlcv_file.exists():
+        # Try with _USDT suffix which seems to be the case on disk
+        ohlcv_file = BASE_DIR / "data" / "ohlcv" / f"{clean_name}_USDT.parquet"
     
-    # Determine fetch start (incremental vs full)
-    if not force_full and parquet_path.exists():
-        try:
-            existing = pd.read_parquet(parquet_path, columns=['timestamp'])
-            if 'timestamp' in existing.columns and len(existing) > 0:
-                existing['timestamp'] = pd.to_datetime(existing['timestamp'])
-                last_ts = existing['timestamp'].max()
-                since_ms = int(last_ts.timestamp() * 1000) - (200 * 3600000)  # 200 bar overlap for indicator warmup
+    ohlcv_file.parent.mkdir(parents=True, exist_ok=True)
+
+    if no_fetch:
+        if not ohlcv_file.exists():
+            # Only print warning if it's not a common pair we don't have
+            if clean_name.endswith('USDT'):
+                print(f"  ⚠️ {clean_name} OHLCV not found locally at {ohlcv_file.name}. Skipping.")
+            return 'empty'
+        df_merged = pd.read_parquet(ohlcv_file)
+        df_merged['timestamp'] = pd.to_datetime(df_merged['timestamp'])
+    else:
+        # Determine fetch start (incremental vs full)
+        since_ms = int((time.time() - days * 86400) * 1000) # Default for full fetch
+        
+        # Load local raw OHLCV data if it exists
+        df_local = pd.DataFrame()
+        if ohlcv_file.exists():
+            df_local = pd.read_parquet(ohlcv_file)
+            df_local['timestamp'] = pd.to_datetime(df_local['timestamp'])
+            if not force_full and len(df_local) > 0:
+                last_ts = df_local['timestamp'].max()
+                # 200 bar overlap for indicator warmup
+                since_ms = int(last_ts.timestamp() * 1000) - (200 * 3600000) 
                 bars_behind = (time.time() * 1000 - int(last_ts.timestamp() * 1000)) / 3600000
-                if bars_behind < 2:
+                if bars_behind < 2: # If less than 2 new bars, skip fetching
                     return 'skip'
-            else:
-                since_ms = int((time.time() - days * 86400) * 1000)
-        except:
-            since_ms = int((time.time() - days * 86400) * 1000)
-    else:
-        since_ms = int((time.time() - days * 86400) * 1000)
-    
-    # Fetch raw 1h OHLCV
-    raw = fetch_ohlcv_paginated(api_sym, '1h', since_ms)
-    if not raw:
-        return 'empty'
-    
-    df_new = raw_to_df(raw)
-    
-    # Merge with existing raw data (use only OHLCV columns from existing)
-    if parquet_path.exists() and not force_full:
-        try:
-            existing = pd.read_parquet(parquet_path)
-            ohlcv_cols = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
-            existing_cols = [c for c in ohlcv_cols if c in existing.columns]
-            existing = existing[existing_cols].copy()
-            existing['timestamp'] = pd.to_datetime(existing['timestamp']).dt.tz_localize(None)
+        
+        # Fetch raw 1h OHLCV
+        raw = fetch_ohlcv_paginated(api_sym, '1h', since_ms)
+        if not raw:
+            if len(df_local) == 0: # If no new data and no local data, it's empty
+                return 'empty'
+            else: # If no new data but local data exists, use local data
+                df_merged = df_local
+        else:
+            df_new = raw_to_df(raw)
             
-            df_merged = pd.concat([existing, df_new], ignore_index=True)
-            df_merged = df_merged.drop_duplicates(subset='timestamp', keep='last')
-            df_merged = df_merged.sort_values('timestamp').reset_index(drop=True)
-        except:
-            df_merged = df_new
-    else:
-        df_merged = df_new
+            # Merge with existing raw data
+            if len(df_local) > 0:
+                df_merged = pd.concat([df_local, df_new], ignore_index=True)
+                df_merged = df_merged.drop_duplicates(subset='timestamp', keep='last')
+                df_merged = df_merged.sort_values('timestamp').reset_index(drop=True)
+            else:
+                df_merged = df_new
+        
+        # Save raw OHLCV to local file
+        if len(df_merged) > 0:
+            df_merged.to_parquet(ohlcv_file, index=False)
     
+    if len(df_merged) == 0:
+        return 'empty'
+
     # Resample 1h → 1d for daily MTF context
     df_1d = df_merged.set_index('timestamp').resample('1D').agg(
         {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}
@@ -186,13 +224,13 @@ def sync_symbol(api_sym, clean_name, days, btc_df, force_full=False):
     df_enriched.to_parquet(parquet_path, index=False)
     return len(df_enriched)
 
-def run_sync(days=500, force_full=False, filter_symbols=None):
+def run_sync(days=500, force_full=False, filter_symbols=None, no_fetch=False):
     """Main sync loop."""
     start = datetime.now()
     print(f"\n{'='*70}")
     print(f"🔄 Sync & Rebuild — {start.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"   Target: {SYMBOLS_DIR}")
-    print(f"   Days: {days} | Full: {force_full}")
+    print(f"   Days: {days if not no_fetch else 'N/A (Local Rebuild)'} | Full: {force_full} | No Fetch: {no_fetch}")
     print(f"{'='*70}\n")
     
     symbol_map = get_all_usdt_perpetuals()
@@ -203,7 +241,11 @@ def run_sync(days=500, force_full=False, filter_symbols=None):
         print(f"   Filtered to {len(symbol_map)} symbols: {[s[1] for s in symbol_map]}")
     
     # Fetch BTC context once
-    btc_df = fetch_btc_context(days)
+    # If no_fetch, we still need BTC_df for feature calculation, but don't need to fetch new data.
+    btc_df = fetch_btc_context(days, no_fetch=no_fetch)
+    if btc_df is None:
+        print("❌ BTC context data is essential. Exiting.")
+        return
     
     total = len(symbol_map)
     synced = 0
@@ -212,7 +254,7 @@ def run_sync(days=500, force_full=False, filter_symbols=None):
     
     for i, (api_sym, clean_name) in enumerate(symbol_map):
         try:
-            result = sync_symbol(api_sym, clean_name, days, btc_df, force_full)
+            result = sync_symbol(api_sym, clean_name, days, btc_df, force_full, no_fetch)
             
             if result == 'skip':
                 skipped += 1
@@ -254,9 +296,10 @@ if __name__ == "__main__":
     parser.add_argument("--days", type=int, default=500, help="Days of history to fetch (default: 500)")
     parser.add_argument("--full", action="store_true", help="Force full re-download (~2000 days)")
     parser.add_argument("--symbols", nargs="+", help="Specific symbols (e.g. BTC ETH SOL)")
+    parser.add_argument("--no-fetch", action="store_true", help="Rebuild features from local Parquet without calling API")
     args = parser.parse_args()
     
     if args.full:
         args.days = 2000
     
-    run_sync(days=args.days, force_full=args.full, filter_symbols=args.symbols)
+    run_sync(days=args.days, force_full=args.full, filter_symbols=args.symbols, no_fetch=args.no_fetch)

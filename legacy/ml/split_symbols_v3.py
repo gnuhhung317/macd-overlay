@@ -28,6 +28,6 @@ def split_parquet(input_file, output_dir):
 
 if __name__ == "__main__":
     split_parquet(
-        r"data/processed/features_1h_btc_context.parquet",
+        r"ml\features_1h_full (1).parquet",
         r"data/processed/symbols_v3"
     )
