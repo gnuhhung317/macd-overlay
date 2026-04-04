@@ -86,10 +86,15 @@ class DryRunExecutor(ExchangeExecutor):
     def get_open_orders(self, symbol: Optional[str] = None) -> list:
         return []
 
-import ccxt
+try:
+    import ccxt
+except Exception:
+    ccxt = None
 
 class CCXTExecutor(ExchangeExecutor):
     def __init__(self, config: BotConfig):
+        if ccxt is None:
+            raise ImportError("ccxt is required for non-binance live execution. Install ccxt first.")
         self.config = config
         exchange_id = config.exchange.name.lower()
         exchange_class = getattr(ccxt, exchange_id)
@@ -109,6 +114,33 @@ class CCXTExecutor(ExchangeExecutor):
             exchange_args['password'] = config.exchange.passphrase
             
         self.client = exchange_class(exchange_args)
+
+        # Enable Sandbox/Testnet mode if required
+        if hasattr(config.exchange, 'use_testnet') and config.exchange.use_testnet:
+            sandbox_enabled = False
+            try:
+                # Standard CCXT sandbox API
+                self.client.set_sandbox_mode(True)
+                sandbox_enabled = True
+            except Exception:
+                pass
+            if not sandbox_enabled:
+                try:
+                    # Some exchanges expose demo mode via custom helper
+                    self.client.enable_demo_trading(True)
+                    sandbox_enabled = True
+                except Exception as e:
+                    print(f"⚠️ Error enabling sandbox mode for {exchange_id}: {e}")
+            if sandbox_enabled:
+                print(f"[Executor] {exchange_id.upper()} Sandbox Mode (Testnet) Enabled")
+
+        # Load markets for precision and symbol details
+        try:
+            self.client.load_markets()
+            mode = "Testnet" if getattr(config.exchange, 'use_testnet', False) else "Real"
+            print(f"[Executor] Initialized CCXT Executor for {exchange_id.upper()} ({mode} Trading)")
+        except Exception as e:
+            print(f"⚠️ Error loading markets for {exchange_id}: {e}")
         
     def _safe_float(self, value: Any, default: float = 0.0) -> float:
         """Safely convert value to float, handling None and invalid strings"""
@@ -118,21 +150,6 @@ class CCXTExecutor(ExchangeExecutor):
             return float(value)
         except (ValueError, TypeError):
             return default
-        
-        # Enable Sandbox/Testnet mode if required
-        if hasattr(config.exchange, 'use_testnet') and config.exchange.use_testnet:
-            try:
-                self.client.enable_demo_trading(True)
-                print(f"[Executor] {exchange_id.upper()} Sandbox Mode (Testnet) Enabled")
-            except Exception as e:
-                print(f"⚠️ Error enabling sandbox mode for {exchange_id}: {e}")
-        
-        # Load markets for precision and symbol details
-        try:
-            self.client.load_markets()
-            print(f"[Executor] Initialized CCXT Executor for {exchange_id.upper()} (Real Trading)")
-        except Exception as e:
-            print(f"⚠️ Error loading markets for {exchange_id}: {e}")
 
     def _get_ccxt_symbol(self, symbol: str) -> str:
         # e.g. BTCUSDT -> BTC/USDT:USDT (futures) or BTC/USDT

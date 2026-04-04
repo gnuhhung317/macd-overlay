@@ -26,10 +26,10 @@
         dest: "{{ bot_dir }}/sniper/"
         mode: '0755'
 
-    - name: 1d. Copy local models (Required for scanning)
+    - name: 1d. Copy local selector artifacts (Required for scanning)
       copy:
-        src: "{{ playbook_dir }}/../ml/training/models/"
-        dest: "{{ bot_dir }}/ml/training/models/"
+        src: "{{ playbook_dir }}/../output/selector_artifacts/"
+        dest: "{{ bot_dir }}/output/selector_artifacts/"
         directory_mode: '0755'
 
     - name: 2. Install Python dependencies

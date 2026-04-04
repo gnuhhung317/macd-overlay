@@ -17,9 +17,13 @@
     # Cấu hình mặc định
     bot_dir: "/opt/{{ bot_name }}"
     local_config_dir: "bots-configs/{{ bot_name }}"
+    local_artifact_dir: "{{ playbook_dir }}/../output/selector_artifacts"
+
+    sniper_config_server_path: "{{ bot_dir }}/sniper_bot/sniper_bot_config.json"
+    sniper_run_args: "--config-path {{ sniper_config_server_path }}"
 
     # [TỐI ƯU 1]: Ép Systemd gọi đúng Python nằm trong Virtual Environment, không dùng Python hệ thống
-    bot_command: "{{ bot_dir }}/venv/bin/python -m sniper_bot.main"
+    bot_command: "{{ bot_dir }}/venv/bin/python -m sniper_bot.main {{ sniper_run_args }}"
 
   tasks:
     - name: 1. Cài đặt các gói phần mềm cần thiết (Git, Python, Pip, Venv)
@@ -54,13 +58,13 @@
     - name: 3. Copy file config riêng biệt cho Sniper
       copy:
         src: "{{ local_config_dir }}/sniper_bot_config.json"
-        dest: "{{ bot_dir }}/sniper_bot_config.json"
+        dest: "{{ sniper_config_server_path }}"
         mode: "0600"
 
-    - name: 4. Copy thư mục models (AI) từ máy Local lên Server
+    - name: 4. Copy selector artifacts từ máy Local lên Server
       copy:
-        src: "{{ playbook_dir }}/../ml/training/models/"
-        dest: "{{ bot_dir }}/ml/training/models/"
+        src: "{{ local_artifact_dir }}/"
+        dest: "{{ bot_dir }}/output/selector_artifacts/"
         directory_mode: "0755"
 
     - name: 5. Cài đặt các thư viện Python vào Virtual Env (Fix lỗi PEP-668)
