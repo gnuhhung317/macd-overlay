@@ -8,12 +8,15 @@ from .config import BotConfig
 # In a real scenario, this should be adaptable or use ccxt for multi-exchange support
 try:
     from data_processor import BinanceDataProcessor
-    from ccxt_data_processor import CCXTDataProcessor
 except ImportError:
     import sys
     sys.path.append('..') # Add parent directory to path
     from data_processor import BinanceDataProcessor
+
+try:
     from ccxt_data_processor import CCXTDataProcessor
+except Exception:
+    CCXTDataProcessor = None
 
 class DataProvider:
     def __init__(self, config: BotConfig):
@@ -26,6 +29,11 @@ class DataProvider:
                 api_secret=self.config.exchange.api_secret
             )
         else:
+            if CCXTDataProcessor is None:
+                raise ImportError(
+                    "ccxt_data_processor is unavailable (missing 'ccxt'). "
+                    "Install ccxt or set exchange.name='binance' for local paper mode."
+                )
             self.processor = CCXTDataProcessor(
                 exchange_id=exchange_name,
                 api_key=self.config.exchange.api_key,

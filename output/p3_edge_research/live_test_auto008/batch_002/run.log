@@ -1,0 +1,11 @@
+STDOUT
+
+[RUN] auto_008_live
+[CACHE HIT] dataset_f8ad286adb3f3559faacb566.parquet rows=17144
+
+[DONE]
+Summary: output\p3_edge_research\live_test_auto008\batch_002\summary.csv
+Details: output\p3_edge_research\live_test_auto008\batch_002\details.json
+
+
+STDERR

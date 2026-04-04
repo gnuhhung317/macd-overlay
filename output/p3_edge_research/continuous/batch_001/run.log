@@ -1,0 +1,58 @@
+STDOUT
+
+[RUN] baseline
+
+[RUN] higher_quality_wave
+
+[RUN] pullback_conservative
+
+[RUN] faster_rotation
+
+[RUN] tighter_quality
+
+[RUN] auto_006
+
+[RUN] auto_007
+
+[RUN] auto_008
+
+[DONE]
+Summary: output\p3_edge_research\continuous\batch_001\summary.csv
+Details: output\p3_edge_research\continuous\batch_001\details.json
+
+
+STDERR
+
+Extract:   0%|          | 0/2 [00:00<?, ?it/s]
+Extract: 100%|##########| 2/2 [00:00<00:00, 13.16it/s]
+Extract: 100%|##########| 2/2 [00:00<00:00, 13.16it/s]
+
+Extract:   0%|          | 0/2 [00:00<?, ?it/s]
+Extract:  50%|#####     | 1/2 [00:00<00:00,  6.02it/s]
+Extract: 100%|##########| 2/2 [00:00<00:00,  6.89it/s]
+Extract: 100%|##########| 2/2 [00:00<00:00,  6.75it/s]
+
+Extract:   0%|          | 0/2 [00:00<?, ?it/s]
+Extract: 100%|##########| 2/2 [00:00<00:00, 10.17it/s]
+Extract: 100%|##########| 2/2 [00:00<00:00, 10.17it/s]
+
+Extract:   0%|          | 0/2 [00:00<?, ?it/s]
+Extract: 100%|##########| 2/2 [00:00<00:00,  6.88it/s]
+Extract: 100%|##########| 2/2 [00:00<00:00,  6.88it/s]
+
+Extract:   0%|          | 0/2 [00:00<?, ?it/s]
+Extract:  50%|#####     | 1/2 [00:00<00:00,  9.43it/s]
+Extract: 100%|##########| 2/2 [00:00<00:00,  7.58it/s]
+Extract: 100%|##########| 2/2 [00:00<00:00,  7.81it/s]
+
+Extract:   0%|          | 0/2 [00:00<?, ?it/s]
+Extract: 100%|##########| 2/2 [00:00<00:00,  8.21it/s]
+Extract: 100%|##########| 2/2 [00:00<00:00,  8.21it/s]
+
+Extract:   0%|          | 0/2 [00:00<?, ?it/s]
+Extract: 100%|##########| 2/2 [00:00<00:00,  9.34it/s]
+Extract: 100%|##########| 2/2 [00:00<00:00,  9.34it/s]
+
+Extract:   0%|          | 0/2 [00:00<?, ?it/s]
+Extract: 100%|##########| 2/2 [00:00<00:00,  8.83it/s]
+Extract: 100%|##########| 2/2 [00:00<00:00,  8.83it/s]

@@ -2,8 +2,10 @@ import time
 import signal
 import sys
 import logging
+import argparse
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 # Add root to Path to allow importing from bot and ml packages
 sys.path.append(str(Path(__file__).parent.parent))
@@ -39,9 +41,15 @@ if sys.platform == "win32":
 logger = logging.getLogger("SniperBot")
 
 class SniperBot:
-    def __init__(self):
+    def __init__(self, config_path: Optional[Path] = None, local_paper: bool = False):
         self.running = True
-        self.config = SniperBotConfig.load()
+        self.config = SniperBotConfig.load(config_path) if config_path else SniperBotConfig.load()
+        self.local_paper = bool(local_paper)
+
+        # Force local paper mode: scan live but keep execution and position lifecycle local-only.
+        if self.local_paper:
+            self.config.exchange.dry_run = True
+
         self.db = DatabaseManager()
         self.data_provider = DataProvider(self.config)
         
@@ -59,7 +67,8 @@ class SniperBot:
                 token=self.config.telegram.token, 
                 chat_id=self.config.telegram.chat_id
             )
-            self.notifier.send_message(f"🏹 <b>Sniper Bot Started</b>\nMode: {'DRY RUN' if self.config.exchange.dry_run else 'LIVE'}")
+            mode_text = "LOCAL PAPER" if self.local_paper else ("DRY RUN" if self.config.exchange.dry_run else "LIVE")
+            self.notifier.send_message(f"🏹 <b>Sniper Bot Started</b>\nMode: {mode_text}")
         
         # Reuse PositionManager from bot module
         self.position_manager = PositionManager(
@@ -97,9 +106,10 @@ class SniperBot:
         except Exception as e:
             logger.error(f"❌ Error fetching coins: {e}")
             
-    def run(self):
+    def run(self, max_cycles: int = 0):
         logger.info(f"🏹 Starting ML Sniper Bot [{datetime.now()}]")
-        logger.info(f"🔧 Mode: {'DRY RUN' if self.config.exchange.dry_run else 'LIVE TRADING'}")
+        mode_text = "LOCAL PAPER" if self.local_paper else ("DRY RUN" if self.config.exchange.dry_run else "LIVE TRADING")
+        logger.info(f"🔧 Mode: {mode_text}")
         logger.info(f"📊 TF: {self.config.strategy.timeframes}")
         
         if getattr(self.config, 'use_all_symbols', False):
@@ -107,6 +117,7 @@ class SniperBot:
             
         # Timestamp to track next symbol fetch
         self.last_fetch_time = time.time()
+        cycle_count = 0
         
         while self.running:
             try:
@@ -148,6 +159,12 @@ class SniperBot:
                                 self.position_manager.execute_calculated_signal(sig, tf)
                         except Exception as e:
                             logger.error(f"❌ Scanner Error: {e}")
+
+                cycle_count += 1
+                if max_cycles > 0 and cycle_count >= max_cycles:
+                    logger.info(f"✅ Reached max cycles={max_cycles}, stopping.")
+                    self.running = False
+                    break
                             
                 # Sleep logic
                 min_tf_minutes = float('inf')
@@ -182,6 +199,30 @@ class SniperBot:
                     except: pass
                 time.sleep(60)
 
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Sniper bot live runner")
+    parser.add_argument(
+        "--config-path",
+        type=str,
+        default="sniper_bot/sniper_bot_config.json",
+        help="Path to sniper config JSON",
+    )
+    parser.add_argument(
+        "--local-paper",
+        action="store_true",
+        help="Force local paper execution (no exchange order placement)",
+    )
+    parser.add_argument(
+        "--max-cycles",
+        type=int,
+        default=0,
+        help="Stop after N scan/manage cycles (0 = run forever)",
+    )
+    return parser
+
 if __name__ == "__main__":
-    bot = SniperBot()
-    bot.run()
+    args = build_parser().parse_args()
+    cfg_path = Path(args.config_path) if args.config_path else None
+    bot = SniperBot(config_path=cfg_path, local_paper=bool(args.local_paper))
+    bot.run(max_cycles=int(args.max_cycles))

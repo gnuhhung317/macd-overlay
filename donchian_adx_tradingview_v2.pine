@@ -1,0 +1,112 @@
+//@version=5
+strategy("Donchian ADX Breakout v2", overlay=true, calc_on_every_tick=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=100, commission_type=strategy.commission.percent, commission_value=0.03, slippage=5)
+
+// --- Input Parameters ---
+grp1 = "Donchian Channels"
+lengthDC = input.int(40, "Donchian Period", group=grp1)
+lengthExit = lengthDC / 2
+
+grp2 = "ADX Filter"
+lengthADX = input.int(14, "ADX Period", group=grp2)
+adxThreshold = input.float(20.0, "ADX Threshold", group=grp2)
+
+grp3 = "Risk Management"
+lengthATR = input.int(14, "ATR Period", group=grp3)
+slAtrMult = input.float(4.0, "SL ATR Multiplier", group=grp3)
+tpPerc = input.float(0.02, "Take Profit %", group=grp3)
+deviationPerc = input.float(0.005, "Trailing TP Deviation", tooltip="0.005 = 0.5%", group=grp3)
+
+// --- Indicators ---
+atr = ta.atr(lengthATR)
+[diPlus, diMinus, adx] = ta.dmi(lengthADX, lengthADX)
+
+// Donchian Channels (Mốc đỉnh/đáy N phiên trước)
+dcUpper = ta.highest(high, lengthDC)[1]
+dcLower = ta.lowest(low, lengthDC)[1]
+
+// Exit Channels (Mốc thoát lệnh)
+dcExitLong = ta.lowest(low, int(lengthExit))[1]
+dcExitShort = ta.highest(high, int(lengthExit))[1]
+
+// --- Vẽ Chart ---
+plot(dcUpper, color=color.new(color.green, 50), title="DC Upper")
+plot(dcLower, color=color.new(color.red, 50), title="DC Lower")
+plot(dcExitLong, color=color.new(color.orange, 50), style=plot.style_linebr, title="Exit Long")
+plot(dcExitShort, color=color.new(color.blue, 50), style=plot.style_linebr, title="Exit Short")
+
+// --- Variables Quản lý Lệnh (Lưu giữ state) ---
+var float entryPrice = na
+var float currentSL = na
+var float currentTP = na
+var float atrAtEntry = na
+var bool tpHit = false
+
+// --- Tính tín hiệu ---
+longCondition = adx > adxThreshold
+shortCondition = adx > adxThreshold
+
+// --- 1. ENTRY (Mua Bán theo kiểu Breakout bằng Stop Market) ---
+if strategy.position_size == 0
+    // Khớp lệnh ngay tại mốc DC (không đợi đóng nến)
+    if longCondition
+        strategy.entry("Long", strategy.long, stop=dcUpper)
+    if shortCondition
+        strategy.entry("Short", strategy.short, stop=dcLower)
+
+// --- 2. QUẢN LÝ LỆNH SAU KHI VÀO ---
+if strategy.position_size != 0
+    // Vừa mới khớp lệnh xong (Xác định SL đỉnh/đáy ban đầu)
+    if strategy.position_size[1] == 0
+        entryPrice := strategy.opentrades.entry_price(strategy.opentrades - 1)
+        atrAtEntry := atr[1]
+        tpHit := false
+        
+        if strategy.position_size > 0
+            currentSL := entryPrice - slAtrMult * atrAtEntry
+            currentTP := entryPrice * (1 + tpPerc)
+        else
+            currentSL := entryPrice + slAtrMult * atrAtEntry
+            currentTP := entryPrice * (1 - tpPerc)
+
+    // --- 3. TRAILING SL VÀ EXIT ---
+    if strategy.position_size > 0 // Vị thế LONG
+        // Dời SL theo đỉnh mới tạo
+        newSl = high - slAtrMult * atrAtEntry
+        // Nếu đã từng chạm TP thì kéo SL tối thiểu về Entry (Hòa Vốn)
+        if tpHit
+            newSl := math.max(newSl, entryPrice)
+            
+        currentSL := math.max(currentSL, newSl)
+        
+        // Kiểm tra xem nến hiện tại có chạm mốc Trailing TP chưa
+        if high >= currentTP
+            tpHit := true
+            currentSL := math.max(currentSL, high * (1 - deviationPerc)) // Đặt SL nhỏ ở ngay dưới đỉnh
+            
+        // Đặt một lệnh EXIT dừng lỗ tại (currentSL) hoặc thủng (dcExitLong), cái nào CAO HƠN (tức là gần giá trị hiện tại hơn) thì khớp trước
+        stopPrice = math.max(currentSL, dcExitLong)
+        strategy.exit("Exit Long", "Long", stop=stopPrice)
+
+    else if strategy.position_size < 0 // Vị thế SHORT
+        // Dời SL theo đáy mới tạo
+        newSl = low + slAtrMult * atrAtEntry
+        if tpHit
+            newSl := math.min(newSl, entryPrice)
+            
+        currentSL := math.min(currentSL, newSl)
+        
+        if low <= currentTP
+            tpHit := true
+            currentSL := math.min(currentSL, low * (1 + deviationPerc)) // Đặt SL nhỏ ở ngay trên đáy
+            
+        // Đặt một lệnh EXIT dừng lỗ tại (currentSL) hoặc bục (dcExitShort), cái nào THẤP HƠN (tức là gần giá trị hiện tại hơn) thì khớp trước
+        stopPrice = math.min(currentSL, dcExitShort)
+        strategy.exit("Exit Short", "Short", stop=stopPrice)
+        
+else
+    // Reset state khi không có lệnh
+    entryPrice := na
+    currentSL := na
+    currentTP := na
+    atrAtEntry := na
+    tpHit := false

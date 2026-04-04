@@ -62,3 +62,15 @@ Nếu muốn xem log chạy liên tục của 1 con bot cụ thể, SSH vào ser
 ```bash
 journalctl -u bot_binance_01 -f
 ```
+
+## Deploy Sniper Local Paper (Mode A: local execution, data tu san):
+Deploy code + config + selector artifact, sau do chay service sniper voi `--local-paper`:
+```bash
+ansible-playbook -i inventory.ini deploy-sniper-local-paper.yml --limit sniper_testnet
+```
+
+## Check so du Local Paper hien tai:
+Lenh nay se in service status + tong ket balance local-paper (realized/unrealized/equity):
+```bash
+ansible-playbook -i inventory.ini check-sniper-paper-balance.yml --limit sniper_testnet
+```

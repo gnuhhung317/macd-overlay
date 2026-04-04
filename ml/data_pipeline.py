@@ -13,6 +13,7 @@ warnings.filterwarnings('ignore')
 DATA_DIR = Path(__file__).parent.parent / 'bitget-data'
 OHLCV_DIR = DATA_DIR / 'ohlcv'
 FUNDING_DIR = DATA_DIR / 'funding'
+DERIVATIVES_DIR = DATA_DIR / 'derivatives'
 PROCESSED_DIR = DATA_DIR / 'processed'
 
 def set_data_directory(new_dir: Path):
@@ -20,10 +21,11 @@ def set_data_directory(new_dir: Path):
     Dynamically update the data directories.
     Useful for switching between Bitget and Binance.
     """
-    global DATA_DIR, OHLCV_DIR, FUNDING_DIR, PROCESSED_DIR
+    global DATA_DIR, OHLCV_DIR, FUNDING_DIR, DERIVATIVES_DIR, PROCESSED_DIR
     DATA_DIR = new_dir
     OHLCV_DIR = DATA_DIR / 'ohlcv'
     FUNDING_DIR = DATA_DIR / 'funding'
+    DERIVATIVES_DIR = DATA_DIR / 'derivatives'
     PROCESSED_DIR = DATA_DIR / 'processed'
     print(f"📁 Data directory set to: {DATA_DIR}")
 
@@ -73,6 +75,42 @@ def load_funding(symbol: str) -> pd.DataFrame:
     else:
         df['timestamp'] = pd.to_datetime(df['timestamp'])
     
+    df = df.sort_values('timestamp').reset_index(drop=True)
+    return df
+
+
+def load_derivatives(symbol: str) -> pd.DataFrame:
+    """Load derivatives data (OI, Long/Short ratio) for a symbol"""
+    # Try both naming conventions and fallback to base data dir
+    possible_dirs = [DERIVATIVES_DIR, Path(__file__).parent.parent / 'data' / 'derivatives']
+    file_path = None
+    
+    for d in possible_dirs:
+        if (d / f"{symbol}_USDT.parquet").exists():
+            file_path = d / f"{symbol}_USDT.parquet"
+            break
+        elif (d / f"{symbol}.parquet").exists():
+            file_path = d / f"{symbol}.parquet"
+            break
+            
+    if not file_path:
+        return pd.DataFrame()
+    
+    try:
+        df = pd.read_parquet(file_path)
+    except Exception as e:
+        print(f"  ⚠️ Error reading derivatives for {symbol}: {e}")
+        return pd.DataFrame()
+    
+    # Standardize column names
+    if 'timestamp' not in df.columns:
+        return pd.DataFrame()
+        
+    if df['timestamp'].dtype == 'int64':
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+    else:
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        
     df = df.sort_values('timestamp').reset_index(drop=True)
     return df
 
@@ -316,6 +354,76 @@ def calculate_features(df: pd.DataFrame) -> pd.DataFrame:
     df['obv_sma'] = df['obv'].rolling(14).mean()
     df['obv_trend'] = df['obv'] / df['obv_sma']
     
+    # ===== Advanced Statistical & Micro-structure Features (For SHAP/RFE) =====
+    
+    # 1. Candlestick & Micro-structure
+    df['wick_to_body_ratio'] = (df['upper_shadow'] + df['lower_shadow']) / (df['body_size'] + 1e-8)
+    df['is_doji'] = (df['body_size'] < 0.001).astype(int)
+    
+    df['rolling_min_24'] = df['low'].rolling(24).min()
+    df['rolling_max_24'] = df['high'].rolling(24).max()
+    df['sweep_low'] = ((df['low'] <= df['rolling_min_24'].shift(1)) & (df['close'] > df['rolling_min_24'].shift(1))).astype(int)
+    df['sweep_high'] = ((df['high'] >= df['rolling_max_24'].shift(1)) & (df['close'] < df['rolling_max_24'].shift(1))).astype(int)
+    
+    # 2. Skewness / Kurtosis (Fat tails detection for risk)
+    df['returns_skew_14'] = df['returns'].rolling(14).skew()
+    df['returns_kurt_14'] = df['returns'].rolling(14).kurt()
+    
+    # 3. Robust Z-Scores (Outlier-resistant)
+    median_24 = df['close'].rolling(24).median()
+    iqr_24 = df['close'].rolling(24).quantile(0.75) - df['close'].rolling(24).quantile(0.25)
+    df['price_robust_z'] = (df['close'] - median_24) / (iqr_24 + 1e-8)
+    
+    vol_median_24 = df['volume'].rolling(24).median()
+    vol_iqr_24 = df['volume'].rolling(24).quantile(0.75) - df['volume'].rolling(24).quantile(0.25)
+    df['volume_robust_z'] = (df['volume'] - vol_median_24) / (vol_iqr_24 + 1e-8)
+    
+    # 4. Advanced Oscillators (Williams %R, TSI, CMF)
+    highest_high = df['high'].rolling(14).max()
+    lowest_low = df['low'].rolling(14).min()
+    df['williams_r'] = (highest_high - df['close']) / (highest_high - lowest_low + 1e-8) * -100
+    
+    diff = df['close'].diff()
+    ema25_diff = diff.ewm(span=25, adjust=False).mean()
+    ema13_ema25_diff = ema25_diff.ewm(span=13, adjust=False).mean()
+    ema25_abs_diff = abs(diff).ewm(span=25, adjust=False).mean()
+    ema13_ema25_abs_diff = ema25_abs_diff.ewm(span=13, adjust=False).mean()
+    df['tsi'] = 100 * (ema13_ema25_diff / (ema13_ema25_abs_diff + 1e-8))
+    
+    mf_multiplier = ((df['close'] - df['low']) - (df['high'] - df['close'])) / (df['high'] - df['low'] + 1e-8)
+    mf_volume = mf_multiplier * df['volume']
+    df['cmf_20'] = mf_volume.rolling(20).sum() / (df['volume'].rolling(20).sum() + 1e-8)
+    
+    # 5. Price-Volume Divergence
+    df['price_up_volume_down'] = ((df['returns'] > 0) & (df['volume'] < df['volume'].shift(1))).astype(int)
+    df['price_down_volume_down'] = ((df['returns'] < 0) & (df['volume'] < df['volume'].shift(1))).astype(int)
+    
+    # 6. Vectorized Autocorrelation (Lag-1)
+    ret_shift = df['returns'].shift(1)
+    roll_cov = df['returns'].rolling(14).cov(ret_shift)
+    roll_var = df['returns'].rolling(14).var()
+    df['autocorr_1'] = roll_cov / (roll_var + 1e-8)
+    
+    # 7. Multi-timeframe proxies (Assuming base timeframe is often 1H -> 4H proxy)
+    df['rsi_14_4x'] = calculate_rsi(df['close'], 14 * 4)
+    df['roc_14_4x'] = df['close'].pct_change(14 * 4)
+    
+    # 8. Volume Profile & Order Flow Proxies
+    # VWAP (Approximation over 24 periods)
+    typical_price = (df['high'] + df['low'] + df['close']) / 3
+    df['vwap_24'] = (typical_price * df['volume']).rolling(24).sum() / (df['volume'].rolling(24).sum() + 1e-8)
+    df['dist_to_vwap_24'] = (df['close'] - df['vwap_24']) / (df['vwap_24'] + 1e-8)
+    
+    # 9. Efficiency Ratio (Kaufman)
+    # ER = Direction / Volatility
+    direction = abs(df['close'] - df['close'].shift(14))
+    volatility = abs(df['close'].diff()).rolling(14).sum()
+    df['kaufman_er'] = direction / (volatility + 1e-8)
+    
+    # 10. Gap / FVG (Fair Value Gap) Features
+    df['fvg_bullish'] = ((df['low'] > df['high'].shift(2)) & (df['close'] > df['open'])).astype(int)
+    df['fvg_bearish'] = ((df['high'] < df['low'].shift(2)) & (df['close'] < df['open'])).astype(int)
+    
     # ===== Market Regime =====
     df['is_trending'] = (abs(df['trend_7_21'] - 1) > 0.02).astype(int)
     df['is_volatile'] = (df['volatility_14'] > df['volatility_14'].rolling(50).mean()).astype(int)
@@ -417,6 +525,56 @@ def calculate_features(df: pd.DataFrame) -> pd.DataFrame:
     df['trend_btc_align'] = 0   # Placeholder
     df['rs_vs_btc'] = 0.0       # Placeholder
     
+    # ===== DERIVATIVES & MICRO-STRUCTURE FEATURES (Not Raw) =====
+    # These rely on having 'sum_open_interest', 'fundingRate', 'top_ls_ratio', etc.
+    
+    # 1. Open Interest (OI)
+    if 'sum_open_interest' in df.columns:
+        oi_median_24 = df['sum_open_interest'].rolling(24).median()
+        oi_iqr_24 = df['sum_open_interest'].rolling(24).quantile(0.75) - df['sum_open_interest'].rolling(24).quantile(0.25)
+        df['oi_robust_z'] = (df['sum_open_interest'] - oi_median_24) / (oi_iqr_24 + 1e-8)
+        
+        # OI Rate of Change
+        df['oi_roc_1'] = df['sum_open_interest'].pct_change(1)
+        df['oi_roc_4'] = df['sum_open_interest'].pct_change(4)
+        
+        # Price-OI Regime (1: New longs, -1: New shorts, -2: Long liq, 2: Short cover)
+        df['oi_price_trend'] = np.where(
+            (df['returns'] > 0) & (df['oi_roc_1'] > 0), 1,  
+            np.where((df['returns'] < 0) & (df['oi_roc_1'] > 0), -1,  
+            np.where((df['returns'] < 0) & (df['oi_roc_1'] < 0), -2,  
+            np.where((df['returns'] > 0) & (df['oi_roc_1'] < 0), 2, 0))) 
+        )
+        
+        # CVD Proxy: Volume direction vs OI direction
+        df['cvd_proxy_14'] = (df['oi_roc_1'] * df['volume'] * np.sign(df['returns'])).rolling(14).sum()
+        
+    # 2. Funding Rate
+    fund_col = 'fundingRate' if 'fundingRate' in df.columns else ('funding_rate' if 'funding_rate' in df.columns else None)
+    if fund_col:
+        fr_median_24 = df[fund_col].rolling(24).median()
+        fr_iqr_24 = df[fund_col].rolling(24).quantile(0.75) - df[fund_col].rolling(24).quantile(0.25)
+        df['funding_robust_z'] = (df[fund_col] - fr_median_24) / (fr_iqr_24 + 1e-8)
+        
+        # Trạng thái bẫy funding (Funding trap)
+        df['funding_trap_long'] = ((df['returns'] < -0.01) & (df['funding_robust_z'] > 1.5)).astype(int)
+        df['funding_trap_short'] = ((df['returns'] > 0.01) & (df['funding_robust_z'] < -1.5)).astype(int)
+
+    # 3. Long/Short Ratios
+    if 'top_ls_ratio' in df.columns:
+        ls_median = df['top_ls_ratio'].rolling(24).median()
+        ls_iqr = df['top_ls_ratio'].rolling(24).quantile(0.75) - df['top_ls_ratio'].rolling(24).quantile(0.25)
+        df['top_ls_robust_z'] = (df['top_ls_ratio'] - ls_median) / (ls_iqr + 1e-8)
+        
+        # Retail vs Smart Money Divergence
+        if 'global_ls_ratio' in df.columns:
+            df['ls_divergence'] = df['top_ls_ratio'] - df['global_ls_ratio']
+            
+            # Z-Score of divergence to normalize it
+            div_median = df['ls_divergence'].rolling(24).median()
+            div_iqr = df['ls_divergence'].rolling(24).quantile(0.75) - df['ls_divergence'].rolling(24).quantile(0.25)
+            df['ls_divergence_z'] = (df['ls_divergence'] - div_median) / (div_iqr + 1e-8)
+
     return df
 
 
@@ -1034,7 +1192,7 @@ def get_feature_columns(df: pd.DataFrame) -> list:
 
 def process_symbol(symbol: str, timeframe: str = '1d', include_funding: bool = True) -> pd.DataFrame:
     """
-    Process a single symbol: load, resample, add features.
+    Process a single symbol: load, resample, merge external data, then add features.
     Features are calculated per-symbol to avoid data bleeding.
     
     Args:
@@ -1058,28 +1216,52 @@ def process_symbol(symbol: str, timeframe: str = '1d', include_funding: bool = T
     # Add symbol column FIRST (before features, for groupby compatibility)
     df['symbol'] = symbol
     
-    # Add features (per-symbol, no data bleeding)
-    df = calculate_features(df)
+    timeframe_map = {'1h': '1H', '4h': '4H', '8h': '8H', '12h': '12H', '1d': '1D'}
+    resample_rule = timeframe_map.get(timeframe, '1D')
     
-    # Add funding rate if available
+    # Load and resample Funding data
     if include_funding:
         df_funding = load_funding(symbol)
         if not df_funding.empty:
-            # Map timeframe to resample rule for funding
-            timeframe_map = {'1h': '1H', '4h': '4H', '8h': '8H', '12h': '12H', '1d': '1D'}
-            resample_rule = timeframe_map.get(timeframe, '1D')
-            
-            # Resample funding to match target timeframe
             df_funding = df_funding.set_index('timestamp')
             df_funding_resampled = df_funding['funding_rate'].resample(resample_rule).mean().reset_index()
-            df_funding_resampled.columns = ['timestamp', 'funding_rate_avg']
-            
             # Also get funding rate sum (accumulated)
-            df_funding_resampled['funding_rate_sum'] = df_funding['funding_rate'].resample(resample_rule).sum().values
+            df_funding_sum = df_funding['funding_rate'].resample(resample_rule).sum().reset_index()
+            
+            df_funding_resampled.columns = ['timestamp', 'funding_rate_avg']
+            df_funding_resampled['funding_rate'] = df_funding_resampled['funding_rate_avg'] # backward compat
+            df_funding_resampled['funding_rate_sum'] = df_funding_sum['funding_rate']
             
             df = df.merge(df_funding_resampled, on='timestamp', how='left')
+            df['funding_rate'] = df['funding_rate'].fillna(0)
             df['funding_rate_avg'] = df['funding_rate_avg'].fillna(0)
             df['funding_rate_sum'] = df['funding_rate_sum'].fillna(0)
+        else:
+            df['funding_rate'] = 0.0
+    else:
+        df['funding_rate'] = 0.0
+
+    # Load and resample Derivatives data
+    df_deriv = load_derivatives(symbol)
+    if not df_deriv.empty:
+        df_deriv = df_deriv.set_index('timestamp')
+        
+        deriv_cols = ['sum_open_interest', 'top_ls_ratio', 'global_ls_ratio']
+        cols_to_resample = [c for c in deriv_cols if c in df_deriv.columns]
+        
+        if cols_to_resample:
+            # We take the last value of the period for snapshot metrics like OI
+            df_deriv_resampled = df_deriv[cols_to_resample].resample(resample_rule).last().reset_index()
+            df = df.merge(df_deriv_resampled, on='timestamp', how='left')
+            
+            for col in cols_to_resample:
+                df[col] = df[col].ffill().fillna(0)
+    else:
+        df['sum_open_interest'] = 0.0
+        df['top_ls_ratio'] = 1.0
+
+    # Add features (per-symbol, calculate on fully merged df)
+    df = calculate_features(df)
     
     print(f"  ✓ {len(df)} bars, {len(df.columns)} features")
     return df
@@ -1227,13 +1409,13 @@ if __name__ == '__main__':
     parser.add_argument('--mfe-mae', action='store_true', help='Use MFE/MAE regression labels instead of binary labels')
     parser.add_argument('--horizon', type=int, default=14, help='Lookahead bars for MFE/MAE (only used with --mfe-mae)')
     parser.add_argument('--timeframe', type=str, default='1d', choices=['1h', '4h', '8h', '12h', '1d'], help='Target timeframe for resampling')
-    parser.add_argument('--exchange', type=str, default='bitget', choices=['bitget', 'bybit', 'binance', 'kraken', 'mexc', 'okx'], help='Exchange data source')
+    parser.add_argument('--exchange', type=str, default='binance', choices=['bitget', 'bybit', 'binance', 'kraken', 'mexc', 'okx'], help='Exchange data source')
     
     args = parser.parse_args()
     
     # Set data directory based on exchange
-    if args.exchange != 'bitget':
-        exchange_data_dir = Path(__file__).parent.parent / f'{args.exchange}-data'
+    if args.exchange == 'binance':
+        exchange_data_dir = Path(__file__).parent.parent / f'data'
         if exchange_data_dir.exists():
             set_data_directory(exchange_data_dir)
         else:

@@ -1,0 +1,157 @@
+//@version=5
+indicator("Pivot 1-2-3 Quality System (Final Symmetrical)", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ==========================================
+// ========== INPUTS ========================
+// ==========================================
+left_len        = input.int(1,  "Pivot Left",  minval=1)
+right_len       = input.int(1,  "Pivot Right", minval=1)
+draw_waves      = input.bool(true, "Draw ZigZag Waves")
+use_body_break  = input.bool(true, "CHoCH by Close Price")
+keep_pivots     = input.int(200, "Max Pivots to Store", minval=20)
+plot_pvt_mark   = input.bool(true, "Show PH/PL Labels")
+
+// --- Variant Filters (Bộ lọc biến thể của Hùng)
+allow_ph1 = input.bool(true, "PH Type 1"), allow_ph2 = input.bool(true, "PH Type 2")
+allow_ph3 = input.bool(true, "PH Type 3"), allow_ph4 = input.bool(true, "PH Type 4"), allow_ph5 = input.bool(true, "PH Type 5")
+allow_pl1 = input.bool(true, "PL Type 1"), allow_pl2 = input.bool(true, "PL Type 2")
+allow_pl3 = input.bool(true, "PL Type 3"), allow_pl4 = input.bool(true, "PL Type 4"), allow_pl5 = input.bool(true, "PL Type 5")
+
+// --- Quality Wave Inputs (Hệ 1A của anh Ngọc)
+min_mid_candles = input.int(6, "Min Candles BETWEEN 1 & 2", minval=0)
+min_price_pct   = input.float(3.0, "OR Min Wave 1-2 Amplitude (%)", minval=0.1, step=0.1)
+quality_color_l = input.color(color.lime, "Quality Wave Color (Long)")
+quality_color_s = input.color(color.red, "Quality Wave Color (Short)")
+
+// ==========================================
+// ========== STORAGE & HELPERS =============
+// ==========================================
+var float[] p_prices = array.new_float()
+var int[]   p_bars   = array.new_int()
+var bool[]  p_is_high = array.new_bool()
+
+store_pivot(_bar, _price, _is_high) =>
+    array.push(p_bars,   _bar)
+    array.push(p_prices, _price)
+    array.push(p_is_high, _is_high)
+    if array.size(p_bars) > keep_pivots
+        array.shift(p_bars), array.shift(p_prices), array.shift(p_is_high)
+
+p_count() => array.size(p_prices)
+get_p_data(idx) =>
+    sz = array.size(p_prices)
+    [array.get(p_bars, sz-1-idx), array.get(p_prices, sz-1-idx), array.get(p_is_high, sz-1-idx)]
+
+get_triplet() =>
+    [high[right_len-1], high[right_len], high[right_len+1], low[right_len-1], low[right_len], low[right_len+1]]
+
+check_ph() => 
+    [h1,h2,h3,l1,l2,l3] = get_triplet()
+    (allow_ph1 and h2>h1 and h2>h3 and l2>l1 and l2>l3) or (allow_ph2 and h2>=h1 and h2>h3 and l2>l3 and l2<l1) or (allow_ph3 and h2>h1 and h2>=h3 and l2<l3 and l2>l1) or (allow_ph4 and h2>=h3 and h2>h1 and l2<=l3 and l2>l1) or (allow_ph5 and h2>=h3 and h2>=h1 and l2<=l3 and l2>l1)
+
+check_pl() => 
+    [h1,h2,h3,l1,l2,l3] = get_triplet()
+    (allow_pl1 and l2<l1 and l2<l3 and h2<h1 and h2<h3) or (allow_pl2 and h2>=h1 and h2<h3 and l2<l3 and l2<=l1) or (allow_pl3 and l2<l1 and l2<l3 and h2<h1 and h2>=h3) or (allow_pl4 and h2<=h3 and h2<h1 and l2>=l3 and l2<=l1) or (allow_pl5 and h2>=h3 and h2<h1 and l2<=l3 and l2<=l1)
+
+// ==========================================
+// ========== PIVOT DETECTION ===============
+// ==========================================
+var int   last_p_bar   = na
+var float last_p_price = na
+
+if bar_index > right_len + 1
+    bool is_ph = check_ph(), bool is_pl = check_pl()
+    if is_ph or is_pl
+        int  new_b = bar_index - right_len
+        float new_p = is_ph ? high[right_len] : low[right_len]
+        
+        bool should_add = true
+        if p_count() > 0
+            [l_b, l_p, l_h] = get_p_data(0)
+            if l_h == is_ph
+                if (is_ph and new_p > l_p) or (not is_ph and new_p < l_p)
+                    array.pop(p_bars), array.pop(p_prices), array.pop(p_is_high)
+                else
+                    should_add := false
+        
+        if should_add
+            store_pivot(new_b, new_p, is_ph)
+            if draw_waves and not na(last_p_bar)
+                line.new(last_p_bar, last_p_price, new_b, new_p, color=color.new(color.blue, 50), width=1)
+            last_p_bar := new_b, last_p_price := new_p
+
+// ==========================================
+// ========== SYSTEM 1-2-3 (QUALITY) ========
+// ==========================================
+if p_count() >= 3
+    [b3, p3, h3] = get_p_data(0) // Mới nhất (Điểm 3)
+    [b2, p2, h2] = get_p_data(1) // Ở giữa (Điểm 2)
+    [b1, p1, h1] = get_p_data(2) // Cũ nhất (Điểm 1)
+
+    // --- SETUP LONG: Low(1) - High(2) - Low(3) ---
+    if not h1 and h2 and not h3
+        if p1 < p3 // ĐIỀU KIỆN MỚI: Point 3 phải là Higher Low
+            float slope = (p2 - p1) / math.max(1, b2 - b1)
+            float intercept = p1 - slope * b1
+            bool all_cut = true
+            
+            if b2 > b1
+                for i = b1 + 1 to b2 - 1
+                    int off = bar_index - i
+                    if off >= 0 and off < 5000
+                        float line_val = slope * i + intercept
+                        if not (line_val >= low[off] and line_val <= high[off])
+                            all_cut := false
+                            break
+                
+                int   mid_candles_count = b2 - b1 - 1
+                float price_move_pct    = math.abs(p2 - p1) / p1 * 100
+                bool  is_quality        = (mid_candles_count >= min_mid_candles) or (price_move_pct >= min_price_pct)
+
+                if all_cut and is_quality
+                    line.new(b1, p1, b2, p2, color=quality_color_l, width=3)
+                    
+                    int off3 = bar_index - b3
+                    if off3 >= 0 and off3 < 5000
+                        float trigger = high[off3] 
+                        bool confirmed = use_body_break ? ta.crossover(close, trigger) : ta.crossover(high, trigger)
+                        if confirmed
+                            label.new(bar_index, low, "1A LONG OK\n" + str.tostring(price_move_pct, "#.##") + "%", color=quality_color_l, style=label.style_label_up)
+
+    // --- SETUP SHORT: High(1) - Low(2) - High(3) ---
+    if h1 and not h2 and h3
+        if p1 > p3 // Point 3 phải là Lower High
+            float slope = (p2 - p1) / math.max(1, b2 - b1)
+            float intercept = p1 - slope * b1
+            bool all_cut = true
+            
+            if b2 > b1
+                for i = b1 + 1 to b2 - 1
+                    int off = bar_index - i
+                    if off >= 0 and off < 5000
+                        float line_val = slope * i + intercept
+                        if not (line_val >= low[off] and line_val <= high[off])
+                            all_cut := false
+                            break
+                
+                int   mid_candles_count = b2 - b1 - 1
+                float price_move_pct    = math.abs(p2 - p1) / p1 * 100
+                bool  is_quality        = (mid_candles_count >= min_mid_candles) or (price_move_pct >= min_price_pct)
+
+                if all_cut and is_quality
+                    line.new(b1, p1, b2, p2, color=quality_color_s, width=3)
+                    
+                    int off3 = bar_index - b3
+                    if off3 >= 0 and off3 < 5000
+                        float trigger = low[off3] 
+                        bool confirmed = use_body_break ? ta.crossunder(close, trigger) : ta.crossunder(low, trigger)
+                        if confirmed
+                            label.new(bar_index, high, "1A SHORT OK\n" + str.tostring(price_move_pct, "#.##") + "%", color=quality_color_s, style=label.style_label_down)
+
+// ==========================================
+// ========== LABELS ========================
+// ==========================================
+if p_count() > 0 and plot_pvt_mark
+    [lb, lp, lh] = get_p_data(0)
+    if bar_index - lb == right_len
+        label.new(lb, lp, lh ? "PH" : "PL", style=lh ? label.style_label_down : label.style_label_up, size=size.tiny, color=color.new(color.gray, 80))

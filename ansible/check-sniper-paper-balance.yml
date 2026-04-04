@@ -1,0 +1,26 @@
+---
+- name: Check Sniper Local Paper Balance
+  hosts: sniper_bots
+  become: yes
+  gather_facts: false
+  vars:
+    bot_dir: "/opt/{{ bot_name }}"
+    sniper_config_server_path: "{{ bot_dir }}/sniper_bot/sniper_bot_config.json"
+
+  tasks:
+    - name: 1. Check service status
+      command: systemctl is-active {{ bot_name }}
+      register: service_status
+      ignore_errors: yes
+      changed_when: false
+
+    - name: 2. Run local-paper balance summary
+      command: "{{ bot_dir }}/venv/bin/python -m sniper_bot.paper_balance --config-path {{ sniper_config_server_path }}"
+      register: paper_balance
+      changed_when: false
+
+    - name: 3. Print status and balance
+      debug:
+        msg:
+          - "BOT={{ bot_name }} STATUS={{ service_status.stdout | default('unknown') }}"
+          - "{{ paper_balance.stdout_lines }}"

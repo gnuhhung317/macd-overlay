@@ -1,0 +1,28 @@
+# P3 Edge Research Report
+
+## Assumptions
+- Timeframe and bar frequency: 1h
+- Capital base and leverage model: start=100.0, leverage=10.0
+- Fee model: 5.0 bps per side
+- Slippage model: 5.0 bps per side
+- Round-trip all-in baseline (fee+slippage): 20.00 bps
+- Position sizing and rebalancing logic: risk_per_trade=0.02, event-driven
+- Turnover definition used: sum(abs(entry_notional)+abs(exit_notional))/average_equity
+
+## Summary
+- periods_per_year: 8760
+- experiments: 8
+- acceptance gate: sharpe >= 1.5, |max_drawdown_pct| <= 15.0, trades >= 60
+- walk_forward_folds: 4
+
+```text
+           experiment split_mode  threshold      gate_source  gate_trades  gate_sharpe_annualized  gate_max_drawdown_pct           gate_fail_reasons  accepted_oos_gate  test_trades  test_net_return_pct  test_win_rate_pct  test_profit_factor  test_sharpe_annualized  test_max_drawdown_pct  test_turnover_raw  test_turnover_annualized  val_sharpe_annualized  val_net_return_pct  wf_oos_trades  wf_oos_sharpe_annualized  wf_oos_max_drawdown_pct  wf_oos_net_return_pct  wf_oos_turnover_raw  wf_oos_turnover_annualized  train_samples  val_samples  test_samples
+             auto_008   calendar       0.65 walk_forward_oos          238                2.167925             -30.460911            oos_max_drawdown              False          142            78.663961          64.788732            1.786554                3.898524             -10.454153         237.720903                286.757795               1.673122           10.696068            238                  2.167925               -30.460911              56.485130           402.404924                  443.572056            854          384           921
+      tighter_quality   calendar       0.50 walk_forward_oos          119               -0.134112             -26.797085 oos_sharpe|oos_max_drawdown              False          108           -15.715737          39.814815            0.857400               -0.904799             -27.947877         115.155656                140.164451               2.785619           22.812797            119                 -0.134112               -26.797085              -5.691061           132.253140                  148.093763            405          176           378
+  higher_quality_wave   calendar       0.55 walk_forward_oos          187               -0.173747             -38.547259 oos_sharpe|oos_max_drawdown              False           95             7.230770          57.894737            1.106405                0.767080             -23.233545          96.348928                117.715009              -1.449780           -9.965162            187                 -0.173747               -38.547259              -7.559482           227.537188                  251.384256            497          216           494
+pullback_conservative   calendar       0.60 walk_forward_oos          220               -0.777378             -36.673094 oos_sharpe|oos_max_drawdown              False          113            20.477141          57.522124            1.207557                1.485419             -16.776395         155.726382                200.435367               1.019231            5.185634            220                 -0.777378               -36.673094             -19.970781           339.252975                  369.128812            689          300           681
+             baseline   calendar       0.45 walk_forward_oos          358               -1.069260             -47.767997 oos_sharpe|oos_max_drawdown              False          493           -56.364051          51.115619            0.798878               -2.113085             -65.861026         713.588462                860.905512              -2.711144          -37.102434            358                 -1.069260               -47.767997             -28.892992           497.460643                  550.430117            763          336           802
+             auto_006   calendar       0.70 walk_forward_oos          491               -2.059470             -65.968337 oos_sharpe|oos_max_drawdown              False          147             2.557929          70.748299            1.034538                0.331524             -15.802101         204.342968                263.590694              -2.253883           -8.500232            491                 -2.059470               -65.968337             -50.755483           792.439069                  922.371279           1468          595          1730
+             auto_007   calendar       0.50 walk_forward_oos           84               -2.862637             -41.098735 oos_sharpe|oos_max_drawdown              False           77           -15.882461          41.558442            0.782736               -1.154519             -33.008597          79.457263                 95.900472              -1.422558           -7.521093             84                 -2.862637               -41.098735             -29.696627            78.949346                   92.919020            318          136           280
+      faster_rotation   calendar       0.45 walk_forward_oos          447               -3.173112             -57.622561 oos_sharpe|oos_max_drawdown              False          739           -71.680895          59.945873            0.743062               -3.396660             -75.077261        1224.070107               1470.495631              -2.824528          -34.591906            447                 -3.173112               -57.622561             -52.751470           735.929567                  882.028048            972          433          1196
+```

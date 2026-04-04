@@ -8,15 +8,37 @@ import pandas as pd
 import numpy as np
 import tkinter as tk
 from tkinter import ttk
-import threading
-import time
+from pathlib import Path
 
 import matplotlib
 matplotlib.use("TkAgg")
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
-from backtest_sniper import BacktestConfig, run_backtest_with_config
+from backtest_sniper import (
+    BacktestConfig,
+    _apply_profile_to_config,
+    _default_auto018_profile_path,
+    _sanitize_output_tag,
+    run_backtest_with_config,
+)
+
+
+def _resolve_input_path(raw_value: str, search_roots: list[Path], label: str) -> str:
+    raw = Path(raw_value)
+    if raw.exists():
+        return str(raw)
+
+    for root in search_roots:
+        candidate = root / raw
+        if candidate.exists():
+            print(f"Resolved {label}: {raw_value} -> {candidate}")
+            return str(candidate)
+
+    raise FileNotFoundError(
+        f"{label} not found: {raw_value}. "
+        f"Provide full path or place file under one of: {', '.join(str(x) for x in search_roots)}"
+    )
 
 class SniperBacktestGUI(tk.Tk):
     def __init__(self, trades, price_db, config):
@@ -323,14 +345,54 @@ def main():
     parser = argparse.ArgumentParser(description="GUI Backtest for Sniper Model")
     parser.add_argument('--start', type=str, default='2025-01-01', help='Start date (YYYY-MM-DD)')
     parser.add_argument('--end', type=str, default=None, help='End date (YYYY-MM-DD)')
-    parser.add_argument('--leverage', type=float, default=1.0, help='Leverage multiplier')
+    parser.add_argument('--leverage', type=float, default=10.0, help='Leverage multiplier')
     parser.add_argument('--exchange', type=str, default='binance', help='Exchange data to use (binance or bitget)')
     parser.add_argument('--capital', type=float, default=100.0, help='Initial capital')
-    parser.add_argument('--risk', type=float, default=0.1, help='Risk per trade (10%)')
-    parser.add_argument('--max-pos', type=float, default=10, help='Max position size')
+    parser.add_argument('--risk', type=float, default=0.005, help='Risk per trade')
+    parser.add_argument('--max-pos', '--max-positions', dest='max_pos', type=int, default=3, help='Max concurrent positions')
+    parser.add_argument('--max-files', type=int, default=60, help='Limit number of symbols scanned (0 = all)')
+    parser.add_argument('--equity-mode', choices=['event', 'mtm', 'both'], default='both')
+    parser.add_argument('--output-tag', type=str, default='')
+
+    parser.add_argument('--profile-path', type=str, default=None, help='Path to profile JSON (p3_edge_research experiment format)')
+    parser.add_argument('--profile-name', type=str, default=None, help='Experiment name in profile JSON')
+    parser.add_argument('--use-auto018-profile', action='store_true', help='Load auto_018_live profile defaults')
+
+    parser.add_argument('--selector-artifact-path', type=str, default=None, help='Path to pre-trained selector artifact (.joblib)')
+    parser.add_argument('--use-research-model-selection', action='store_true', help='Use selector model pipeline (loads artifact if provided)')
+
+    parser.add_argument('--research-compatible', action='store_true', help='Shortcut for fair comparison against run_research')
+    parser.add_argument('--no-selection-debug-checks', dest='selection_debug_checks', action='store_false', help='Disable selector debug checks')
+    parser.set_defaults(selection_debug_checks=True)
     
     args = parser.parse_args()
     
+    base_dir = Path(__file__).resolve().parent.parent
+
+    profile_path = args.profile_path
+    if args.use_auto018_profile and profile_path is None:
+        profile_path = str(_default_auto018_profile_path())
+    if profile_path:
+        profile_path = _resolve_input_path(
+            profile_path,
+            search_roots=[
+                base_dir,
+                base_dir / 'ml' / 'p3_edge_research' / 'experiments',
+            ],
+            label='Profile',
+        )
+
+    selector_artifact_path = args.selector_artifact_path
+    if selector_artifact_path:
+        selector_artifact_path = _resolve_input_path(
+            selector_artifact_path,
+            search_roots=[
+                base_dir,
+                base_dir / 'output' / 'selector_artifacts',
+            ],
+            label='Selector artifact',
+        )
+
     config = BacktestConfig(
         start_date=args.start,
         end_date=args.end,
@@ -338,8 +400,30 @@ def main():
         exchange=args.exchange,
         initial_capital=args.capital,
         risk_per_trade=args.risk,
-        max_open_trades=args.max_pos
+        max_open_trades=args.max_pos,
+        max_files=int(args.max_files),
+        equity_mode=args.equity_mode,
+        output_tag=_sanitize_output_tag(args.output_tag),
+        use_research_model_selection=bool(args.use_research_model_selection),
+        selector_artifact_path=selector_artifact_path,
+        selection_debug_checks=bool(args.selection_debug_checks),
     )
+
+    if args.research_compatible:
+        config.universe_mode = 'research'
+        config.selection_mode = 'research'
+        config.enforce_symbol_lock = False
+        if config.min_stop_distance <= 0.0:
+            config.min_stop_distance = 0.005
+
+    if profile_path:
+        profile_info = _apply_profile_to_config(config, Path(profile_path), args.profile_name)
+        print(
+            'Loaded profile '
+            f"{profile_info['profile_name']} from {profile_info['profile_path']}"
+        )
+        if not config.output_tag:
+            config.output_tag = _sanitize_output_tag(profile_info['profile_name'])
     
     print("Running sniper backtest first to gather UI data...")
     potential_signals, price_db, trades, equity_curve = run_backtest_with_config(config)

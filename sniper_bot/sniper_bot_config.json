@@ -23,16 +23,19 @@
         "timeframes": [
             "1h"
         ],
-        "entry_threshold": 0.6,
+        "profile_path": "ml/p3_edge_research/experiments/auto_038_live_test.json",
+        "profile_name": "auto_038_live",
+        "selector_artifact_path": "output/selector_artifacts/auto_038_selector_fullasset.joblib",
+        "selector_threshold_override": -1.0,
+        "selector_lookback_days": 450,
+        "selector_batch_predict": true,
+        "incremental_scan": true,
+        "incremental_refresh_days": 7,
+        "scan_history_bars": 1200,
+        "progress_detail_log_path": "logs/sniper_scan_progress.log",
         "min_volume_usdt": 10000.0,
         "timeout_candles": 48,
-        "long_atr_offset": -0.1,
-        "short_atr_offset": 0.5,
-        "limit_wait_bars": 5,
-        "sl_atr_multiplier_long": 1.0,
-        "tp_atr_multiplier_long": 2.0,
-        "sl_atr_multiplier_short": 1.5,
-        "tp_atr_multiplier_short": 2.5
+        "limit_wait_bars": 5
     },
     "coins": [
         "BTCUSDT",

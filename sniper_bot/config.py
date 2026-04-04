@@ -26,19 +26,20 @@ class RiskConfig(BaseModel):
 
 class StrategyConfig(BaseModel):
     timeframes: List[str] = ["1h"]
-    entry_threshold: float = 0.6
+    profile_path: str = "ml/p3_edge_research/experiments/auto_038_live_test.json"
+    profile_name: str = "auto_038_live"
+    selector_artifact_path: str = "output/selector_artifacts/auto_038_selector_fullasset.joblib"
+    selector_threshold_override: float = -1.0
+    selector_lookback_days: int = 450
+    selector_batch_predict: bool = True
+    incremental_scan: bool = True
+    incremental_refresh_days: int = 7
+    scan_history_bars: int = 1200
+    progress_detail_log_path: str = "logs/sniper_scan_progress.log"
     min_volume_usdt: float = 10000.0
     timeout_candles: int = 48
-    
-    # Sniper ATR Multipliers
-    sl_atr_multiplier_long: float = 1.0
-    tp_atr_multiplier_long: float = 2.0
-    sl_atr_multiplier_short: float = 1.5
-    tp_atr_multiplier_short: float = 2.5
-    
-    # Entry Lùi (ATR Offset)
-    long_atr_offset: float = -0.1
-    short_atr_offset: float = 0.5
+
+    # Still used by PositionManager to cancel stale limit orders.
     limit_wait_bars: int = 5
 
 class TelegramConfig(BaseModel):

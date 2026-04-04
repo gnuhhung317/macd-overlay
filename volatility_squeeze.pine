@@ -1,0 +1,94 @@
+//@version=5
+strategy("Volatility Squeeze Mean Reversion", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=100, commission_type=strategy.commission.percent, commission_value=0.03)
+
+// --- Settings ---
+length = input.int(20, title="BB / KC Length")
+bb_mult = input.float(2.0, title="Bollinger Bands Multiplier")
+kc_mult = input.float(1.5, title="Keltner Channels Multiplier")
+atr_len = input.int(14, title="ATR Length")
+
+// --- Risk Management ---
+sl_atr_mult = input.float(2.0, title="Stop Loss ATR Multiplier")
+tp_perc = input.float(2.0, title="Take Profit %") / 100
+use_trailing = input.bool(true, title="Use Trailing Stop")
+
+// --- Indicators ---
+// 1. Bollinger Bands
+sma = ta.sma(close, length)
+dev = ta.stdev(close, length)
+bb_upper = sma + (bb_mult * dev)
+bb_lower = sma - (bb_mult * dev)
+
+// 2. Keltner Channels (using ATR and EMA for smooth channel, based on Python logic)
+atr = ta.rma(ta.tr, atr_len) // ta.atr(atr_len)
+ema = ta.ema(close, length)
+kc_upper = ema + (kc_mult * atr)
+kc_lower = ema - (kc_mult * atr)
+
+// 3. Squeeze Logic
+// BB falls inside KC -> volatility compression
+squeeze = (bb_upper < kc_upper) and (bb_lower > kc_lower)
+
+// Squeeze release -> trigger point
+// Squeeze is false NOW, but was true in previous bar
+squeeze_release = not squeeze and squeeze[1]
+
+// Momentum Direction
+mom_bull = close > ema
+mom_bear = close < ema
+
+// --- Signals ---
+// Note: Python implementation uses close prices, which translates to signal generation at current candle close -> execution at next open.
+long_cond = squeeze_release and mom_bull
+short_cond = squeeze_release and mom_bear
+
+// Exit Logic (Mean Reversion)
+exit_long_cond = close < sma
+exit_short_cond = close > sma
+
+// --- Execution ---
+var float sl_price = na
+var float tp_price = na
+var float entry_atr = na
+
+if long_cond and strategy.position_size == 0
+    strategy.entry("Long", strategy.long)
+    entry_atr := atr
+    sl_price := close - (sl_atr_mult * entry_atr)
+    tp_price := close * (1 + tp_perc)
+
+if short_cond and strategy.position_size == 0
+    strategy.entry("Short", strategy.short)
+    entry_atr := atr
+    sl_price := close + (sl_atr_mult * entry_atr)
+    tp_price := close * (1 - tp_perc)
+
+// Trailing SL & Management
+if strategy.position_size > 0
+    // Manage Long Exits
+    if exit_long_cond
+        strategy.close("Long", comment="Mean Reversion Exit")
+    else
+        if use_trailing
+            sl_price := math.max(sl_price, high - (sl_atr_mult * entry_atr))
+        strategy.exit("Exit Long", "Long", stop=sl_price, limit=tp_price)
+
+if strategy.position_size < 0
+    // Manage Short Exits
+    if exit_short_cond
+        strategy.close("Short", comment="Mean Reversion Exit")
+    else
+        if use_trailing
+            sl_price := math.min(sl_price, low + (sl_atr_mult * entry_atr))
+        strategy.exit("Exit Short", "Short", stop=sl_price, limit=tp_price)
+
+// --- Plotting ---
+plot(sma, color=color.blue, title="SMA Mean")
+plot(ema, color=color.orange, title="EMA Mom")
+
+// Show Squeeze zones visually
+bgcolor(squeeze ? color.new(color.yellow, 80) : na, title="Squeeze Zone")
+
+// Plot Signal Arrows
+plotshape(series=long_cond, title="Long Fire", location=location.belowbar, color=color.green, style=shape.triangleup, size=size.small)
+plotshape(series=short_cond, title="Short Fire", location=location.abovebar, color=color.red, style=shape.triangledown, size=size.small)

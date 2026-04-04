@@ -1,0 +1,97 @@
+//@version=5
+strategy("Donchian ADX Breakout - Immediate Exec", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=100, commission_type=strategy.commission.percent, commission_value=0.03, calc_on_every_tick=true)
+
+// ==========================================
+// 1. THAM SỐ CÀI ĐẶT (INPUTS)
+// ==========================================
+// Kênh Donchian
+dc_period = input.int(40, title="Donchian Entry Period", group="Donchian Channels")
+exit_period = input.int(20, title="Donchian Exit Period (N/2)", group="Donchian Channels")
+
+// Bộ lọc xu hướng ADX
+adx_len = input.int(14, title="ADX Period", group="ADX Filter")
+adx_threshold = input.int(20, title="ADX Threshold", group="ADX Filter")
+
+// Quản lý rủi ro: Cắt lỗ cuốn (Trailing Stop Loss) & Chốt lời
+atr_len = input.int(14, title="ATR Period", group="Risk Management")
+sl_atr_mult = input.float(4.0, title="Trailing SL (ATR Multiplier)", group="Risk Management")
+tp_perc = input.float(2.0, title="Take Profit (%)", group="Risk Management") / 100
+
+// ==========================================
+// 2. TÍNH TOÁN CHỈ BÁO (INDICATORS)
+// ==========================================
+// ATR (Pine dùng RMA mặc định, sát với wilders_smoothing trên Python)
+atr_val = ta.atr(atr_len)
+
+// ADX
+[diplus, diminus, adx] = ta.dmi(adx_len, adx_len)
+
+// Kênh Donchian để vào lệnh (Lấy cao/thấp nhất N kỳ, shift 1 nến tránh lookahead)
+dc_upper = ta.highest(high, dc_period)[1]
+dc_lower = ta.lowest(low, dc_period)[1]
+
+// Kênh Donchian để thoát lệnh (N/2 kỳ, shift 1 nến)
+dc_exit_long = ta.lowest(low, exit_period)[1]
+dc_exit_short = ta.highest(high, exit_period)[1]
+
+// ==========================================
+// 3. LOGIC VÀO LỆNH (Stop Orders - KHỚP TRONG NẾN)
+// ==========================================
+// Chỉ cài lệnh chờ (Stop order) đặt sẵn tại đường Donchian NẾU xu hướng đang mạnh
+// Điều này tương đương việc canh giá (Giá chạm biên trên là Múc luôn)
+if adx > adx_threshold and strategy.position_size == 0
+    strategy.entry("Long", strategy.long, stop=dc_upper)
+    strategy.entry("Short", strategy.short, stop=dc_lower)
+
+// Hủy lệnh chờ nếu thị trường rớt khỏi vùng ADX hoặc vào lệnh rồi
+if adx <= adx_threshold
+    strategy.cancel_all()
+
+// ==========================================
+// 4. QUẢN LÝ VỊ THẾ & DỜI SL (Trailing Stop) 
+// ==========================================
+var float atr_at_entry = na
+var float stop_loss = na
+
+// Khi lệnh vừa khớp
+if strategy.position_size != 0 and strategy.position_size[1] == 0
+    atr_at_entry := atr_val[1]
+    entry_price = strategy.opentrades.entry_price(0)
+    
+    if strategy.position_size > 0
+        stop_loss := entry_price - (sl_atr_mult * atr_at_entry)
+    else
+        stop_loss := entry_price + (sl_atr_mult * atr_at_entry)
+
+// Cập nhật Cắt Lỗ Cuốn (Trailing SL) - Bám sát theo giá đỉnh/đáy của nến
+if strategy.position_size > 0
+    stop_loss := math.max(stop_loss, high - (sl_atr_mult * atr_at_entry))
+if strategy.position_size < 0
+    stop_loss := math.min(stop_loss, low + (sl_atr_mult * atr_at_entry))
+
+// Móc lệnh cắt lỗ
+if strategy.position_size > 0
+    strategy.exit("SL Long", "Long", stop=stop_loss)
+else if strategy.position_size < 0
+    strategy.exit("SL Short", "Short", stop=stop_loss)
+
+// Móc lệnh Thoát theo Cấu trúc (Trend Breakdown)
+if strategy.position_size > 0 and low < dc_exit_long
+    strategy.close("Long", comment="Trend Exit")
+if strategy.position_size < 0 and high > dc_exit_short
+    strategy.close("Short", comment="Trend Exit")
+
+// ==========================================
+// 5. HIỂN THỊ BIỂU ĐỒ (VISUALS)
+// ==========================================
+// Vẽ kênh Donchian vào lệnh
+plot(dc_upper, color=color.new(color.green, 70), title="Donchian Upper")
+plot(dc_lower, color=color.new(color.red, 70), title="Donchian Lower")
+
+// Vẽ kênh Donchian chốt lời động
+plot(dc_exit_long, color=color.new(color.orange, 50), style=plot.style_linebr, title="Exit Long Channel")
+plot(dc_exit_short, color=color.new(color.blue, 50), style=plot.style_linebr, title="Exit Short Channel")
+
+// Vẽ đường Trailing Stop Loss
+plot(strategy.position_size > 0 ? stop_loss : na, color=color.red, style=plot.style_circles, linewidth=2, title="Long SL Trail")
+plot(strategy.position_size < 0 ? stop_loss : na, color=color.fuchsia, style=plot.style_circles, linewidth=2, title="Short SL Trail")

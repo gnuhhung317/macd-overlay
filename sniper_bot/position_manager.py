@@ -1,11 +1,15 @@
 import pandas as pd
 from typing import Dict, List, Any
 import time
+import json
+import logging
 from datetime import datetime
 from .config import SniperBotConfig
 from bot.db import DatabaseManager
 from bot.executor import ExchangeExecutor
 from bot.data_provider import DataProvider
+
+logger = logging.getLogger("PositionManager")
 
 class PositionManager:
     def __init__(
@@ -268,6 +272,14 @@ class PositionManager:
         print(f"DEBUG: execute_calculated_signal for {signal_data['symbol']} at {signal_data['timestamp']}")
         symbol = signal_data['symbol']
         timestamp = signal_data['timestamp']
+        logger.info(
+            "Signal received: symbol=%s tf=%s ts=%s side=%s conf=%.4f",
+            symbol,
+            timeframe,
+            timestamp,
+            signal_data.get('type'),
+            float(signal_data.get('confidence', 0.0)),
+        )
         
         # 0. Fresh Crossover check bypassed for localized SniperBot (handled by scanner logic)
 
@@ -299,6 +311,7 @@ class PositionManager:
         
         # 2. Execution Logic
         if symbol in self.active_positions:
+            logger.info("Skip entry: already active position for %s", symbol)
             return
 
         # 3. Filter Entry Zone is bypassed for SniperBot (handled in scanner)
@@ -317,6 +330,12 @@ class PositionManager:
         }
         
         print(f"🤖 SmartScanner Entry for {symbol} ({signal_data['status']}) | Conf: {analysis['confidence']:.2%}")
+        logger.info(
+            "Entry candidate accepted: symbol=%s status=%s rr=%.3f",
+            symbol,
+            signal_data.get('status', 'NA'),
+            float(analysis.get('risk_reward', 0.0)),
+        )
         self._execute_entry(symbol, analysis)
 
     def _execute_entry(self, symbol: str, analysis: Dict):
@@ -329,6 +348,7 @@ class PositionManager:
         
         if available_balance <= 0:
             print(f"❌ Insufficient Available Balance: {available_balance}")
+            logger.warning("Entry rejected %s: insufficient available balance %.4f", symbol, float(available_balance))
             return
 
         # Pseudo-ISOLATED: Cap SL at 0.99/leverage so we simulate isolated liquidation
@@ -352,12 +372,14 @@ class PositionManager:
         
         if final_size <= 0:
             print("❌ Calculated size is 0")
+            logger.warning("Entry rejected %s: calculated position size is 0", symbol)
             return
         
         # Get Current Price for SL/TP absolute values
         current_price = self.data_provider.get_current_price(symbol)
         if current_price <= 0:
             print("❌ Could not get current price")
+            logger.warning("Entry rejected %s: could not fetch current price", symbol)
             return
 
         direction = "LONG" if analysis['signal'] == "BULLISH" else "SHORT"
@@ -389,6 +411,7 @@ class PositionManager:
             
             if not order_result or 'order_id' not in order_result:
                 print(f"❌ Order placement failed for {symbol}")
+                logger.warning("Entry rejected %s: executor returned no order_id", symbol)
                 return
 
             # 3. Save to DB
@@ -411,6 +434,16 @@ class PositionManager:
             trade_record['id'] = trade_id
             self.active_positions[symbol] = trade_record
             print(f"✅ Trade Executed & Saved: ID {trade_id} | Size: ${final_size:.0f}")
+            logger.info(
+                "Trade opened: id=%s symbol=%s side=%s size=%.2f entry=%.6f sl=%.6f tp=%.6f",
+                trade_id,
+                symbol,
+                direction,
+                float(final_size),
+                float(current_price),
+                float(sl_price),
+                float(tp_price),
+            )
 
             # Send Telegram Alert
             if self.notifier:
@@ -428,12 +461,17 @@ class PositionManager:
             
         except Exception as e:
             print(f"❌ Execution Failed: {e}")
+            logger.exception("Execution failed for %s", symbol)
 
     def sync_positions(self):
         """
         Reconcile Bot's internal state with Exchange's real positions and orders.
         Prevents purging pending LIMIT orders.
         """
+        if self.config.exchange.dry_run:
+            # Local paper mode has no exchange-side state. Keep positions managed locally.
+            return
+
         try:
             # 1. Get Real State
             real_positions = self.executor.get_open_positions()
