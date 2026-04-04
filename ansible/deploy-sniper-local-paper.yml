@@ -1,33 +1,23 @@
 ---
-- name: Deploy Sniper Bot using Git
+- name: Deploy Sniper Local Paper Bot
   hosts: sniper_bots
   become: yes
   gather_facts: false
   vars:
-    # -------------------------------------------------------------
-    # CẤU HÌNH CẦN THAY ĐỔI
-    # -------------------------------------------------------------
     repo_url: "https://github.com/gnuhhung317/macd-overlay.git"
     repo_branch: "main"
 
-    # Lưu ý: Cần đảm bảo biến bot_name được truyền vào khi chạy (ví dụ qua -e "bot_name=sniper_bot_binance")
-    # Hoặc bạn có thể hardcode thẳng ở đây nếu chỉ chạy 1 bot
-    # bot_name: "sniper_bot_binance"
-
-    # Cấu hình mặc định
     bot_dir: "/opt/{{ bot_name }}"
     local_config_dir: "bots-configs/{{ bot_name }}"
     local_artifact_dir: "{{ playbook_dir }}/../output/selector_artifacts"
     local_profile_dir: "{{ playbook_dir }}/../ml/p3_edge_research/experiments"
 
     sniper_config_server_path: "{{ bot_dir }}/sniper_bot/sniper_bot_config.json"
-    sniper_run_args: "--config-path {{ sniper_config_server_path }}"
-
-    # [TỐI ƯU 1]: Ép Systemd gọi đúng Python nằm trong Virtual Environment, không dùng Python hệ thống
+    sniper_run_args: "--config-path {{ sniper_config_server_path }} --local-paper"
     bot_command: "{{ bot_dir }}/venv/bin/python -m sniper_bot.main {{ sniper_run_args }}"
 
   tasks:
-    - name: 1. Cài đặt các gói phần mềm cần thiết (Git, Python, Pip, Venv)
+    - name: 1. Install required packages
       apt:
         name:
           - git
@@ -37,72 +27,80 @@
         state: present
         update_cache: yes
 
-    - name: 2. Clone hoặc Pull code mới nhất từ Git về Server
+    - name: 2. Clone or pull latest code
       git:
         repo: "{{ repo_url }}"
         dest: "{{ bot_dir }}"
         version: "{{ repo_branch }}"
         force: yes
 
-    - name: 2b. Copy local requirements.txt (Đảm bảo có lightgbm, dash, etc.)
+    - name: 3. Copy requirements.txt from local workspace
       copy:
         src: "{{ playbook_dir }}/../requirements.txt"
         dest: "{{ bot_dir }}/requirements.txt"
         mode: "0644"
 
-    - name: 2c. Copy local sniper_bot/ folder (Đảm bảo có fix path model)
+    - name: 4. Copy sniper_bot folder from local workspace
       copy:
         src: "{{ playbook_dir }}/../sniper_bot/"
         dest: "{{ bot_dir }}/sniper_bot/"
         mode: "0755"
 
-    - name: 3. Copy file config riêng biệt cho Sniper
+    - name: 5. Copy local sniper config to runtime path
       copy:
         src: "{{ local_config_dir }}/sniper_bot_config.json"
         dest: "{{ sniper_config_server_path }}"
         mode: "0600"
 
-    - name: 4. Copy selector artifacts từ máy Local lên Server
+    - name: 5b. Copy selector artifacts needed by scanner
       copy:
         src: "{{ local_artifact_dir }}/"
         dest: "{{ bot_dir }}/output/selector_artifacts/"
         directory_mode: "0755"
 
-    - name: 4b. Copy selector profile experiments từ máy Local lên Server
+    - name: 5c. Copy selector profile experiments needed by scanner
       copy:
         src: "{{ local_profile_dir }}/"
         dest: "{{ bot_dir }}/ml/p3_edge_research/experiments/"
         directory_mode: "0755"
 
-    - name: 5. Cài đặt các thư viện Python vào Virtual Env (Fix lỗi PEP-668)
-      # [TỐI ƯU 2]: Dùng chuẩn module pip của Ansible để quản lý venv, KHÔNG DÙNG executable: pip3
+    - name: 6. Install Python dependencies in venv
       pip:
         requirements: "{{ bot_dir }}/requirements.txt"
         virtualenv: "{{ bot_dir }}/venv"
         virtualenv_command: /usr/bin/python3 -m venv
 
-    - name: 6. Tạo file Systemd Service để chạy bot ngầm
+    - name: 7. Render systemd service
       template:
         src: templates/bot.service.j2
         dest: /etc/systemd/system/{{ bot_name }}.service
       notify: Reload Systemd
 
-    - name: 7. Khởi động Bot và thiết lập chạy cùng server khi reboot
+    - name: 8. Restart and enable service
       systemd:
         name: "{{ bot_name }}"
         state: restarted
         enabled: yes
         daemon_reload: yes
 
-    - name: 8. Đợi 5 giây để bot khởi động
+    - name: 9. Wait for startup
       pause:
         seconds: 5
 
-    - name: 9. Kiểm tra xem bot có đang chạy ổn định không (Health Check)
+    - name: 10. Health check
       command: systemctl is-active {{ bot_name }}
       register: bot_status
       failed_when: bot_status.stdout != "active"
       changed_when: false
+
+    - name: 11. Show local-paper balance summary on server
+      command: "{{ bot_dir }}/venv/bin/python -m sniper_bot.paper_balance --config-path {{ sniper_config_server_path }}"
+      register: paper_balance
+      changed_when: false
+
+    - name: 12. Print balance summary
+      debug:
+        msg: "{{ paper_balance.stdout_lines }}"
 
   handlers:
     - name: Reload Systemd
