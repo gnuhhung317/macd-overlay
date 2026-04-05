@@ -143,19 +143,29 @@ class SniperBot:
                             logger.error(f"⚠️ Error processing {symbol} {tf}: {e}")
 
                 # 2. Scan for NEW Entries using Sniper Scanner
-                if len(self.position_manager.active_positions) < self.config.risk.max_open_positions:
+                max_open_positions = int(self.config.risk.max_open_positions)
+                if len(self.position_manager.active_positions) < max_open_positions:
                     for tf in self.config.strategy.timeframes:
+                        if len(self.position_manager.active_positions) >= max_open_positions:
+                            logger.info("🛑 Position cap reached (%s). Skip remaining scans this cycle.", max_open_positions)
+                            break
+
                         logger.info(f"📡 Scanning {len(self.config.coins)} coins on {tf} (Sniper Model)...")
                         try:
                             signals = self.scanner.scan(self.config.coins, tf)
-                            if signals:
-                                logger.info(f"🎯 Found {len(signals)} potential signals!")
+                            if not signals:
+                                continue
+
+                            logger.info(f"🎯 Found {len(signals)} potential signals!")
                             
                             # PRIORITIZATION: Sort signals by confidence (descending)
                             signals.sort(key=lambda x: x.get('confidence', 0), reverse=True)
                             
                             for sig in signals:
                                 if not self.running: break
+                                if len(self.position_manager.active_positions) >= max_open_positions:
+                                    logger.info("🛑 Position cap reached during execution (%s).", max_open_positions)
+                                    break
                                 self.position_manager.execute_calculated_signal(sig, tf)
                         except Exception as e:
                             logger.error(f"❌ Scanner Error: {e}")

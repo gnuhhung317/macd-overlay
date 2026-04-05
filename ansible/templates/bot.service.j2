@@ -3,6 +3,8 @@ Description=Trading Bot - {{ bot_name }}
 # Đảm bảo có Internet thực sự mới chạy
 Wants=network-online.target
 After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -22,8 +24,6 @@ ExecStart={{ bot_command }}
 # Tự động restart. Thêm giới hạn StartLimitIntervalSec để tránh loop vô hạn gây treo CPU
 Restart=always
 RestartSec=10
-StartLimitIntervalSec=60
-StartLimitBurst=5
 
 StandardOutput=journal
 StandardError=journal

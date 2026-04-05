@@ -15,6 +15,7 @@ class RealDataQuantExtractor:
         min_price_pct=3.0,
         entry_pullback=0.0,
         min_rr=1.0,
+        rr_floor_to_tp=0.0,
     ):
         self.tp_level = tp_level
         self.max_hold_bars = max_hold_bars
@@ -22,6 +23,7 @@ class RealDataQuantExtractor:
         self.min_price_pct = min_price_pct
         self.entry_pullback = entry_pullback
         self.min_rr = min_rr
+        self.rr_floor_to_tp = max(0.0, float(rr_floor_to_tp))
         self.dataset = []
 
     def get_fill_index(self, side, entry_p, f_lows, f_highs):
@@ -166,6 +168,14 @@ class RealDataQuantExtractor:
 
                     risk_abs = entry_p - sl_p
                     reward_abs = tp_p - entry_p
+                    if self.rr_floor_to_tp > 0:
+                        floor_reward_abs = self.rr_floor_to_tp * risk_abs
+                        if reward_abs < floor_reward_abs:
+                            reward_abs = floor_reward_abs
+                            tp_p = entry_p + reward_abs
+
+                    if (reward_abs / (risk_abs + 1e-8)) < self.min_rr:
+                        continue
 
                     
                     # Labels & Win Logic
@@ -234,6 +244,12 @@ class RealDataQuantExtractor:
 
                     risk_abs = sl_p - entry_p
                     reward_abs = entry_p - tp_p
+                    if self.rr_floor_to_tp > 0:
+                        floor_reward_abs = self.rr_floor_to_tp * risk_abs
+                        if reward_abs < floor_reward_abs:
+                            reward_abs = floor_reward_abs
+                            tp_p = entry_p - reward_abs
+
                     if (reward_abs / (risk_abs + 1e-8)) < self.min_rr:
                         continue
 
@@ -391,6 +407,7 @@ def build_parser():
     parser.add_argument('--tp-level', type=float, default=1.6)
     parser.add_argument('--entry-pullback', type=float, default=0.0, help='Fractional pullback for entry. Ex: 0.02 = 2%%')
     parser.add_argument('--min-rr', type=float, default=0.5, help='Minimum reward:risk ratio')
+    parser.add_argument('--rr-floor-to-tp', type=float, default=0.0, help='If >0, enforce TP reward >= rr_floor_to_tp * risk by shifting TP outward')
     parser.add_argument('--max-hold-bars', type=int, default=24)
     parser.add_argument('--min-mid-candles', type=int, default=6)
     parser.add_argument('--min-price-pct', type=float, default=3.0)
@@ -412,13 +429,14 @@ def main():
         min_price_pct=args.min_price_pct,
         entry_pullback=args.entry_pullback,
         min_rr=args.min_rr,
+        rr_floor_to_tp=args.rr_floor_to_tp,
     )
     files = sorted(glob.glob(args.data_glob))
     if not files:
         raise FileNotFoundError(f'No files found with pattern: {args.data_glob}')
 
     print('--- [1/4] Trích xuất dữ liệu (Pine Script Sync) ---')
-    print(f'>> Params: tp_level={args.tp_level}, entry_pullback={args.entry_pullback}, min_rr={args.min_rr}')
+    print(f'>> Params: tp_level={args.tp_level}, entry_pullback={args.entry_pullback}, min_rr={args.min_rr}, rr_floor_to_tp={args.rr_floor_to_tp}')
     for f in tqdm(files):
         try:
             df_raw = pd.read_parquet(f)

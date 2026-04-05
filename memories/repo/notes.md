@@ -134,3 +134,58 @@
 - Measured local smoke speedup on repeated scans:
    - 12 symbols: first pass ~77.5s, second pass ~5.4s (~14.3x faster).
    - 5 symbols: first pass ~37.2s, second pass ~2.0s (~19.1x faster).
+
+## Update 2026-04-04 (auto_038 TP A/B)
+- Ran `run_research` A/B under live-test-like assumptions (1h, 5/5 bps fee/slip, wf=4, embargo=24, risk_per_trade=0.005, max_concurrent=3).
+- Config used: `ml/p3_edge_research/experiments/auto_038_tp_ab_20260404.json`.
+- Summary output: `output/p3_edge_research/ab_tp_20260404_all/summary.csv`.
+- Result snapshot:
+   - baseline `tp_level=1.293,min_rr=0.668`: wf_oos_sharpe=8.228, wf_oos_mdd=-5.56%, wf_oos_net=407.91%.
+   - `tp_level=1.2,min_rr=0.668`: wf_oos_sharpe=8.958, wf_oos_mdd=-5.64%, wf_oos_net=426.09%.
+   - `tp_level=1.2,min_rr=1.0` (proxy RR floor): wf_oos_sharpe=8.103, wf_oos_mdd=-9.01%, wf_oos_net=364.61%.
+- Important code note: `min_rr` filter is applied in short branch but missing in long branch in `ml/p3.py` (long around TP/risk/reward block; short has explicit min_rr check).
+
+## Update 2026-04-05 (TP floor implementation + re-run)
+- Implemented in `ml/p3.py`:
+   - New extractor parameter `rr_floor_to_tp` (default 0.0).
+   - TP adjustment rule: if `rr_floor_to_tp > 0`, enforce `reward >= rr_floor_to_tp * risk` by shifting TP outward.
+   - Applied `min_rr` check symmetrically to both long and short branches.
+- Threaded parameter through:
+   - `ml/p3_edge_research/run_research.py` (extractor params)
+   - `ml/backtest_sniper.py` (config/profile/CLI/extractor wiring)
+   - `sniper_bot/sniper_scanner.py` (profile extractor params)
+- New A/B config: `ml/p3_edge_research/experiments/auto_038_tp_rule_ab_20260405.json`.
+- New output: `output/p3_edge_research/ab_tp_rule_20260405/summary.csv`.
+- Result snapshot after symmetry fix:
+   - baseline `tp=1.293,min_rr=0.668`: wf_oos_sharpe=5.287, wf_oos_mdd=-15.71% (fail gate)
+   - fibo `tp=1.2,min_rr=0.668`: wf_oos_sharpe=6.156, wf_oos_mdd=-16.84% (fail gate)
+   - exact rule `tp=1.2,min_rr=0.668,rr_floor_to_tp=1.0`: wf_oos_sharpe=6.769, wf_oos_mdd=-13.18% (pass gate)
+
+## Update 2026-04-05 (high-risk scan + WFO integrity note)
+- Ran high-risk grid with user-like costs (fee/slip = 4/6 bps per side):
+   - `hr_c` (rpt=0.009,pos=6,lev=18): wf_sharpe=9.377, wf_mdd=-14.90%, wf_net=5202.36%.
+   - `hr_d` (rpt=0.010,pos=7,lev=20): wf_sharpe=8.161, wf_mdd=-16.68%, wf_net=6883.55%.
+   - `hr_f` (rpt=0.012,pos=8,lev=20): wf_sharpe=8.235, wf_mdd=-22.53%, wf_net=29168.88%.
+- Cost sensitivity confirmed in stress tests (10/10 bps per side):
+   - `risk_probe_r2_coststress`: wf_sharpe dropped to ~1.01, wf_mdd ~-19.92%.
+   - `risk_probe_r3_coststress`: wf_sharpe < 0 and wf_mdd ~-45.71%.
+- WFO split integrity detail:
+   - Within each fold: no train/val/test timestamp overlap.
+   - Across adjacent fold test windows: small overlap by row index (15, 15, 14 rows).
+   - Interpretation: not classic future leakage in-fold, but aggregated WFO OOS is not strictly disjoint across folds.
+
+## Update 2026-04-05 (sniper_testnet Ansible deploy + runtime fix)
+- Deployed `sniper_testnet` with HRF high-risk config:
+   - profile: `ml/p3_edge_research/experiments/auto_038_risk_probe_20260405.json` / `tp120_rr000_floor0`
+   - selector artifact: `output/selector_artifacts/hrf_selector_20260405.joblib`
+   - risk: `max_open_positions=8`, `max_risk_per_trade=0.012`, leverage 20 testnet.
+- Found runtime compatibility issue on server clone: `RealDataQuantExtractor.__init__` missing `rr_floor_to_tp`.
+- Fixed in `sniper_bot/sniper_scanner.py` by introspecting extractor signature and dropping unsupported kwargs before instantiation.
+- Also hardened `sniper_bot/main.py` to enforce `max_open_positions` during per-cycle signal execution (not only before scan loop).
+
+## Update 2026-04-05 (dashboard deploy clear option)
+- Added optional one-time history reset in `ansible/deploy-dashboard.yml`:
+   - `clear_old_balance_data: false` (safe default)
+   - `dashboard_db_path: "{{ bot_dir }}/pnl_dashboard/pnl_history.db"`
+   - When enabled, playbook stops service and removes DB + `-wal`/`-shm` before restart.
+- Verified deployment with cleanup enabled via `--limit pnl_dashboard -e clear_old_balance_data=true` (service active after restart).

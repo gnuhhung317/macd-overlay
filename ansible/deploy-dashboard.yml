@@ -8,6 +8,8 @@
     repo_url: "https://github.com/gnuhhung317/macd-overlay.git"
     bot_dir: "/opt/{{ bot_name }}"
     bot_version: "main"
+    clear_old_balance_data: false
+    dashboard_db_path: "{{ bot_dir }}/pnl_dashboard/pnl_history.db"
 
   tasks:
     - name: 1. Đảm bảo thư mục cài đặt tồn tại
@@ -44,6 +46,23 @@
       pip:
         requirements: "{{ bot_dir }}/pnl_dashboard/requirements.txt"
         state: present
+
+    - name: 4b. Dừng Dashboard Service trước khi clear data (nếu bật)
+      systemd:
+        name: "{{ bot_name }}"
+        state: stopped
+      failed_when: false
+      when: clear_old_balance_data | bool
+
+    - name: 4c. Xóa dữ liệu số dư cũ (tùy chọn)
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ dashboard_db_path }}"
+        - "{{ dashboard_db_path }}-wal"
+        - "{{ dashboard_db_path }}-shm"
+      when: clear_old_balance_data | bool
 
     - name: 5. Copy file cấu hình Systemd để chạy ẩn Dashboard
       template:

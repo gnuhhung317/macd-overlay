@@ -122,8 +122,23 @@ class DataFetcher:
                 continue
             try:
                 exchange_class = getattr(ccxt, exchange_id)
-                auth_params = {k: v for k, v in config.items() if k != 'exchange'}
-                exchanges[account_name] = exchange_class(auth_params)
+                is_demo = bool(config.get('isDemo', False))
+                auth_params = {
+                    k: v for k, v in config.items()
+                    if k not in ('exchange', 'isDemo')
+                }
+                exchange = exchange_class(auth_params)
+
+                # Respect dashboard credential flag for demo/sandbox routing.
+                try:
+                    if hasattr(exchange, 'enable_demo_trading'):
+                        exchange.enable_demo_trading(is_demo)
+                    elif hasattr(exchange, 'set_sandbox_mode'):
+                        exchange.set_sandbox_mode(is_demo)
+                except Exception as mode_err:
+                    logging.warning(f"Demo mode setup warning for {account_name}: {mode_err}")
+
+                exchanges[account_name] = exchange
             except Exception as e:
                 logging.error(f"Init Error for {account_name}: {e}")
         return exchanges

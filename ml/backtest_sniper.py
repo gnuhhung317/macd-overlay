@@ -103,6 +103,7 @@ class BacktestConfig:
     tp_level: float = 1.6
     entry_pullback: float = 0.0
     min_rr: float = 1.0
+    rr_floor_to_tp: float = 0.0
     min_mid_candles: int = 6
     min_price_pct: float = 3.0
 
@@ -489,6 +490,7 @@ def _apply_research_model_selection(
     chosen_th: float
     artifact_path = _resolve_selector_artifact_path(config)
     artifact_loaded = False
+    inference_features: List[str] = list(RESEARCH_SELECTION_FEATURES)
     train = pd.DataFrame()
     val = pd.DataFrame()
 
@@ -497,6 +499,11 @@ def _apply_research_model_selection(
         model = payload["model"]
         chosen_th = float(payload.get("threshold", 0.7))
         artifact_loaded = True
+        payload_features = payload.get("features", None)
+        if isinstance(payload_features, list) and payload_features:
+            inference_features = [str(x) for x in payload_features]
+        elif hasattr(model, "feature_name_") and getattr(model, "feature_name_"):
+            inference_features = [str(x) for x in list(getattr(model, "feature_name_"))]
         print(f"[SELECTION] loaded artifact: {artifact_path}")
 
         if bool(config.selection_debug_checks):
@@ -513,7 +520,13 @@ def _apply_research_model_selection(
                     f"val=[{val['timestamp'].min()} -> {val['timestamp'].max()}] n={len(val)} | "
                     f"test=[{test_dbg['timestamp'].min()} -> {test_dbg['timestamp'].max()}] n={len(test_dbg)}"
                 )
-                _print_selection_debug_report(model=model, train=train, val=val, config=config)
+                if inference_features == list(RESEARCH_SELECTION_FEATURES):
+                    _print_selection_debug_report(model=model, train=train, val=val, config=config)
+                else:
+                    print(
+                        "[SELECTION DEBUG] Skipped metric debug for external artifact "
+                        "with custom feature schema."
+                    )
             else:
                 print(
                     "[SELECTION DEBUG] Skipped split/permutation checks during artifact inference "
@@ -582,6 +595,11 @@ def _apply_research_model_selection(
     if bool(config.selection_debug_checks) and not artifact_loaded:
         _print_selection_debug_report(model=model, train=train, val=val, config=config)
 
+    for c in inference_features:
+        if c not in data.columns:
+            data[c] = 0.0
+        data[c] = pd.to_numeric(data[c], errors="coerce").replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
     config.threshold = float(chosen_th)
 
     if bool(config.selector_train_only):
@@ -591,7 +609,7 @@ def _apply_research_model_selection(
         )
         return []
 
-    all_probs = model.predict_proba(data[RESEARCH_SELECTION_FEATURES])[:, 1]
+    all_probs = model.predict_proba(data[inference_features])[:, 1]
 
     data = data.copy()
     data["ai_prob"] = all_probs
@@ -645,6 +663,7 @@ def _apply_profile_to_config(config: BacktestConfig, profile_path: Path, profile
         "tp_level": ("tp_level", float),
         "entry_pullback": ("entry_pullback", float),
         "min_rr": ("min_rr", float),
+        "rr_floor_to_tp": ("rr_floor_to_tp", float),
         "max_hold_bars": ("max_bars_hold", int),
         "min_mid_candles": ("min_mid_candles", int),
         "min_price_pct": ("min_price_pct", float),
@@ -702,6 +721,7 @@ def _build_extractor(config: BacktestConfig):
         min_price_pct=config.min_price_pct,
         entry_pullback=config.entry_pullback,
         min_rr=config.min_rr,
+        rr_floor_to_tp=config.rr_floor_to_tp,
     )
 
 
@@ -1498,6 +1518,7 @@ if __name__ == "__main__":
     parser.add_argument("--tp-level", type=float, default=1.6)
     parser.add_argument("--entry-pullback", type=float, default=0.0)
     parser.add_argument("--min-rr", type=float, default=1.0)
+    parser.add_argument("--rr-floor-to-tp", type=float, default=0.0, help="If >0, enforce TP reward >= rr_floor_to_tp * risk by shifting TP outward")
     parser.add_argument("--min-mid-candles", type=int, default=6)
     parser.add_argument("--min-price-pct", type=float, default=3.0)
     parser.add_argument(
@@ -1618,6 +1639,7 @@ if __name__ == "__main__":
         tp_level=args.tp_level,
         entry_pullback=args.entry_pullback,
         min_rr=args.min_rr,
+        rr_floor_to_tp=args.rr_floor_to_tp,
         min_mid_candles=args.min_mid_candles,
         min_price_pct=args.min_price_pct,
         top_coins=top_coins,

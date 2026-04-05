@@ -6,6 +6,7 @@ Runs the backtest and provides a Tkinter UI to step through it bar-by-bar.
 import argparse
 import pandas as pd
 import numpy as np
+import joblib
 import tkinter as tk
 from tkinter import ttk
 from pathlib import Path
@@ -39,6 +40,24 @@ def _resolve_input_path(raw_value: str, search_roots: list[Path], label: str) ->
         f"{label} not found: {raw_value}. "
         f"Provide full path or place file under one of: {', '.join(str(x) for x in search_roots)}"
     )
+
+
+def _build_existing_selector_artifact(model_path: Path, artifact_path: Path, threshold: float) -> Path:
+    model = joblib.load(model_path)
+    features = []
+    if hasattr(model, 'feature_name_') and getattr(model, 'feature_name_'):
+        features = [str(x) for x in list(getattr(model, 'feature_name_'))]
+    payload = {
+        'model': model,
+        'threshold': float(threshold),
+        'selection_model_profile': 'external_existing_model',
+        'selection_train_end': '',
+        'selection_val_end': '',
+        'features': features,
+    }
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(payload, artifact_path)
+    return artifact_path
 
 class SniperBacktestGUI(tk.Tk):
     def __init__(self, trades, price_db, config):
@@ -350,16 +369,29 @@ def main():
     parser.add_argument('--capital', type=float, default=100.0, help='Initial capital')
     parser.add_argument('--risk', type=float, default=0.005, help='Risk per trade')
     parser.add_argument('--max-pos', '--max-positions', dest='max_pos', type=int, default=3, help='Max concurrent positions')
-    parser.add_argument('--max-files', type=int, default=60, help='Limit number of symbols scanned (0 = all)')
+    parser.add_argument('--max-files', '--limit-files', dest='max_files', type=int, default=60, help='Limit number of symbols scanned (0 = all)')
     parser.add_argument('--equity-mode', choices=['event', 'mtm', 'both'], default='both')
     parser.add_argument('--output-tag', type=str, default='')
+    parser.add_argument('--threshold', type=float, default=None, help='Force selection threshold (e.g., 0.75)')
+    parser.add_argument('--fee-bps-per-side', type=float, default=None, help='Override fee in bps per side')
+    parser.add_argument('--slippage-bps-per-side', type=float, default=None, help='Override slippage in bps per side')
 
     parser.add_argument('--profile-path', type=str, default=None, help='Path to profile JSON (p3_edge_research experiment format)')
     parser.add_argument('--profile-name', type=str, default=None, help='Experiment name in profile JSON')
     parser.add_argument('--use-auto018-profile', action='store_true', help='Load auto_018_live profile defaults')
+    parser.add_argument(
+        '--use-highreturn-hrf',
+        action='store_true',
+        help='Apply highest-return preset from latest scan (rpt=0.012, max_pos=8, lev=20, th=0.75, fee/slip=4/6 bps)',
+    )
 
     parser.add_argument('--selector-artifact-path', type=str, default=None, help='Path to pre-trained selector artifact (.joblib)')
     parser.add_argument('--use-research-model-selection', action='store_true', help='Use selector model pipeline (loads artifact if provided)')
+    parser.add_argument('--use-existing-selector-only', action='store_true', help='Use existing model artifact only (no selector retrain)')
+    parser.add_argument('--existing-model-path', type=str, default='ml/models/p3_meta_edge_model.joblib', help='Existing model path to wrap as selector artifact')
+    parser.add_argument('--selection-train-end', type=str, default='2025-01-01', help='Selector train split end date (YYYY-MM-DD)')
+    parser.add_argument('--selection-val-end', type=str, default='2025-05-01', help='Selector validation split end date (YYYY-MM-DD)')
+    parser.add_argument('--selection-min-val-trades', type=int, default=25, help='Minimum selected validation trades when tuning threshold')
 
     parser.add_argument('--research-compatible', action='store_true', help='Shortcut for fair comparison against run_research')
     parser.add_argument('--no-selection-debug-checks', dest='selection_debug_checks', action='store_false', help='Disable selector debug checks')
@@ -368,6 +400,25 @@ def main():
     args = parser.parse_args()
     
     base_dir = Path(__file__).resolve().parent.parent
+
+    if args.use_highreturn_hrf:
+        args.risk = 0.012
+        args.max_pos = 8
+        args.leverage = 20.0
+        args.research_compatible = True
+        args.use_research_model_selection = True
+        if args.threshold is None:
+            args.threshold = 0.75
+        if args.fee_bps_per_side is None:
+            args.fee_bps_per_side = 4.0
+        if args.slippage_bps_per_side is None:
+            args.slippage_bps_per_side = 6.0
+        if not args.profile_path:
+            args.profile_path = str(base_dir / 'ml' / 'p3_edge_research' / 'experiments' / 'auto_038_risk_probe_20260405.json')
+        if not args.profile_name:
+            args.profile_name = 'tp120_rr000_floor0'
+        if not args.output_tag:
+            args.output_tag = 'highrisk_hr_f_gui'
 
     profile_path = args.profile_path
     if args.use_auto018_profile and profile_path is None:
@@ -393,6 +444,24 @@ def main():
             label='Selector artifact',
         )
 
+    if args.use_existing_selector_only:
+        model_path = Path(
+            _resolve_input_path(
+                args.existing_model_path,
+                search_roots=[base_dir, base_dir / 'ml' / 'models'],
+                label='Existing model',
+            )
+        )
+        if args.threshold is None:
+            args.threshold = 0.75
+        artifact_path = base_dir / 'output' / 'selector_artifacts' / 'existing_model_selector.joblib'
+        built = _build_existing_selector_artifact(model_path=model_path, artifact_path=artifact_path, threshold=float(args.threshold))
+        selector_artifact_path = str(built)
+        args.use_research_model_selection = True
+        args.research_compatible = True
+        args.selection_debug_checks = False
+        print(f'Using existing selector-only artifact: {built}')
+
     config = BacktestConfig(
         start_date=args.start,
         end_date=args.end,
@@ -401,10 +470,14 @@ def main():
         initial_capital=args.capital,
         risk_per_trade=args.risk,
         max_open_trades=args.max_pos,
+        threshold=args.threshold,
         max_files=int(args.max_files),
         equity_mode=args.equity_mode,
         output_tag=_sanitize_output_tag(args.output_tag),
         use_research_model_selection=bool(args.use_research_model_selection),
+        selection_train_end=str(args.selection_train_end),
+        selection_val_end=str(args.selection_val_end),
+        selection_min_val_trades=int(args.selection_min_val_trades),
         selector_artifact_path=selector_artifact_path,
         selection_debug_checks=bool(args.selection_debug_checks),
     )
@@ -416,6 +489,38 @@ def main():
         if config.min_stop_distance <= 0.0:
             config.min_stop_distance = 0.005
 
+    if config.use_research_model_selection:
+        start_ts = pd.to_datetime(config.start_date, errors='coerce')
+        end_ts = pd.to_datetime(config.end_date, errors='coerce') if config.end_date else pd.NaT
+        train_end_ts = pd.to_datetime(config.selection_train_end, errors='coerce')
+        val_end_ts = pd.to_datetime(config.selection_val_end, errors='coerce')
+        changed = False
+
+        if pd.notna(start_ts):
+            if pd.isna(train_end_ts) or train_end_ts <= start_ts:
+                train_end_ts = start_ts + pd.Timedelta(days=120)
+                changed = True
+            if pd.isna(val_end_ts) or val_end_ts <= train_end_ts:
+                val_end_ts = train_end_ts + pd.Timedelta(days=120)
+                changed = True
+            if pd.notna(end_ts) and val_end_ts >= end_ts:
+                horizon_days = max(int((end_ts - start_ts).days), 45)
+                train_days = max(int(horizon_days * 0.45), 30)
+                val_days = max(int(horizon_days * 0.20), 15)
+                train_end_ts = start_ts + pd.Timedelta(days=train_days)
+                val_end_ts = min(end_ts - pd.Timedelta(days=1), train_end_ts + pd.Timedelta(days=val_days))
+                changed = True
+
+            config.selection_train_end = train_end_ts.strftime('%Y-%m-%d')
+            config.selection_val_end = val_end_ts.strftime('%Y-%m-%d')
+
+        if changed:
+            print(
+                'Adjusted selector split window: '
+                f"train_end={config.selection_train_end}, val_end={config.selection_val_end} "
+                f"(start={config.start_date}, end={config.end_date})"
+            )
+
     if profile_path:
         profile_info = _apply_profile_to_config(config, Path(profile_path), args.profile_name)
         print(
@@ -424,6 +529,19 @@ def main():
         )
         if not config.output_tag:
             config.output_tag = _sanitize_output_tag(profile_info['profile_name'])
+
+    if args.fee_bps_per_side is not None:
+        config.fee_rate = float(args.fee_bps_per_side) / 10000.0
+    if args.slippage_bps_per_side is not None:
+        config.slippage = float(args.slippage_bps_per_side) / 10000.0
+
+    print(
+        "Effective config: "
+        f"risk={config.risk_per_trade}, max_pos={config.max_open_trades}, leverage={config.leverage}, "
+        f"threshold={config.threshold}, fee_bps={config.fee_rate * 10000:.2f}, slip_bps={config.slippage * 10000:.2f}, "
+        f"selection_mode={config.selection_mode}, research_selector={config.use_research_model_selection}, "
+        f"selector_artifact_path={config.selector_artifact_path}"
+    )
     
     print("Running sniper backtest first to gather UI data...")
     potential_signals, price_db, trades, equity_curve = run_backtest_with_config(config)

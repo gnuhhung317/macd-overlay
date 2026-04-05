@@ -793,6 +793,7 @@ def run_experiment(
         "min_price_pct": float(exp.get("min_price_pct", 3.0)),
         "entry_pullback": float(exp.get("entry_pullback", 0.0)),
         "min_rr": float(exp.get("min_rr", 0.5)),
+        "rr_floor_to_tp": float(exp.get("rr_floor_to_tp", 0.0)),
     }
 
     data = extract_dataset(

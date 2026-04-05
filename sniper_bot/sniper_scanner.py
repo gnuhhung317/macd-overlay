@@ -1,4 +1,5 @@
 import json
+import inspect
 import time
 from datetime import datetime
 from pathlib import Path
@@ -282,6 +283,7 @@ class SniperScanner:
                 "min_price_pct": float(chosen.get("min_price_pct", 3.0)),
                 "entry_pullback": float(chosen.get("entry_pullback", 0.0)),
                 "min_rr": float(chosen.get("min_rr", 1.0)),
+                "rr_floor_to_tp": float(chosen.get("rr_floor_to_tp", 0.0)),
             }
 
             print(
@@ -291,6 +293,16 @@ class SniperScanner:
             )
         except Exception as e:
             print(f"[SniperScanner] Error loading auto038 selector: {e}")
+
+    def _build_extractor_kwargs(self) -> Dict[str, Any]:
+        params = dict(self.extractor_params)
+        try:
+            sig = inspect.signature(RealDataQuantExtractor.__init__)
+            if "rr_floor_to_tp" not in sig.parameters:
+                params.pop("rr_floor_to_tp", None)
+        except Exception:
+            params.pop("rr_floor_to_tp", None)
+        return params
 
     def scan(self, symbols: List[str], timeframe: str, lookback_days: int = 4) -> List[Dict[str, Any]]:
         if not self.clf:
@@ -366,6 +378,7 @@ class SniperScanner:
 
         candidate_frames: List[pd.DataFrame] = []
         pending_symbol_records: Dict[int, Dict[str, Any]] = {}
+        extractor_kwargs = self._build_extractor_kwargs()
 
         for i, symbol in enumerate(symbols):
             symbol_start = time.time()
@@ -413,7 +426,7 @@ class SniperScanner:
                     symbol_reason = "no_closed_candle"
                     continue
 
-                extractor = RealDataQuantExtractor(**self.extractor_params)
+                extractor = RealDataQuantExtractor(**extractor_kwargs)
                 df_for_extract = self._build_live_extractor_frame(df_calc)
                 extractor.extract(df_for_extract, symbol)
                 setup_df = pd.DataFrame(extractor.dataset)
