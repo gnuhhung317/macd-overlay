@@ -249,11 +249,14 @@ def main():
     st.title("📈 Multi-Account PnL & Asset Dashboard")
     st.markdown("___")
 
-    credentials_file = "credentials.json"
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+    credentials_file = os.path.join(app_dir, "credentials.json")
     if not os.path.exists(credentials_file):
         st.warning(f"Chưa tìm thấy file `{credentials_file}`. Vui lòng tạo cấu hình API.", icon="⚠️")
         st.stop()
+        return
     
+    access_token = None
     # LOAD ACCESS TOKEN
     try:
         with open(credentials_file, 'r') as f:
@@ -262,10 +265,12 @@ def main():
     except Exception as e:
         st.error(f"Lỗi khi load access_token từ {credentials_file}: {e}")
         st.stop()
+        return
 
     if not access_token:
         st.error(f"File `{credentials_file}` thiếu trường `access_token`. Vui lòng cấu hình.", icon="🔒")
         st.stop()
+        return
 
     # AUTHENTICATION UI
     if 'authenticated' not in st.session_state:
@@ -281,6 +286,7 @@ def main():
             else:
                 st.error("Token không chính xác!")
         st.stop()
+        return
     
     # ==========================================
     # Nếu đã authenticated thì mới chạy tiếp bên dưới
@@ -297,6 +303,7 @@ def main():
         if not fetcher.exchanges:
             st.error("Không thể khởi tạo sàn giao dịch từ cấu hình.")
             st.stop()
+            return
         df_balances = fetcher.get_balances()
         df_positions = fetcher.get_positions()
     

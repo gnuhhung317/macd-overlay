@@ -189,3 +189,10 @@
    - `dashboard_db_path: "{{ bot_dir }}/pnl_dashboard/pnl_history.db"`
    - When enabled, playbook stops service and removes DB + `-wal`/`-shm` before restart.
 - Verified deployment with cleanup enabled via `--limit pnl_dashboard -e clear_old_balance_data=true` (service active after restart).
+
+## Update 2026-04-05 (dashboard local-run robustness)
+- In `pnl_dashboard/app.py`, fixed `UnboundLocalError` on `access_token` when running in bare mode (`python app.py`) by:
+   - setting `access_token = None` before credential load,
+   - adding explicit `return` immediately after each `st.stop()` guard.
+- Also switched credentials path to script-relative (`pnl_dashboard/credentials.json`) to avoid CWD-dependent lookup failures.
+- Reminder: proper launch is `streamlit run pnl_dashboard/app.py`; bare mode shows `ScriptRunContext` warnings and session-state limitations.
