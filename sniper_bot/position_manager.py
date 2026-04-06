@@ -395,6 +395,60 @@ class PositionManager:
             sl_price = base_price * (1 + analysis['sl'])
             tp_price = base_price * (1 - analysis['tp'])
 
+        # --- Pre-entry price checks ---
+        # If TP already reached -> skip
+        # If SL already reached -> allow optional rebase when within threshold
+        rebase_threshold = getattr(self.config.strategy, 'rebase_threshold', 0.005)  # default 0.5%
+        latest_price = self.data_provider.get_current_price(symbol)
+        if latest_price <= 0:
+            print("❌ Could not get latest price for pre-entry check")
+            logger.warning("Entry rejected %s: could not fetch latest price for pre-entry check", symbol)
+            return
+
+        mark_price = latest_price
+
+        if direction == 'LONG':
+            # TP hit -> skip
+            if mark_price >= tp_price:
+                print(f"⚠️ {symbol} mark {mark_price} >= TP {tp_price}. Skipping entry.")
+                logger.warning("Entry skipped %s: TP already reached (mark>=tp)", symbol)
+                return
+
+            # SL hit -> consider rebase
+            if mark_price <= sl_price:
+                deviation = abs(mark_price - base_price) / base_price if base_price > 0 else 1.0
+                if deviation <= rebase_threshold:
+                    print(f"🔁 {symbol} hit SL but within rebase {deviation:.2%}. Rebasing entry to mark price.")
+                    base_price = mark_price
+                    sl_price = base_price * (1 - analysis['sl'])
+                    tp_price = base_price * (1 + analysis['tp'])
+                    # convert limit entry to market to get immediate fill
+                    if limit_price > 0:
+                        print("🔁 Converting LIMIT entry to MARKET due to rebase.")
+                        limit_price = 0
+                else:
+                    print(f"⚠️ {symbol} hit SL and deviation {deviation:.2%} > rebase threshold {rebase_threshold:.2%}. Skipping entry.")
+                    return
+        else:  # SHORT
+            if mark_price <= tp_price:
+                print(f"⚠️ {symbol} mark {mark_price} <= TP {tp_price}. Skipping entry.")
+                logger.warning("Entry skipped %s: TP already reached (mark<=tp)", symbol)
+                return
+
+            if mark_price >= sl_price:
+                deviation = abs(mark_price - base_price) / base_price if base_price > 0 else 1.0
+                if deviation <= rebase_threshold:
+                    print(f"🔁 {symbol} hit SL but within rebase {deviation:.2%}. Rebasing entry to mark price.")
+                    base_price = mark_price
+                    sl_price = base_price * (1 + analysis['sl'])
+                    tp_price = base_price * (1 - analysis['tp'])
+                    if limit_price > 0:
+                        print("🔁 Converting LIMIT entry to MARKET due to rebase.")
+                        limit_price = 0
+                else:
+                    print(f"⚠️ {symbol} hit SL and deviation {deviation:.2%} > rebase threshold {rebase_threshold:.2%}. Skipping entry.")
+                    return
+
         # 2. Execute Order
         try:
             # Trailing stop removed to fix StrategyConfig attribute error

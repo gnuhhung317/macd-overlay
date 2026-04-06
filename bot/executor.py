@@ -602,25 +602,61 @@ class BinanceExecutor(ExchangeExecutor):
                 # 4. Place SL & TP (Reduce Only)
                 sl_side = SIDE_SELL if side.upper() == 'LONG' else SIDE_BUY
 
+                # Fetch mark/last price to avoid placing stop orders that would immediately trigger
+                try:
+                    mark_info = self.client.futures_mark_price(symbol=symbol)
+                    mark_price = float(mark_info.get('markPrice', ref_price))
+                except Exception:
+                    mark_price = ref_price
+
+                # Determine a safe tick buffer to move stop triggers away from current mark
+                tick_size = self._get_tick_size(symbol)
+                if tick_size <= 0:
+                    tick_size = 10 ** (-self._get_price_precision(symbol))
+
+                # Compute safe SL stopPrice to avoid immediate trigger
+                if sl_side == SIDE_BUY:
+                    # Buy stop triggers when mark_price >= stopPrice -> ensure stopPrice > mark_price
+                    safe_sl = max(sl_price, mark_price + tick_size)
+                else:
+                    # Sell stop triggers when mark_price <= stopPrice -> ensure stopPrice < mark_price
+                    safe_sl = min(sl_price, max(mark_price - tick_size, tick_size))
+
+                safe_sl_formatted = self.format_price(symbol, safe_sl)
+                if safe_sl_formatted != self.format_price(symbol, sl_price):
+                    print(f"⚠️ Adjusted SL for {symbol}: {sl_price} -> {safe_sl_formatted} (mark {mark_price})")
+
                 # Place Stop Loss (reduceOnly)
                 sl_order = self.client.futures_create_order(
                     symbol=symbol,
                     side=sl_side,
                     type='STOP_MARKET',
                     quantity=quantity, # Explicit quantity instead of closePosition
-                    stopPrice=self.format_price(symbol, sl_price),
+                    stopPrice=safe_sl_formatted,
                     reduceOnly=True
                 )
                 sl_order_id = sl_order.get('orderId') if isinstance(sl_order, dict) else None
 
                 # Place TP (unless trailing stop requested)
                 if trailing_callback <= 0:
+                    # Compute safe TP to avoid immediate trigger (mirror logic)
+                    if sl_side == SIDE_BUY:
+                        # For shorts, TP triggers when mark_price <= tp_price -> ensure tp_price < mark_price
+                        safe_tp = min(tp_price, max(mark_price - tick_size, tick_size))
+                    else:
+                        # For longs, TP triggers when mark_price >= tp_price -> ensure tp_price > mark_price
+                        safe_tp = max(tp_price, mark_price + tick_size)
+
+                    safe_tp_formatted = self.format_price(symbol, safe_tp)
+                    if safe_tp_formatted != self.format_price(symbol, tp_price):
+                        print(f"⚠️ Adjusted TP for {symbol}: {tp_price} -> {safe_tp_formatted} (mark {mark_price})")
+
                     tp_order = self.client.futures_create_order(
                         symbol=symbol,
                         side=sl_side,
                         type='TAKE_PROFIT_MARKET',
                         quantity=quantity,
-                        stopPrice=self.format_price(symbol, tp_price),
+                        stopPrice=safe_tp_formatted,
                         reduceOnly=True
                     )
                     tp_order_id = tp_order.get('orderId') if isinstance(tp_order, dict) else None
