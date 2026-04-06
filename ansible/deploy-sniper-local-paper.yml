@@ -95,6 +95,8 @@
 
     - name: 11. Show local-paper balance summary on server
       command: "{{ bot_dir }}/venv/bin/python -m sniper_bot.paper_balance --config-path {{ sniper_config_server_path }}"
+      args:
+        chdir: "{{ bot_dir }}"
       register: paper_balance
       changed_when: false
 

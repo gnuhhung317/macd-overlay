@@ -371,6 +371,12 @@ def main():
     parser.add_argument('--max-pos', '--max-positions', dest='max_pos', type=int, default=3, help='Max concurrent positions')
     parser.add_argument('--max-files', '--limit-files', dest='max_files', type=int, default=60, help='Limit number of symbols scanned (0 = all)')
     parser.add_argument('--equity-mode', choices=['event', 'mtm', 'both'], default='both')
+    parser.add_argument(
+        '--extractor-mode',
+        choices=['strict', 'causal', 'live_compatible'],
+        default='strict',
+        help='Extraction mode: strict (research) or causal (live-style no-lookahead).',
+    )
     parser.add_argument('--output-tag', type=str, default='')
     parser.add_argument('--threshold', type=float, default=None, help='Force selection threshold (e.g., 0.75)')
     parser.add_argument('--fee-bps-per-side', type=float, default=None, help='Override fee in bps per side')
@@ -473,6 +479,7 @@ def main():
         threshold=args.threshold,
         max_files=int(args.max_files),
         equity_mode=args.equity_mode,
+        extractor_mode=args.extractor_mode,
         output_tag=_sanitize_output_tag(args.output_tag),
         use_research_model_selection=bool(args.use_research_model_selection),
         selection_train_end=str(args.selection_train_end),
@@ -539,7 +546,8 @@ def main():
         "Effective config: "
         f"risk={config.risk_per_trade}, max_pos={config.max_open_trades}, leverage={config.leverage}, "
         f"threshold={config.threshold}, fee_bps={config.fee_rate * 10000:.2f}, slip_bps={config.slippage * 10000:.2f}, "
-        f"selection_mode={config.selection_mode}, research_selector={config.use_research_model_selection}, "
+        f"selection_mode={config.selection_mode}, extractor_mode={config.extractor_mode}, "
+        f"research_selector={config.use_research_model_selection}, "
         f"selector_artifact_path={config.selector_artifact_path}"
     )
     

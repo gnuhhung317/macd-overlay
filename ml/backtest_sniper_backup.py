@@ -121,7 +121,6 @@ class BacktestConfig:
     equity_mode: str = "event"
     universe_mode: str = "sniper"
     selection_mode: str = "sniper"
-    extractor_mode: str = "strict"
     enforce_symbol_lock: bool = True
     min_stop_distance: float = 0.0
     output_tag: str = ""
@@ -638,63 +637,6 @@ def _default_auto018_profile_path() -> Path:
     return BASE_DIR / "ml" / "p3_edge_research" / "experiments" / "auto_018_live_test.json"
 
 
-def _normalize_extractor_mode(raw_mode: Optional[str]) -> str:
-    mode = str(raw_mode or "strict").strip().lower()
-    aliases = {
-        "live": "causal",
-        "live-compatible": "causal",
-        "live_compat": "causal",
-        "live_compatible": "causal",
-        "compat": "causal",
-        "causal": "causal",
-        "strict": "strict",
-    }
-    normalized = aliases.get(mode, mode)
-    if normalized not in {"strict", "causal"}:
-        raise ValueError(f"Invalid extractor_mode={raw_mode!r}. Expected strict or causal.")
-    return normalized
-
-
-def _build_live_compatible_extractor_frame(df_calc: pd.DataFrame, max_hold_bars: int) -> pd.DataFrame:
-    """
-    Mirror scanner behavior by appending flat synthetic future bars.
-    This lets extraction evaluate setups at the newest candles consistently.
-    """
-    hold = max(0, int(max_hold_bars))
-    if hold <= 0 or df_calc.empty or "timestamp" not in df_calc.columns or "close" not in df_calc.columns:
-        return df_calc
-
-    frame = df_calc.copy()
-    frame["timestamp"] = pd.to_datetime(frame["timestamp"], errors="coerce")
-    frame = frame.dropna(subset=["timestamp"]).reset_index(drop=True)
-    if frame.empty:
-        return df_calc
-
-    last_ts = pd.to_datetime(frame["timestamp"].iloc[-1])
-    deltas = frame["timestamp"].diff().dropna()
-    step = deltas.mode().iloc[0] if not deltas.empty else pd.Timedelta(hours=1)
-    if pd.isna(step) or step <= pd.Timedelta(0):
-        step = pd.Timedelta(hours=1)
-
-    base = frame.iloc[-1].copy()
-    base_close = float(pd.to_numeric(pd.Series([base.get("close")]), errors="coerce").fillna(0.0).iloc[0])
-    future_rows = []
-    for k in range(1, hold + 1):
-        row = base.copy()
-        row["timestamp"] = last_ts + (step * k)
-        for col in ("open", "high", "low", "close"):
-            if col in frame.columns:
-                row[col] = base_close
-        if "volume" in frame.columns:
-            row["volume"] = 0.0
-        future_rows.append(row)
-
-    if not future_rows:
-        return frame
-    future_df = pd.DataFrame(future_rows, columns=frame.columns)
-    return pd.concat([frame, future_df], ignore_index=True)
-
-
 def _apply_profile_to_config(config: BacktestConfig, profile_path: Path, profile_name: Optional[str]) -> Dict[str, object]:
     if not profile_path.exists():
         raise FileNotFoundError(f"Profile not found: {profile_path}")
@@ -751,7 +693,7 @@ def _load_p3_extractor_class():
     if _P3_EXTRACTOR_CLASS is not None:
         return _P3_EXTRACTOR_CLASS
 
-    module_candidates = ["ml.p3", "p3"]
+    module_candidates = ["ml.p3_backup", "p3_backup"]
     for module_name in module_candidates:
         try:
             mod = importlib.import_module(module_name)
@@ -963,32 +905,6 @@ def _simulate_trade_path(signal: Dict, leverage: float, sl_panic_slippage: float
     if side == -1 and highs:
         return "TIMEOUT", float(highs[-1]), max(0, len(highs) - 1)
     return "TIMEOUT", entry_p, 0
-
-
-def _compute_target_win_from_future(side: int, entry_p: float, sl_p: float, tp_p: float, lows: List[float], highs: List[float]) -> int:
-    target_win = 0
-    for low_t, high_t in zip(lows, highs):
-        if side == 1:
-            if (low_t / max(entry_p, 1e-12) - 1.0) * 10.0 <= -0.85:
-                target_win = 0
-                break
-            if low_t <= sl_p:
-                target_win = 0
-                break
-            if high_t >= tp_p:
-                target_win = 1
-                break
-        else:
-            if (high_t / max(entry_p, 1e-12) - 1.0) * 10.0 >= 0.85:
-                target_win = 0
-                break
-            if high_t >= sl_p:
-                target_win = 0
-                break
-            if low_t <= tp_p:
-                target_win = 1
-                break
-    return int(target_win)
 
 
 def _estimate_exit_time(symbol: str, signal_time: pd.Timestamp, bar_offset: int, fallback_time, full_price_db):
@@ -1221,20 +1137,15 @@ def backtest_symbol(file_path, *args):
                 df = df.iloc[crop_start:crop_end].reset_index(drop=True)
 
         symbol = _normalize_symbol(Path(file_path).stem)
-        extractor_mode = _normalize_extractor_mode(config.extractor_mode)
-
         extractor = _build_extractor(config)
-        extractor.extract(df, f"{symbol}USDT", include_future_labels=(extractor_mode == "strict"))
+        extractor.extract(df, f"{symbol}USDT")
 
         setup_df = pd.DataFrame(extractor.dataset)
         if setup_df.empty:
             return None, df, None
 
         setup_df["timestamp"] = pd.to_datetime(setup_df["timestamp"]).dt.tz_localize(None)
-        if "end_time" in setup_df.columns:
-            setup_df["end_time"] = pd.to_datetime(setup_df["end_time"], errors="coerce").dt.tz_localize(None)
-        else:
-            setup_df["end_time"] = setup_df["timestamp"]
+        setup_df["end_time"] = pd.to_datetime(setup_df["end_time"]).dt.tz_localize(None)
         setup_df = setup_df[(setup_df["timestamp"] >= start_ts) & (setup_df["timestamp"] <= end_ts)].copy()
         if setup_df.empty:
             return None, df, None
@@ -1271,104 +1182,29 @@ def backtest_symbol(file_path, *args):
         setup_for_selection = setup_df.copy()
         setup_for_selection["symbol"] = symbol
 
-        ts_series = pd.to_datetime(df["timestamp"], errors="coerce").dt.tz_localize(None)
-        ts_ns = ts_series.astype("int64").to_numpy()
-        ts_idx_map = {int(v): i for i, v in enumerate(ts_ns)}
-        max_hold = max(1, int(config.max_bars_hold))
-
         potential_signals = []
         for row_idx, row in setup_df.sort_values("timestamp").iterrows():
             side = int(row["side"])
             trade_type = "LONG" if side == 1 else "SHORT"
-
-            setup_signal_ts = pd.to_datetime(row["timestamp"]).tz_localize(None)
-            signal_ts = setup_signal_ts
-            signal_end_time = pd.to_datetime(row.get("end_time", setup_signal_ts)).tz_localize(None)
-
-            entry_p = float(row["entry_p"])
-            sl_p = float(row["sl_p"])
-            tp_p = float(row["tp_p"])
-
-            future_lows = list(row.get("future_lows", []) or [])
-            future_highs = list(row.get("future_highs", []) or [])
-            future_closes = list(row.get("future_closes", []) or [])
-            target_win = row.get("target_win", np.nan)
-
-            if extractor_mode != "strict":
-                signal_idx = None
-                raw_signal_idx = row.get("signal_idx", np.nan)
-                if pd.notna(raw_signal_idx):
-                    signal_idx = int(raw_signal_idx)
-                else:
-                    signal_idx = ts_idx_map.get(int(pd.Timestamp(signal_ts).value))
-
-                if signal_idx is None or signal_idx < 0 or signal_idx >= len(df):
-                    continue
-
-                fut_start = signal_idx + 1
-                fut_stop = min(len(df), fut_start + max_hold)
-                if fut_stop <= fut_start:
-                    continue
-
-                fut = df.iloc[fut_start:fut_stop]
-                future_lows = pd.to_numeric(fut["low"], errors="coerce").dropna().astype(float).tolist()
-                future_highs = pd.to_numeric(fut["high"], errors="coerce").dropna().astype(float).tolist()
-                future_closes = pd.to_numeric(fut["close"], errors="coerce").dropna().astype(float).tolist()
-                max_len = min(len(future_lows), len(future_highs), len(future_closes))
-                future_lows = future_lows[:max_len]
-                future_highs = future_highs[:max_len]
-                future_closes = future_closes[:max_len]
-                if max_len == 0:
-                    continue
-
-                fill_idx = extractor.get_fill_index(side, entry_p, future_lows, future_highs)
-                if fill_idx is None:
-                    continue
-
-                future_lows = future_lows[fill_idx:]
-                future_highs = future_highs[fill_idx:]
-                future_closes = future_closes[fill_idx:]
-                if len(future_lows) == 0:
-                    continue
-
-                if config.entry_pullback <= 0:
-                    signal_ts = pd.to_datetime(ts_series.iloc[signal_idx])
-                else:
-                    entry_idx = min(len(ts_series) - 1, fut_start + int(fill_idx))
-                    signal_ts = pd.to_datetime(ts_series.iloc[entry_idx])
-
-                end_idx = min(len(ts_series) - 1, signal_idx + max_hold)
-                signal_end_time = pd.to_datetime(ts_series.iloc[end_idx])
-                target_win = _compute_target_win_from_future(side, entry_p, sl_p, tp_p, future_lows, future_highs)
-
-                # Keep setup timestamp for selector parity with live scanner.
-                setup_for_selection.loc[row_idx, "timestamp"] = setup_signal_ts
-                setup_for_selection.loc[row_idx, "end_time"] = signal_end_time
-                setup_for_selection.loc[row_idx, "target_win"] = target_win
-
-            signal_id = f"{symbol}|{int(pd.Timestamp(setup_signal_ts).value)}|{int(row_idx)}"
+            signal_id = f"{symbol}|{int(pd.Timestamp(row['timestamp']).value)}|{int(row_idx)}"
             potential_signals.append({
                 "signal_id": signal_id,
-                "timestamp": signal_ts,
-                "signal_timestamp": setup_signal_ts,
-                "entry_timestamp": signal_ts,
-                "end_time": signal_end_time,
+                "timestamp": row["timestamp"],
+                "end_time": row["end_time"],
                 "symbol": symbol,
                 "type": trade_type,
                 "side": side,
                 "prob": float(row.get("ml_prob", 1.0)),
                 "prob_long": 1.0 if side == 1 else 0.0,
                 "prob_short": 1.0 if side == -1 else 0.0,
-                "entry_p": entry_p,
-                "sl_p": sl_p,
-                "tp_p": tp_p,
-                "future_lows": future_lows,
-                "future_highs": future_highs,
-                "future_closes": future_closes,
+                "entry_p": float(row["entry_p"]),
+                "sl_p": float(row["sl_p"]),
+                "tp_p": float(row["tp_p"]),
+                "future_lows": row.get("future_lows", []),
+                "future_highs": row.get("future_highs", []),
+                "future_closes": row.get("future_closes", []),
                 "atr_val": 0.0,
             })
-
-            setup_for_selection.loc[row_idx, "target_win"] = target_win
 
             setup_for_selection.loc[row_idx, "signal_id"] = signal_id
 
@@ -1456,7 +1292,7 @@ def run_portfolio_simulation(all_signals, full_price_db, config: BacktestConfig)
         if dist_to_sl <= max(float(config.min_stop_distance), 0.0):
             continue
 
-        notional = min(10000, (balance * config.risk_per_trade) / max(dist_to_sl, 1e-8))
+        notional = (balance * config.risk_per_trade) / max(dist_to_sl, 1e-8)
         margin_req = notional / max(config.leverage, 1e-8)
 
         cap_margin = balance * 0.10
@@ -1517,19 +1353,10 @@ def run_portfolio_simulation(all_signals, full_price_db, config: BacktestConfig)
 
 
 def run_backtest_with_config(config: BacktestConfig):
-    config.extractor_mode = _normalize_extractor_mode(config.extractor_mode)
-
-    if config.exchange == "bitget":
+    if True: #config.universe_mode == "research":
+        symbols_dir = BASE_DIR / "data" / "ohlcv"
+    elif config.exchange == "bitget":
         symbols_dir = BASE_DIR / "bitget-data" / "symbols_v3"
-    elif str(config.universe_mode).lower() == "research":
-        symbols_dir = BASE_DIR / "data" / "ohlcv"
-    elif bool(config.use_research_model_selection):
-        # Keep historical behavior for selector artifacts/training that were built on research-universe files.
-        symbols_dir = BASE_DIR / "data" / "ohlcv"
-        print(
-            "[WARN] universe_mode=sniper with --use-research-model-selection: "
-            "using data/ohlcv for backward-compatible selector behavior."
-        )
     else:
         symbols_dir = BASE_DIR / "data" / "processed" / "symbols_v3"
 
@@ -1569,7 +1396,7 @@ def run_backtest_with_config(config: BacktestConfig):
     mode_txt = "raw p3 setup + ML filter" if config.use_ml_filter else "raw p3 setup"
     print(
         f"Scanning {len(all_files)} symbols with {mode_txt} "
-        f"(universe_mode={config.universe_mode}, selection_mode={config.selection_mode}, extractor_mode={config.extractor_mode})..."
+        f"(universe_mode={config.universe_mode}, selection_mode={config.selection_mode})..."
     )
 
     potential_signals = []
@@ -1746,13 +1573,6 @@ if __name__ == "__main__":
         choices=["sniper", "research"],
         help="Signal selection policy; research matches quant_metrics-style portfolio gating.",
     )
-    parser.add_argument(
-        "--extractor-mode",
-        type=str,
-        default="strict",
-        choices=["strict", "causal", "live_compatible"],
-        help="strict=research extraction with future labels; causal=live-style no-lookahead setup extraction.",
-    )
     parser.add_argument("--min-stop-distance", type=float, default=0.0, help="Minimum distance to stop as fraction of entry.")
     parser.add_argument("--no-symbol-lock", action="store_true", help="Allow concurrent positions on same symbol.")
     parser.add_argument("--research-compatible", action="store_true", help="Shortcut for fair comparison against run_research.")
@@ -1848,7 +1668,6 @@ if __name__ == "__main__":
         equity_mode=args.equity_mode,
         universe_mode=args.universe_mode,
         selection_mode=args.selection_mode,
-        extractor_mode=_normalize_extractor_mode(args.extractor_mode),
         enforce_symbol_lock=not bool(args.no_symbol_lock),
         min_stop_distance=float(args.min_stop_distance),
         output_tag=_sanitize_output_tag(args.output_tag),

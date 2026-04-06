@@ -310,38 +310,6 @@ class SniperScanner:
             return []
         return self._scan_auto038_selector(symbols, timeframe)
 
-    def _build_live_extractor_frame(self, df_calc: pd.DataFrame) -> pd.DataFrame:
-        """
-        RealDataQuantExtractor was designed for labeled research and needs future bars
-        up to max_hold_bars. For live inference, append flat synthetic bars so extraction
-        can still evaluate setups at the latest closed candle without lookahead data.
-        """
-        hold = int(self.extractor_params.get("max_hold_bars", 24))
-        if hold <= 0 or df_calc.empty:
-            return df_calc
-
-        last_ts = pd.to_datetime(df_calc["timestamp"].iloc[-1])
-        deltas = df_calc["timestamp"].diff().dropna()
-        step = deltas.mode().iloc[0] if not deltas.empty else pd.Timedelta(hours=1)
-        if pd.isna(step) or step <= pd.Timedelta(0):
-            step = pd.Timedelta(hours=1)
-
-        base = df_calc.iloc[-1].copy()
-        future_rows = []
-        for k in range(1, hold + 1):
-            row = base.copy()
-            row["timestamp"] = last_ts + step * k
-            for col in ["open", "high", "low", "close"]:
-                row[col] = float(base["close"])
-            if "volume" in row.index:
-                row["volume"] = 0.0
-            future_rows.append(row)
-
-        if not future_rows:
-            return df_calc
-        future_df = pd.DataFrame(future_rows, columns=df_calc.columns)
-        return pd.concat([df_calc, future_df], ignore_index=True)
-
     def _scan_auto038_selector(self, symbols: List[str], timeframe: str) -> List[Dict[str, Any]]:
         signals: List[Dict[str, Any]] = []
         if not symbols:
@@ -427,8 +395,7 @@ class SniperScanner:
                     continue
 
                 extractor = RealDataQuantExtractor(**extractor_kwargs)
-                df_for_extract = self._build_live_extractor_frame(df_calc)
-                extractor.extract(df_for_extract, symbol)
+                extractor.extract(df_calc, symbol, include_future_labels=False)
                 setup_df = pd.DataFrame(extractor.dataset)
                 if setup_df.empty:
                     symbol_status = "skip"

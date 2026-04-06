@@ -96,32 +96,7 @@ class RealDataQuantExtractor:
         ewm_std = series.ewm(span=span, adjust=False).std()
         return (series - ewm_mean) / (ewm_std + 1e-8)
 
-    def _compute_target_win(self, side, entry_p, sl_p, tp_p, f_lows, f_highs):
-        target_win = 0
-        for low_t, high_t in zip(f_lows, f_highs):
-            if side == 1:
-                if (low_t / entry_p - 1) * 10 <= -0.85:
-                    target_win = 0
-                    break
-                if low_t <= sl_p:
-                    target_win = 0
-                    break
-                if high_t >= tp_p:
-                    target_win = 1
-                    break
-            else:
-                if (high_t / entry_p - 1) * 10 >= 0.85:
-                    target_win = 0
-                    break
-                if high_t >= sl_p:
-                    target_win = 0
-                    break
-                if low_t <= tp_p:
-                    target_win = 1
-                    break
-        return int(target_win)
-
-    def extract(self, df, coin_name, include_future_labels=True):
+    def extract(self, df, coin_name):
         df = df.sort_values('timestamp' if 'timestamp' in df.columns else df.index).reset_index(drop=True)
         h, l, c, o = df['high'].values, df['low'].values, df['close'].values, df['open'].values
         v = df['volume'].values if 'volume' in df.columns else np.zeros(len(df))
@@ -141,13 +116,8 @@ class RealDataQuantExtractor:
         z_price_ema200 = self.get_dynamic_zscore((pd.Series(c) - ema_200) / (ema_200 + 1e-8)).values
         z_atr_ratio = self.get_dynamic_zscore(pd.Series(atr_20), span=200).values
         
-        if include_future_labels:
-            loop_end = len(df) - self.max_hold_bars
-        else:
-            loop_end = len(df)
-
         pivots = []
-        for i in range(250, loop_end):
+        for i in range(250, len(df) - self.max_hold_bars):
             idx = i - 1
             h1, h2, h3 = h[idx - 1], h[idx], h[idx + 1]
             l1, l2, l3 = l[idx - 1], l[idx], l[idx + 1]
@@ -207,36 +177,33 @@ class RealDataQuantExtractor:
                     if (reward_abs / (risk_abs + 1e-8)) < self.min_rr:
                         continue
 
-                    f_lows = []
-                    f_highs = []
-                    f_closes = []
-                    entry_ts = ts[i]
-                    target_win = np.nan
-                    end_time = ts[i]
+                    
+                    # Labels & Win Logic
+                    f_lows = l[i+1 : i+1+self.max_hold_bars]
+                    f_highs = h[i+1 : i+1+self.max_hold_bars]
+                    f_closes = c[i+1 : i+1+self.max_hold_bars]
 
-                    if include_future_labels:
-                        # Labels & Win Logic (strict research mode)
-                        f_lows = l[i+1 : i+1+self.max_hold_bars]
-                        f_highs = h[i+1 : i+1+self.max_hold_bars]
-                        f_closes = c[i+1 : i+1+self.max_hold_bars]
+                    fill_idx = self.get_fill_index(1, entry_p, f_lows, f_highs)
+                    if fill_idx is None:
+                        continue
 
-                        fill_idx = self.get_fill_index(1, entry_p, f_lows, f_highs)
-                        if fill_idx is None:
-                            continue
+                    f_lows = f_lows[fill_idx:]
+                    f_highs = f_highs[fill_idx:]
+                    f_closes = f_closes[fill_idx:]
+                    if len(f_lows) == 0:
+                        continue
 
-                        f_lows = f_lows[fill_idx:]
-                        f_highs = f_highs[fill_idx:]
-                        f_closes = f_closes[fill_idx:]
-                        if len(f_lows) == 0:
-                            continue
-
-                        entry_ts = ts[i] if self.entry_pullback <= 0 else ts[i + 1 + fill_idx]
-                        target_win = self._compute_target_win(1, entry_p, sl_p, tp_p, f_lows, f_highs)
-                        end_time = ts[i + self.max_hold_bars]
-
+                    entry_ts = ts[i] if self.entry_pullback <= 0 else ts[i + 1 + fill_idx]
+                    
+                    target_win = 0
+                    for low_t, high_t in zip(f_lows, f_highs):
+                        # Ghi chú: Zip đi chung nên nếu trong cùng 1 nến giá quét cả 2 đầu, 
+                        # lệnh IF check Cháy/SL đứng trước sẽ kích hoạt -> View bi quan (rất tốt để test)
+                        if (low_t / entry_p - 1) * 10 <= -0.85: target_win = 0; break 
+                        if low_t <= sl_p: target_win = 0; break 
+                        if high_t >= tp_p: target_win = 1; break
                     self.dataset.append({
                         'coin': coin_name, 'timestamp': entry_ts,
-                        'signal_idx': int(i),
                         'side': 1,
                         'z_trend_20_50': z_trend_20_50[i],
                         'z_price_to_ema200': z_price_ema200[i],
@@ -245,11 +212,9 @@ class RealDataQuantExtractor:
                         'pullback_depth': (p_b - p_c) / (p_b - p_a) if p_b != p_a else 0,
                         'dist_to_sl_pct': dist_to_sl, # Tính năng mới để AI học độ nguy hiểm của Margin
                         'entry_p': entry_p, 'sl_p': sl_p, 'tp_p': tp_p,
-                        'future_lows': list(f_lows) if isinstance(f_lows, list) else f_lows.tolist(),
-                        'future_highs': list(f_highs) if isinstance(f_highs, list) else f_highs.tolist(),
-                        'future_closes': list(f_closes) if isinstance(f_closes, list) else f_closes.tolist(),
+                        'future_lows': f_lows.tolist(), 'future_highs': f_highs.tolist(), 'future_closes': f_closes.tolist(),
                         'target_win': target_win,
-                        'end_time': end_time
+                        'end_time': ts[i + self.max_hold_bars]
                     })
 
             # SHORT: Đồng bộ setup Pine đối xứng
@@ -288,35 +253,36 @@ class RealDataQuantExtractor:
                     if (reward_abs / (risk_abs + 1e-8)) < self.min_rr:
                         continue
 
-                    f_lows = []
-                    f_highs = []
-                    f_closes = []
-                    entry_ts = ts[i]
-                    target_win = np.nan
-                    end_time = ts[i]
+                    f_lows = l[i+1 : i+1+self.max_hold_bars]
+                    f_highs = h[i+1 : i+1+self.max_hold_bars]
+                    f_closes = c[i+1 : i+1+self.max_hold_bars]
 
-                    if include_future_labels:
-                        f_lows = l[i+1 : i+1+self.max_hold_bars]
-                        f_highs = h[i+1 : i+1+self.max_hold_bars]
-                        f_closes = c[i+1 : i+1+self.max_hold_bars]
+                    fill_idx = self.get_fill_index(-1, entry_p, f_lows, f_highs)
+                    if fill_idx is None:
+                        continue
 
-                        fill_idx = self.get_fill_index(-1, entry_p, f_lows, f_highs)
-                        if fill_idx is None:
-                            continue
+                    f_lows = f_lows[fill_idx:]
+                    f_highs = f_highs[fill_idx:]
+                    f_closes = f_closes[fill_idx:]
+                    if len(f_lows) == 0:
+                        continue
 
-                        f_lows = f_lows[fill_idx:]
-                        f_highs = f_highs[fill_idx:]
-                        f_closes = f_closes[fill_idx:]
-                        if len(f_lows) == 0:
-                            continue
+                    entry_ts = ts[i] if self.entry_pullback <= 0 else ts[i + 1 + fill_idx]
 
-                        entry_ts = ts[i] if self.entry_pullback <= 0 else ts[i + 1 + fill_idx]
-                        target_win = self._compute_target_win(-1, entry_p, sl_p, tp_p, f_lows, f_highs)
-                        end_time = ts[i + self.max_hold_bars]
+                    target_win = 0
+                    for low_t, high_t in zip(f_lows, f_highs):
+                        if (high_t / entry_p - 1) * 10 >= 0.85:
+                            target_win = 0
+                            break
+                        if high_t >= sl_p:
+                            target_win = 0
+                            break
+                        if low_t <= tp_p:
+                            target_win = 1
+                            break
 
                     self.dataset.append({
                         'coin': coin_name, 'timestamp': entry_ts,
-                        'signal_idx': int(i),
                         'side': -1,
                         'z_trend_20_50': z_trend_20_50[i],
                         'z_price_to_ema200': z_price_ema200[i],
@@ -325,11 +291,9 @@ class RealDataQuantExtractor:
                         'pullback_depth': (p_c - p_b) / (p_a - p_b) if p_a != p_b else 0,
                         'dist_to_sl_pct': dist_to_sl,
                         'entry_p': entry_p, 'sl_p': sl_p, 'tp_p': tp_p,
-                        'future_lows': list(f_lows) if isinstance(f_lows, list) else f_lows.tolist(),
-                        'future_highs': list(f_highs) if isinstance(f_highs, list) else f_highs.tolist(),
-                        'future_closes': list(f_closes) if isinstance(f_closes, list) else f_closes.tolist(),
+                        'future_lows': f_lows.tolist(), 'future_highs': f_highs.tolist(), 'future_closes': f_closes.tolist(),
                         'target_win': target_win,
-                        'end_time': end_time
+                        'end_time': ts[i + self.max_hold_bars]
                     })
 
 # ==========================================
