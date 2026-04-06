@@ -593,40 +593,67 @@ class BinanceExecutor(ExchangeExecutor):
                 order_params['timeInForce'] = TIME_IN_FORCE_GTC
                 
             order = self.client.futures_create_order(**order_params)
-            
-            # 4. Place SL & TP (Reduce Only)
+            entry_order_id = None
+            sl_order_id = None
+            tp_order_id = None
             try:
-                # SL
+                entry_order_id = order.get('orderId') if isinstance(order, dict) else None
+
+                # 4. Place SL & TP (Reduce Only)
                 sl_side = SIDE_SELL if side.upper() == 'LONG' else SIDE_BUY
-                self.client.futures_create_order(
+
+                # Place Stop Loss (reduceOnly)
+                sl_order = self.client.futures_create_order(
                     symbol=symbol,
                     side=sl_side,
                     type='STOP_MARKET',
                     quantity=quantity, # Explicit quantity instead of closePosition
                     stopPrice=self.format_price(symbol, sl_price),
-                    reduceOnly=True # Use reduceOnly instead of closePosition
+                    reduceOnly=True
                 )
-                
-                # TP
+                sl_order_id = sl_order.get('orderId') if isinstance(sl_order, dict) else None
+
+                # Place TP (unless trailing stop requested)
                 if trailing_callback <= 0:
-                    self.client.futures_create_order(
+                    tp_order = self.client.futures_create_order(
                         symbol=symbol,
                         side=sl_side,
                         type='TAKE_PROFIT_MARKET',
-                        quantity=quantity, # Explicit quantity instead of closePosition
+                        quantity=quantity,
                         stopPrice=self.format_price(symbol, tp_price),
-                        reduceOnly=True # Use reduceOnly instead of closePosition
+                        reduceOnly=True
                     )
+                    tp_order_id = tp_order.get('orderId') if isinstance(tp_order, dict) else None
                     print(f"✅ Order & Standard SL/TP Placed for {symbol}")
                 else:
                     print(f"✅ Order & Standard SL Placed for {symbol} (TP skipped due to Trailing Stop)")
             except Exception as sl_tp_err:
-                print(f"⚠️ Error placing SL/TP: {sl_tp_err}. Cancelling/Closing entry order to avoid unprotected position.")
+                print(f"⚠️ Error placing SL/TP: {sl_tp_err}. Rolling back created orders to avoid unprotected position.")
+                # Best-effort cleanup: cancel TP, SL, and entry (if created)
                 try:
+                    if tp_order_id:
+                        try:
+                            self.client.futures_cancel_order(symbol=symbol, orderId=tp_order_id)
+                        except Exception:
+                            pass
+                    if sl_order_id:
+                        try:
+                            self.client.futures_cancel_order(symbol=symbol, orderId=sl_order_id)
+                        except Exception:
+                            pass
+
                     if binance_type == ORDER_TYPE_LIMIT:
-                        self.client.futures_cancel_order(symbol=symbol, orderId=order['orderId'])
+                        if entry_order_id:
+                            try:
+                                self.client.futures_cancel_order(symbol=symbol, orderId=entry_order_id)
+                            except Exception:
+                                pass
                     else:
-                        self.client.futures_create_order(symbol=symbol, side=sl_side, type=ORDER_TYPE_MARKET, quantity=quantity, reduceOnly=True)
+                        # If a MARKET entry was placed, attempt to reduce/close the resulting position
+                        try:
+                            self.client.futures_create_order(symbol=symbol, side=sl_side, type=ORDER_TYPE_MARKET, quantity=quantity, reduceOnly=True)
+                        except Exception:
+                            pass
                 except Exception as rollback_err:
                     print(f"❌ Rollback failed! Manual intervention required for {symbol}: {rollback_err}")
                 return {}
