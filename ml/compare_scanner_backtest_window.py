@@ -118,6 +118,27 @@ class MockDataProcessor:
         open_candle_ts = pd.to_datetime(self.current_time).floor("h")
         sliced = base[base["timestamp"] <= open_candle_ts].copy()
 
+        # Scanner logic drops the last row as the currently-open candle.
+        # In replay datasets, the true open bar at `open_candle_ts` may be absent,
+        # which would shift `last_closed_ts` one bar too early and cause boundary
+        # mismatches (especially near window end). Add a synthetic open bar when
+        # needed so replay semantics match live scanning.
+        if not sliced.empty:
+            last_ts = pd.to_datetime(sliced["timestamp"].iloc[-1], errors="coerce")
+            if pd.notna(last_ts):
+                last_ts = last_ts.tz_localize(None)
+                if last_ts < open_candle_ts:
+                    prev = sliced.iloc[-1]
+                    synthetic = {col: prev[col] for col in sliced.columns}
+                    synthetic["timestamp"] = open_candle_ts
+                    close_val = float(pd.to_numeric(prev.get("close"), errors="coerce"))
+                    for px_col in ("open", "high", "low", "close"):
+                        if px_col in synthetic:
+                            synthetic[px_col] = close_val
+                    if "volume" in synthetic:
+                        synthetic["volume"] = 0.0
+                    sliced = pd.concat([sliced, pd.DataFrame([synthetic])], ignore_index=True)
+
         if timeframe == "1d":
             sliced = (
                 sliced.set_index("timestamp")
@@ -150,8 +171,18 @@ def _collect_scanner_signals(
     start: pd.Timestamp,
     end: pd.Timestamp,
     quiet_scanner: bool,
+    parity_mode: str = "execution",
 ) -> Tuple[List[dict], float]:
-    processor = MockDataProcessor(symbols=symbols, symbols_dir=symbols_dir, bars_tail=max(1200, int(cfg.strategy.scan_history_bars)))
+    def _norm_ts(value) -> pd.Timestamp:
+        ts = pd.to_datetime(value, errors="coerce")
+        if pd.isna(ts):
+            return pd.NaT
+        if getattr(ts, "tzinfo", None) is not None:
+            ts = ts.tz_localize(None)
+        return ts
+
+    bars_tail = max(1200, int(getattr(getattr(cfg, "strategy", None), "scan_history_bars", 1200)))
+    processor = MockDataProcessor(symbols=symbols, symbols_dir=symbols_dir, bars_tail=bars_tail)
     scanner = SniperScanner(config=cfg, data_processor=processor)
 
     hours = pd.date_range(start, end, freq="h")
@@ -165,9 +196,17 @@ def _collect_scanner_signals(
         else:
             signals = scanner.scan(list(symbols), timeframe)
         for sig in signals:
+            meta = sig.get("meta") if isinstance(sig.get("meta"), dict) else {}
+            decision_ts = _norm_ts(sig.get("timestamp"))
+            setup_ts = _norm_ts(meta.get("setup_timestamp", sig.get("timestamp")))
+            key_ts = setup_ts if str(parity_mode).lower() == "alert" else decision_ts
+            if pd.isna(key_ts):
+                continue
             all_rows.append(
                 {
-                    "timestamp": pd.to_datetime(sig.get("timestamp")).tz_localize(None),
+                    "timestamp": key_ts,
+                    "setup_timestamp": setup_ts,
+                    "decision_timestamp": decision_ts,
                     "symbol": _strip_symbol(sig.get("symbol", "")),
                     "side": str(sig.get("type", "")).upper(),
                     "confidence": float(sig.get("confidence", 0.0)),
@@ -346,13 +385,7 @@ def main():
     parser.add_argument("--max-files", type=int, default=80)
     parser.add_argument("--universe-mode", type=str, default="research", choices=["research", "sniper"])
     parser.add_argument("--exchange", type=str, default="binance")
-    parser.add_argument(
-        "--extractor-mode",
-        type=str,
-        default="causal",
-        choices=["strict", "causal", "live_compatible"],
-        help="Backtest extractor mode used for parity check (causal matches scanner no-lookahead mode).",
-    )
+    # extractor mode removed; backtests always use live_compatible to mirror scanner
 
     parser.add_argument("--profile-path", type=str, default="")
     parser.add_argument("--profile-name", type=str, default="")
@@ -386,7 +419,9 @@ def main():
         cfg.strategy.selector_artifact_path = args.selector_artifact_path
     if args.selector_threshold_override is not None:
         cfg.strategy.selector_threshold_override = float(args.selector_threshold_override)
-    cfg.strategy.progress_detail_log_path = str(args.progress_log_path)
+    # Backward/forward compatible with different config schema revisions.
+    if hasattr(cfg.strategy, "progress_detail_log_path"):
+        cfg.strategy.progress_detail_log_path = str(args.progress_log_path)
 
     symbols_dir = _resolve_symbols_dir(args.universe_mode, args.exchange)
     if not symbols_dir.exists():
@@ -411,6 +446,7 @@ def main():
         start=start,
         end=end,
         quiet_scanner=not bool(args.no_quiet_scanner),
+        parity_mode=str(args.parity_mode),
     )
 
     bt_cfg = BacktestConfig(
@@ -421,7 +457,7 @@ def main():
         risk_per_trade=float(cfg.risk.max_risk_per_trade),
         max_open_trades=int(cfg.risk.max_open_positions),
         universe_mode=str(args.universe_mode),
-        extractor_mode=str(args.extractor_mode),
+        extractor_mode="live_compatible",
         top_coins=[_to_usdt(fp.stem) for fp in file_paths],
         max_files=0,
         use_research_model_selection=True,
@@ -462,9 +498,9 @@ def main():
     )
 
     stats = CompareStats(
-        scanner_signals=len(scanner_rows),
+        scanner_signals=len(scanner_map),
         scanner_raw_signals=len(scanner_rows_raw),
-        backtest_signals=len(backtest_rows),
+        backtest_signals=len(backtest_map),
         matched=len(both),
         scanner_only=len(only_scanner),
         backtest_only=len(only_backtest),

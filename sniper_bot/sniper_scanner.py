@@ -13,7 +13,8 @@ from ml.p3 import RealDataQuantExtractor
 
 try:
     from ml.backtest_sniper import _prepare_research_selection_features
-except Exception:
+except Exception as _import_err:
+    print(f"[SniperScanner][WARN] Could not import _prepare_research_selection_features from ml.backtest_sniper: {_import_err}. Using built-in fallback.")
     def _prepare_research_selection_features(frame: pd.DataFrame) -> pd.DataFrame:
         """Fallback feature builder used when ml.backtest_sniper export is unavailable."""
         out = frame.copy()
@@ -44,14 +45,30 @@ except Exception:
         out["risk_reward_ratio"] = tp_dist_abs / (sl_dist_abs + 1e-12)
         out["tp_distance_pct"] = tp_dist_abs / entry_abs
         out["sl_distance_pct"] = sl_dist_abs / entry_abs
-        out["entry_to_sl_over_structure"] = sl_dist_abs / (np.abs(out["structure_size"]) + 1e-12)
+        # Must use sl_distance_pct (percentage), NOT sl_dist_abs (absolute price),
+        # to match backtest_sniper._prepare_research_selection_features exactly.
+        out["entry_to_sl_over_structure"] = out["sl_distance_pct"] / (np.abs(out["structure_size"]) + 1e-12)
         out["side_z_trend"] = out["side"] * out["z_trend_20_50"]
         out["side_z_price"] = out["side"] * out["z_price_to_ema200"]
 
-        # Conservative default for regime-shift features in fallback mode.
-        out["vol_regime_shift_6"] = 0.0
-        out["trend_regime_shift_6"] = 0.0
-        out["price_regime_shift_6"] = 0.0
+        # Compute regime-shift features from z-score shifts, matching backtest exactly.
+        if "symbol" not in out.columns:
+            if "coin" in out.columns:
+                out["symbol"] = out["coin"].astype(str).str.upper()
+            elif "__scan_symbol" in out.columns:
+                out["symbol"] = out["__scan_symbol"].astype(str).str.upper()
+            else:
+                out["symbol"] = "UNKNOWN"
+
+        out = out.sort_values(["symbol", "timestamp"]).reset_index(drop=True)
+        grp = out.groupby("symbol", group_keys=False)
+        out["vol_regime_shift_6"] = grp["z_volatility_atr"].shift(1) - grp["z_volatility_atr"].shift(7)
+        out["trend_regime_shift_6"] = grp["z_trend_20_50"].shift(1) - grp["z_trend_20_50"].shift(7)
+        out["price_regime_shift_6"] = grp["z_price_to_ema200"].shift(1) - grp["z_price_to_ema200"].shift(7)
+
+        # Clean up NaN/inf from shift operations.
+        for _rc in ["vol_regime_shift_6", "trend_regime_shift_6", "price_regime_shift_6"]:
+            out[_rc] = pd.to_numeric(out[_rc], errors="coerce").replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
         return out
 
@@ -81,8 +98,71 @@ class SniperScanner:
         self.profile_info: Dict[str, Any] = {}
         self.progress_log_path = self._resolve_progress_log_path()
         self._history_cache: Dict[str, pd.DataFrame] = {}
+        self.history_cache_dir = self._resolve_cache_dir()
+        self.history_cache_enabled = bool(
+            getattr(getattr(self.config, "strategy", None), "history_cache_enabled", True)
+        )
+
+        if self.history_cache_enabled:
+            self._load_history_cache()
 
         self._load_auto038_selector_model()
+
+    def _resolve_cache_dir(self) -> Path:
+        raw = str(
+            getattr(
+                getattr(self.config, "strategy", None),
+                "history_cache_dir",
+                "data/scanner_cache",
+            )
+        )
+        path = Path(raw)
+        if not path.is_absolute():
+            path = self.base_dir / path
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def _load_history_cache(self) -> None:
+        if not self.history_cache_dir.exists():
+            return
+        files = list(self.history_cache_dir.glob("*.parquet"))
+        if not files:
+            return
+
+        print(f"[SniperScanner] Loading {len(files)} symbols from disk cache: {self.history_cache_dir}")
+        for f in files:
+            try:
+                # Filename expected: SYMBOL_TIMEFRAME.parquet
+                parts = f.stem.split("_")
+                if len(parts) < 2:
+                    continue
+                symbol = parts[0]
+                timeframe = parts[1]
+                cache_key = f"{symbol}|{timeframe}"
+
+                df = pd.read_parquet(f)
+                if not df.empty and "timestamp" in df.columns:
+                    df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.tz_localize(None)
+                    self._history_cache[cache_key] = df
+            except Exception as e:
+                print(f"[SniperScanner] Error loading cache file {f.name}: {e}")
+
+    def _save_history_cache(self) -> None:
+        if not self.history_cache_enabled or not self._history_cache:
+            return
+
+        # Use a sub-folder to avoid partial write issues if multiple scanners run.
+        # But for now, simple 1-file-per-symbol is standard.
+        for cache_key, df in self._history_cache.items():
+            if df.empty:
+                continue
+            try:
+                symbol, timeframe = cache_key.split("|")
+                filename = f"{symbol}_{timeframe}.parquet"
+                target_path = self.history_cache_dir / filename
+                df.to_parquet(target_path, index=False, engine="pyarrow")
+            except Exception as e:
+                print(f"[SniperScanner] Error saving cache for {cache_key}: {e}")
 
     def _resolve_progress_log_path(self) -> Path:
         raw = str(
@@ -445,6 +525,7 @@ class SniperScanner:
         )
 
         candidate_frames: List[pd.DataFrame] = []
+        setup_context_frames: List[pd.DataFrame] = []  # Full setup history per symbol for regime features
         pending_symbol_records: Dict[int, Dict[str, Any]] = {}
         extractor_kwargs = self._build_extractor_kwargs()
 
@@ -635,11 +716,37 @@ class SniperScanner:
 
                 if batch_predict:
                     candidate_frames.append(latest_setups)
+                    # Collect full setup history for regime-shift feature context.
+                    _ctx = setup_df.copy()
+                    _ctx["symbol"] = symbol
+                    setup_context_frames.append(_ctx)
                     symbol_status = "pending_batch"
                     symbol_reason = "candidate_ready"
                     candidate_count = int(len(latest_setups))
                 else:
-                    selection_frame = _prepare_research_selection_features(latest_setups)
+                    # Use full setup history for regime-shift feature context,
+                    # then extract only candidate rows for prediction.
+                    _ctx_nb = setup_df.copy()
+                    _ctx_nb["symbol"] = symbol
+                    _meta_nb = ["signal_id", "__decision_ts", "__setup_mode", "__scan_symbol", "__scan_idx", "__live_price"]
+                    for _mc in _meta_nb:
+                        if _mc not in _ctx_nb.columns:
+                            _ctx_nb[_mc] = np.nan
+                    _cand_ids_nb = set(latest_setups["signal_id"].astype(str).tolist())
+                    for _, _cr in latest_setups.iterrows():
+                        _mask_nb = (
+                            (_ctx_nb["symbol"] == _cr["symbol"])
+                            & (pd.to_datetime(_ctx_nb["timestamp"], errors="coerce") == pd.to_datetime(_cr["timestamp"]))
+                            & (pd.to_numeric(_ctx_nb["side"], errors="coerce") == int(_cr["side"]))
+                        )
+                        if _mask_nb.any():
+                            _fi = _ctx_nb.index[_mask_nb][0]
+                            for _mc in _meta_nb:
+                                _ctx_nb.loc[_fi, _mc] = _cr[_mc]
+                    selection_frame = _prepare_research_selection_features(_ctx_nb)
+                    selection_frame["signal_id"] = selection_frame["signal_id"].astype(str)
+                    selection_frame = selection_frame[selection_frame["signal_id"].isin(_cand_ids_nb)].copy()
+                    selection_frame = selection_frame.reset_index(drop=True)
                     feature_frame = selection_frame.reindex(columns=self.features, fill_value=0.0)
                     probs = self.clf.predict_proba(feature_frame)[:, 1]
 
@@ -754,8 +861,37 @@ class SniperScanner:
 
         if batch_predict and candidate_frames:
             all_candidates = pd.concat(candidate_frames, ignore_index=True)
-            prepared = _prepare_research_selection_features(all_candidates)
             candidate_ids = all_candidates["signal_id"].astype(str).tolist()
+            candidate_id_set = set(candidate_ids)
+
+            # Build full setup context so regime-shift features compute correctly
+            # (backtest has all historical setups per symbol; live needs them too).
+            if setup_context_frames:
+                full_context = pd.concat(setup_context_frames, ignore_index=True)
+                # Propagate candidate metadata into context rows that are candidates.
+                meta_cols = ["signal_id", "__decision_ts", "__setup_mode", "__scan_symbol", "__scan_idx", "__live_price"]
+                for mc in meta_cols:
+                    if mc not in full_context.columns:
+                        full_context[mc] = np.nan
+                # Merge signal_ids from candidates into context by matching symbol+timestamp+side.
+                cand_lookup = all_candidates[["symbol", "timestamp", "side"] + meta_cols].copy()
+                cand_lookup["timestamp"] = pd.to_datetime(cand_lookup["timestamp"], errors="coerce")
+                full_context["timestamp"] = pd.to_datetime(full_context["timestamp"], errors="coerce")
+                for mc in meta_cols:
+                    full_context[mc] = np.nan
+                for _, crow in cand_lookup.iterrows():
+                    mask = (
+                        (full_context["symbol"] == crow["symbol"])
+                        & (full_context["timestamp"] == crow["timestamp"])
+                        & (pd.to_numeric(full_context["side"], errors="coerce") == int(crow["side"]))
+                    )
+                    if mask.any():
+                        first_idx = full_context.index[mask][0]
+                        for mc in meta_cols:
+                            full_context.loc[first_idx, mc] = crow[mc]
+                prepared = _prepare_research_selection_features(full_context)
+            else:
+                prepared = _prepare_research_selection_features(all_candidates)
 
             if prepared.empty or "signal_id" not in prepared.columns:
                 for rec in pending_symbol_records.values():
@@ -766,6 +902,8 @@ class SniperScanner:
             else:
                 prepared = prepared.copy()
                 prepared["signal_id"] = prepared["signal_id"].astype(str)
+                # Filter to candidate rows only (drop non-candidate context rows).
+                prepared = prepared[prepared["signal_id"].isin(candidate_id_set)].copy()
                 prepared = prepared.drop_duplicates(subset=["signal_id"], keep="last").set_index("signal_id")
                 feature_frame = prepared.reindex(candidate_ids, fill_value=0.0).reindex(columns=self.features, fill_value=0.0)
                 probs = self.clf.predict_proba(feature_frame)[:, 1]

@@ -121,7 +121,7 @@ class BacktestConfig:
     equity_mode: str = "event"
     universe_mode: str = "sniper"
     selection_mode: str = "sniper"
-    extractor_mode: str = "strict"
+    extractor_mode: str = "live_compatible"
     enforce_symbol_lock: bool = True
     min_stop_distance: float = 0.0
     output_tag: str = ""
@@ -1749,9 +1749,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--extractor-mode",
         type=str,
-        default="strict",
-        choices=["strict", "causal", "live_compatible"],
-        help="strict=research extraction with future labels; causal=live-style no-lookahead setup extraction.",
+        default="live_compatible",
+        choices=["live_compatible"],
+        help="Extractor mode (fixed): live_compatible mirrors live scanner behavior (no lookahead).",
     )
     parser.add_argument("--min-stop-distance", type=float, default=0.0, help="Minimum distance to stop as fraction of entry.")
     parser.add_argument("--no-symbol-lock", action="store_true", help="Allow concurrent positions on same symbol.")

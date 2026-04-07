@@ -196,3 +196,26 @@
    - adding explicit `return` immediately after each `st.stop()` guard.
 - Also switched credentials path to script-relative (`pnl_dashboard/credentials.json`) to avoid CWD-dependent lookup failures.
 - Reminder: proper launch is `streamlit run pnl_dashboard/app.py`; bare mode shows `ScriptRunContext` warnings and session-state limitations.
+
+## Update 2026-04-07 (mismatch debug workflow)
+- Added timestamp-level mismatch debugger script: `ml/debug_mismatch_timestamps.py`.
+- Key lesson: `output/prod_sniper_scan_progress_20260405.log` can contain mixed origins in `scan_end.log_file` (local Windows path + `/opt/...` prod path).
+- When diagnosing prod mismatch, always filter scan rows by `scan_source_filter=prod` to avoid false root-cause attribution from local cycles.
+- New script mode guidance:
+   - `backtest_debug_mode=artifact` for parity-truth against compare CSV.
+   - `backtest_debug_mode=replay` only for deep stage tracing (can diverge if local dataset/profile differs from parity run).
+
+## Update 2026-04-07 (scanner/backtest fill-time parity)
+- Root cause for CATI mismatch: scanner carry-forward chose nearest setup timestamp, while backtest parity key is entry/fill timestamp (setup can be several bars earlier).
+- Fix pattern: in `sniper_bot/sniper_scanner.py`, carry branch must select setups whose computed fill/decision timestamp equals `last_closed_ts` (fill-match), not just the nearest setup.
+- Config default updated in `sniper_bot/config.py`: `carry_setup_bars=0` means auto window from profile `max_hold_bars`; `carry_require_fill=true` keeps live behavior aligned with backtest fill semantics.
+
+## Update 2026-04-07 (alert-level parity caveat)
+- Latest alert-level checks can undercount on backtest side when using `run_backtest_with_config` outputs directly, because many newest setup bars are excluded by forward-dependent signal/trade construction.
+- Practical rule: use backtest `signal_timestamp` for setup-level comparisons, but do not assume full latest-candle coverage from `potential_signals` without a causal/no-future extraction path.
+
+## Update 2026-04-07 (replay boundary parity fix)
+- Residual replay mismatch (`backtest_only` near window end) can come from `MockDataProcessor` being one candle behind when the current open bar is missing in local parquet.
+- In `ml/compare_scanner_backtest_window.py`, `MockDataProcessor.get_historical_data` now appends a synthetic open candle at `current_time.floor("h")` when needed.
+- This preserves scanner semantics (`df.iloc[:-1]` as closed-candle slice) and removes false boundary mismatches in alert-level replay.
+- Additional regression check after patch (9 symbols, alert mode, shifted 14-day window ending `2026-04-05 23:00:00`) also reached full parity: scanner=7, backtest=7, matched=7, scanner_only=0, backtest_only=0.
