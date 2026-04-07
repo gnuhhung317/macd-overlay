@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Optional
 import joblib
 import numpy as np
 import pandas as pd
-
 from data_processor import BinanceDataProcessor
 from ml.p3 import RealDataQuantExtractor
 
@@ -110,6 +109,98 @@ class SniperScanner:
     @staticmethod
     def _sanitize_log_value(value: Any) -> str:
         return str(value).replace("\n", " ").replace("\r", " ").replace("|", "/")
+
+    @staticmethod
+    def _format_ts(value: Any) -> str:
+        if value is None or value == "":
+            return ""
+        try:
+            return pd.to_datetime(value).tz_localize(None).strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return str(value)
+
+    @staticmethod
+    def _timeframe_to_minutes(timeframe: str) -> int:
+        tf = str(timeframe).strip().lower()
+        if tf.endswith("m"):
+            return max(1, int(tf[:-1]))
+        if tf.endswith("h"):
+            return max(1, int(tf[:-1])) * 60
+        if tf.endswith("d"):
+            return max(1, int(tf[:-1])) * 24 * 60
+        if tf.endswith("w"):
+            return max(1, int(tf[:-1])) * 7 * 24 * 60
+        return 60
+
+    def _find_fill_matched_setups(
+        self,
+        candidate_setups: pd.DataFrame,
+        df_calc: pd.DataFrame,
+        last_closed_ts: pd.Timestamp,
+        extractor: RealDataQuantExtractor,
+        max_hold_bars: int,
+    ) -> pd.DataFrame:
+        if candidate_setups.empty or df_calc.empty:
+            return candidate_setups.iloc[0:0].copy()
+
+        ts_series = pd.to_datetime(df_calc["timestamp"], errors="coerce").dt.tz_localize(None)
+        ts_ns = ts_series.astype("int64").to_numpy()
+        ts_idx_map = {int(v): i for i, v in enumerate(ts_ns)}
+
+        matched_indices: List[int] = []
+        entry_pullback = float(getattr(extractor, "entry_pullback", 0.0))
+        hold_bars = max(1, int(max_hold_bars))
+
+        for row_idx, row in candidate_setups.iterrows():
+            try:
+                setup_ts = pd.to_datetime(row["timestamp"]).tz_localize(None)
+                signal_idx = ts_idx_map.get(int(pd.Timestamp(setup_ts).value))
+                if signal_idx is None:
+                    continue
+
+                fut_start = signal_idx + 1
+                fut_stop = min(len(df_calc), fut_start + hold_bars)
+                if fut_stop <= fut_start:
+                    continue
+
+                fut = df_calc.iloc[fut_start:fut_stop]
+                future_lows = pd.to_numeric(fut["low"], errors="coerce").dropna().astype(float).tolist()
+                future_highs = pd.to_numeric(fut["high"], errors="coerce").dropna().astype(float).tolist()
+                max_len = min(len(future_lows), len(future_highs))
+                if max_len == 0:
+                    continue
+                future_lows = future_lows[:max_len]
+                future_highs = future_highs[:max_len]
+
+                side_val = pd.to_numeric(row.get("side", np.nan), errors="coerce")
+                entry_val = pd.to_numeric(row.get("entry_p", np.nan), errors="coerce")
+                if pd.isna(side_val) or pd.isna(entry_val):
+                    continue
+
+                side = int(side_val)
+                if side not in (1, -1):
+                    continue
+                entry_p = float(entry_val)
+
+                fill_idx = extractor.get_fill_index(side, entry_p, future_lows, future_highs)
+                if fill_idx is None:
+                    continue
+
+                if entry_pullback <= 0:
+                    decision_ts = pd.to_datetime(ts_series.iloc[signal_idx]).tz_localize(None)
+                else:
+                    entry_idx = min(len(ts_series) - 1, fut_start + int(fill_idx))
+                    decision_ts = pd.to_datetime(ts_series.iloc[entry_idx]).tz_localize(None)
+
+                if decision_ts == last_closed_ts:
+                    matched_indices.append(row_idx)
+            except Exception:
+                continue
+
+        if not matched_indices:
+            return candidate_setups.iloc[0:0].copy()
+
+        return candidate_setups.loc[matched_indices].copy()
 
     def _log_scan_event(self, event: str, **fields: Any) -> None:
         ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
@@ -315,10 +406,16 @@ class SniperScanner:
         if not symbols:
             return signals
 
-        lookback_days = int(getattr(getattr(self.config, "strategy", None), "selector_lookback_days", 450))
+        strategy_cfg = getattr(self.config, "strategy", None)
+        lookback_days = int(getattr(strategy_cfg, "selector_lookback_days", 450))
         fetch_start = f"{max(lookback_days, 120)} days ago UTC"
         required_bars = 320
-        batch_predict = bool(getattr(getattr(self.config, "strategy", None), "selector_batch_predict", True))
+        batch_predict = bool(getattr(strategy_cfg, "selector_batch_predict", True))
+        max_hold_bars = max(1, int(self.extractor_params.get("max_hold_bars", 24)))
+        carry_setup_bars_raw = int(getattr(strategy_cfg, "carry_setup_bars", 0))
+        carry_setup_bars = max_hold_bars if carry_setup_bars_raw <= 0 else max(1, carry_setup_bars_raw)
+        carry_require_fill = bool(getattr(strategy_cfg, "carry_require_fill", True))
+        bar_minutes = max(1, self._timeframe_to_minutes(timeframe))
 
         total_symbols = len(symbols)
         start_time = time.time()
@@ -342,6 +439,9 @@ class SniperScanner:
             symbols=total_symbols,
             lookback_days=lookback_days,
             batch_predict=batch_predict,
+            carry_setup_bars=carry_setup_bars,
+            carry_require_fill=carry_require_fill,
+            max_hold_bars=max_hold_bars,
         )
 
         candidate_frames: List[pd.DataFrame] = []
@@ -350,12 +450,47 @@ class SniperScanner:
 
         for i, symbol in enumerate(symbols):
             symbol_start = time.time()
+            idx = i + 1
             symbol_status = "ok"
             symbol_reason = "processed"
             symbol_signals = 0
-            try:
-                idx = i + 1
+            scan_open_ts = None
+            last_closed_ts = None
+            setup_total = 0
+            latest_setup_count = 0
+            latest_long_count = 0
+            latest_short_count = 0
+            nearest_setup_ts = None
+            nearest_setup_delta_min = None
+            candidate_count = 0
+            active_setup_ts = None
+            setup_mode = "none"
+            carry_setup_delta_min = None
 
+            pending_symbol_records[idx] = {
+                "idx": idx,
+                "total": total_symbols,
+                "symbol": symbol,
+                "status": symbol_status,
+                "reason": symbol_reason,
+                "signals": symbol_signals,
+                "start_ts": symbol_start,
+                "candidate": False,
+                "candidate_count": 0,
+                "scan_open_ts": "",
+                "last_closed_ts": "",
+                "setup_total": 0,
+                "latest_setup_count": 0,
+                "latest_long_count": 0,
+                "latest_short_count": 0,
+                "nearest_setup_ts": "",
+                "nearest_setup_delta_min": "",
+                "active_setup_ts": "",
+                "setup_mode": "none",
+                "carry_setup_delta_min": "",
+            }
+
+            try:
                 if idx in progress_marks:
                     percent = ((i + 1) / total_symbols) * 100
                     elapsed = time.time() - start_time
@@ -385,6 +520,7 @@ class SniperScanner:
                     symbol_status = "skip"
                     symbol_reason = "insufficient_history"
                     continue
+                scan_open_ts = pd.to_datetime(df["timestamp"].iloc[-1]).tz_localize(None)
                 live_price = float(pd.to_numeric(df["close"], errors="coerce").iloc[-1])
 
                 # Only completed candles are used for setup extraction.
@@ -401,6 +537,7 @@ class SniperScanner:
                     symbol_status = "skip"
                     symbol_reason = "no_setup"
                     continue
+                setup_total = int(len(setup_df))
 
                 # Some extractor payloads may carry duplicated column names.
                 if setup_df.columns.duplicated().any():
@@ -420,10 +557,68 @@ class SniperScanner:
                 last_closed_ts = pd.to_datetime(df_calc["timestamp"].iloc[-1]).tz_localize(None)
 
                 latest_setups = setup_df[setup_df["timestamp"] == last_closed_ts].copy()
+                latest_setup_count = int(len(latest_setups))
+                if "side" in latest_setups.columns and not latest_setups.empty:
+                    side_vals = pd.to_numeric(latest_setups["side"], errors="coerce")
+                    latest_long_count = int((side_vals == 1).sum())
+                    latest_short_count = int((side_vals == -1).sum())
+                carry_candidates = setup_df.iloc[0:0].copy()
+                if carry_setup_bars > 0:
+                    window_start = last_closed_ts - pd.Timedelta(minutes=bar_minutes * carry_setup_bars)
+                    carry_candidates = setup_df[
+                        (setup_df["timestamp"] < last_closed_ts)
+                        & (setup_df["timestamp"] >= window_start)
+                    ].copy()
+
+                # Backtest-causal parity mode: only emit setups whose effective decision/fill bar is the current closed bar.
+                # This avoids duplicate alerts for the same setup (setup bar + carry-fill bar) and filters setups that never fill.
+                if carry_require_fill:
+                    fill_candidates = carry_candidates
+                    if not latest_setups.empty:
+                        fill_candidates = pd.concat([latest_setups, carry_candidates], ignore_index=True)
+
+                    if not fill_candidates.empty:
+                        fill_matched = self._find_fill_matched_setups(
+                            candidate_setups=fill_candidates,
+                            df_calc=df_calc,
+                            last_closed_ts=last_closed_ts,
+                            extractor=extractor,
+                            max_hold_bars=max_hold_bars,
+                        )
+                        if not fill_matched.empty:
+                            latest_setups = fill_matched
+                            active_setup_ts = pd.to_datetime(latest_setups["timestamp"].max()).tz_localize(None)
+                            setup_mode = "fill_match"
+                            carry_setup_delta_min = float((last_closed_ts - active_setup_ts).total_seconds() / 60.0)
+                        else:
+                            latest_setups = latest_setups.iloc[0:0].copy()
+                    else:
+                        latest_setups = latest_setups.iloc[0:0].copy()
+
+                if not carry_require_fill and latest_setups.empty and not carry_candidates.empty:
+                    active_setup_ts = pd.to_datetime(carry_candidates["timestamp"].max()).tz_localize(None)
+                    latest_setups = carry_candidates[carry_candidates["timestamp"] == active_setup_ts].copy()
+                    setup_mode = "carry_forward"
+                    carry_setup_delta_min = float((last_closed_ts - active_setup_ts).total_seconds() / 60.0)
+
+                try:
+                    deltas = (setup_df["timestamp"] - last_closed_ts).abs()
+                    if len(deltas) > 0:
+                        near_pos = int(deltas.values.argmin())
+                        nearest_setup_ts = pd.to_datetime(setup_df.iloc[near_pos]["timestamp"]).tz_localize(None)
+                        nearest_setup_delta_min = float(deltas.iloc[near_pos].total_seconds() / 60.0)
+                except Exception:
+                    nearest_setup_ts = None
+                    nearest_setup_delta_min = None
+
                 if latest_setups.empty:
                     symbol_status = "skip"
                     symbol_reason = "no_latest_setup"
                     continue
+
+                if setup_mode == "none":
+                    setup_mode = "latest"
+                    active_setup_ts = last_closed_ts
 
                 latest_setups["symbol"] = symbol
                 latest_setups = latest_setups.reset_index(drop=True)
@@ -431,6 +626,9 @@ class SniperScanner:
                     f"{symbol}|{int(pd.Timestamp(ts).value)}|{signal_ord}"
                     for signal_ord, ts in enumerate(latest_setups["timestamp"])
                 ]
+                # Decision timestamp is the bar when scanner acts; setup timestamp may be older in carry-forward mode.
+                latest_setups["__decision_ts"] = last_closed_ts
+                latest_setups["__setup_mode"] = setup_mode
                 latest_setups["__scan_symbol"] = symbol
                 latest_setups["__scan_idx"] = idx
                 latest_setups["__live_price"] = live_price
@@ -439,6 +637,7 @@ class SniperScanner:
                     candidate_frames.append(latest_setups)
                     symbol_status = "pending_batch"
                     symbol_reason = "candidate_ready"
+                    candidate_count = int(len(latest_setups))
                 else:
                     selection_frame = _prepare_research_selection_features(latest_setups)
                     feature_frame = selection_frame.reindex(columns=self.features, fill_value=0.0)
@@ -449,6 +648,8 @@ class SniperScanner:
                         if confidence < self.threshold:
                             continue
 
+                        signal_ts = pd.to_datetime(row.get("__decision_ts", row["timestamp"]))
+                        setup_ts = pd.to_datetime(row["timestamp"])
                         side = int(row.get("side", 1))
                         trade_type = "LONG" if side == 1 else "SHORT"
 
@@ -464,7 +665,7 @@ class SniperScanner:
                             {
                                 "symbol": symbol,
                                 "type": trade_type,
-                                "timestamp": pd.to_datetime(row["timestamp"]),
+                                "timestamp": signal_ts,
                                 "confidence": confidence,
                                 "status": "SNIPER_AUTO038",
                                 "signal_price": float(entry_p),
@@ -480,6 +681,9 @@ class SniperScanner:
                                     "selector_artifact": str(self.selector_artifact_path),
                                     "selector_threshold": float(self.threshold),
                                     "side": int(side),
+                                    "setup_timestamp": self._format_ts(setup_ts),
+                                    "decision_timestamp": self._format_ts(signal_ts),
+                                    "setup_mode": setup_mode,
                                 },
                             }
                         )
@@ -500,26 +704,52 @@ class SniperScanner:
                 else:
                     print(f"[SniperScanner] Error scanning {symbol} in auto038 mode: {e}")
             finally:
-                if symbol_status == "pending_batch" and batch_predict:
-                    pending_symbol_records[i + 1] = {
-                        "idx": i + 1,
-                        "total": total_symbols,
-                        "symbol": symbol,
-                        "status": symbol_status,
-                        "reason": symbol_reason,
-                        "signals": 0,
-                        "start_ts": symbol_start,
-                    }
-                else:
+                rec = pending_symbol_records.get(idx)
+                if rec is not None:
+                    rec["status"] = symbol_status
+                    rec["reason"] = symbol_reason
+                    rec["signals"] = int(symbol_signals)
+                    rec["elapsed_s"] = f"{(time.time() - symbol_start):.3f}"
+                    rec["candidate"] = bool(candidate_count > 0)
+                    rec["candidate_count"] = int(candidate_count)
+                    rec["scan_open_ts"] = self._format_ts(scan_open_ts)
+                    rec["last_closed_ts"] = self._format_ts(last_closed_ts)
+                    rec["setup_total"] = int(setup_total)
+                    rec["latest_setup_count"] = int(latest_setup_count)
+                    rec["latest_long_count"] = int(latest_long_count)
+                    rec["latest_short_count"] = int(latest_short_count)
+                    rec["nearest_setup_ts"] = self._format_ts(nearest_setup_ts)
+                    rec["nearest_setup_delta_min"] = (
+                        f"{float(nearest_setup_delta_min):.3f}" if nearest_setup_delta_min is not None else ""
+                    )
+                    rec["active_setup_ts"] = self._format_ts(active_setup_ts)
+                    rec["setup_mode"] = str(setup_mode)
+                    rec["carry_setup_delta_min"] = (
+                        f"{float(carry_setup_delta_min):.3f}" if carry_setup_delta_min is not None else ""
+                    )
+
+                if not batch_predict and rec is not None:
                     self._log_scan_event(
                         "symbol_done",
-                        idx=i + 1,
-                        total=total_symbols,
-                        symbol=symbol,
-                        status=symbol_status,
-                        reason=symbol_reason,
-                        signals=symbol_signals,
-                        elapsed_s=f"{(time.time() - symbol_start):.3f}",
+                        idx=rec.get("idx"),
+                        total=rec.get("total"),
+                        symbol=rec.get("symbol"),
+                        status=rec.get("status"),
+                        reason=rec.get("reason"),
+                        signals=rec.get("signals", 0),
+                        elapsed_s=rec.get("elapsed_s", ""),
+                        scan_open_ts=rec.get("scan_open_ts", ""),
+                        last_closed_ts=rec.get("last_closed_ts", ""),
+                        setup_total=rec.get("setup_total", 0),
+                        latest_setup_count=rec.get("latest_setup_count", 0),
+                        latest_long_count=rec.get("latest_long_count", 0),
+                        latest_short_count=rec.get("latest_short_count", 0),
+                        nearest_setup_ts=rec.get("nearest_setup_ts", ""),
+                        nearest_setup_delta_min=rec.get("nearest_setup_delta_min", ""),
+                        active_setup_ts=rec.get("active_setup_ts", ""),
+                        setup_mode=rec.get("setup_mode", "none"),
+                        carry_setup_delta_min=rec.get("carry_setup_delta_min", ""),
+                        threshold=f"{float(self.threshold):.6f}",
                     )
 
         if batch_predict and candidate_frames:
@@ -529,6 +759,8 @@ class SniperScanner:
 
             if prepared.empty or "signal_id" not in prepared.columns:
                 for rec in pending_symbol_records.values():
+                    if not bool(rec.get("candidate")):
+                        continue
                     rec["status"] = "skip"
                     rec["reason"] = "feature_prepare_empty"
             else:
@@ -545,6 +777,8 @@ class SniperScanner:
                     if confidence < self.threshold:
                         continue
 
+                    signal_ts = pd.to_datetime(row.get("__decision_ts", row["timestamp"]))
+                    setup_ts = pd.to_datetime(row["timestamp"])
                     side = int(row.get("side", 1))
                     trade_type = "LONG" if side == 1 else "SHORT"
 
@@ -560,7 +794,7 @@ class SniperScanner:
                         {
                             "symbol": symbol,
                             "type": trade_type,
-                            "timestamp": pd.to_datetime(row["timestamp"]),
+                            "timestamp": signal_ts,
                             "confidence": confidence,
                             "status": "SNIPER_AUTO038",
                             "signal_price": float(entry_p),
@@ -576,6 +810,9 @@ class SniperScanner:
                                 "selector_artifact": str(self.selector_artifact_path),
                                 "selector_threshold": float(self.threshold),
                                 "side": int(side),
+                                "setup_timestamp": self._format_ts(setup_ts),
+                                "decision_timestamp": self._format_ts(signal_ts),
+                                "setup_mode": str(row.get("__setup_mode", "latest")),
                             },
                         }
                     )
@@ -585,6 +822,8 @@ class SniperScanner:
                         rec["signals"] = int(rec.get("signals", 0)) + 1
 
                 for rec in pending_symbol_records.values():
+                    if not bool(rec.get("candidate")):
+                        continue
                     if int(rec.get("signals", 0)) > 0:
                         rec["status"] = "ok"
                         rec["reason"] = "signal_emitted"
@@ -604,6 +843,47 @@ class SniperScanner:
                     reason=rec.get("reason"),
                     signals=rec.get("signals", 0),
                     elapsed_s=f"{elapsed_s:.3f}",
+                    scan_open_ts=rec.get("scan_open_ts", ""),
+                    last_closed_ts=rec.get("last_closed_ts", ""),
+                    setup_total=rec.get("setup_total", 0),
+                    latest_setup_count=rec.get("latest_setup_count", 0),
+                    latest_long_count=rec.get("latest_long_count", 0),
+                    latest_short_count=rec.get("latest_short_count", 0),
+                    nearest_setup_ts=rec.get("nearest_setup_ts", ""),
+                    nearest_setup_delta_min=rec.get("nearest_setup_delta_min", ""),
+                    active_setup_ts=rec.get("active_setup_ts", ""),
+                    setup_mode=rec.get("setup_mode", "none"),
+                    carry_setup_delta_min=rec.get("carry_setup_delta_min", ""),
+                    candidate_count=rec.get("candidate_count", 0),
+                    threshold=f"{float(self.threshold):.6f}",
+                )
+
+        if batch_predict and not candidate_frames:
+            now_ts = time.time()
+            for rec in sorted(pending_symbol_records.values(), key=lambda x: int(x.get("idx", 0))):
+                elapsed_s = now_ts - float(rec.get("start_ts", now_ts))
+                self._log_scan_event(
+                    "symbol_done",
+                    idx=rec.get("idx"),
+                    total=rec.get("total"),
+                    symbol=rec.get("symbol"),
+                    status=rec.get("status"),
+                    reason=rec.get("reason"),
+                    signals=rec.get("signals", 0),
+                    elapsed_s=f"{elapsed_s:.3f}",
+                    scan_open_ts=rec.get("scan_open_ts", ""),
+                    last_closed_ts=rec.get("last_closed_ts", ""),
+                    setup_total=rec.get("setup_total", 0),
+                    latest_setup_count=rec.get("latest_setup_count", 0),
+                    latest_long_count=rec.get("latest_long_count", 0),
+                    latest_short_count=rec.get("latest_short_count", 0),
+                    nearest_setup_ts=rec.get("nearest_setup_ts", ""),
+                    nearest_setup_delta_min=rec.get("nearest_setup_delta_min", ""),
+                    active_setup_ts=rec.get("active_setup_ts", ""),
+                    setup_mode=rec.get("setup_mode", "none"),
+                    carry_setup_delta_min=rec.get("carry_setup_delta_min", ""),
+                    candidate_count=rec.get("candidate_count", 0),
+                    threshold=f"{float(self.threshold):.6f}",
                 )
 
         self._log_scan_event(
